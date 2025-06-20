@@ -7,4 +7,12 @@ edition = "2024"
 resolver = "3"
 members = ["lib-core", "lib-domain"]
 
+[workspace.dependencies]
+tokio = { version = "=1.45.1", features = ["full"] }
+
 [dependencies]
+lib-core = { path = "lib-core" }
+
+tokio = { workspace = true }
+
+dotenv = "0.15.0"

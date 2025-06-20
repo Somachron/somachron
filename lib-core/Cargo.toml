@@ -4,3 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+dotenv_codegen = "0.15.0"
+
+tokio = { workspace = true }
+
+# storage
+aws-sdk-s3 = { version = "=1.91.0", features = [
+    "rt-tokio",
+    "behavior-version-latest",
+] }
+aws-config = { version = "=1.8.0", features = ["behavior-version-latest"] }
