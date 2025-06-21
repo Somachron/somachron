@@ -1,10 +1,10 @@
 use aws_config::Region;
 use aws_sdk_s3::{
-    Client, Config,
     config::{
-        Credentials,
         endpoint::{Endpoint, EndpointFuture, Params, ResolveEndpoint},
+        Credentials,
     },
+    Client, Config,
 };
 
 use crate::config::R2Config;
@@ -18,10 +18,7 @@ struct R2Endpoint {
 impl ResolveEndpoint for R2Endpoint {
     fn resolve_endpoint<'a>(&'a self, _params: &'a Params) -> EndpointFuture<'a> {
         EndpointFuture::ready(Ok(Endpoint::builder()
-            .url(format!(
-                "https://{}.r2.cloudflarestorage.com/{}",
-                self.account_id, self.bucket_name
-            ))
+            .url(format!("https://{}.r2.cloudflarestorage.com/{}", self.account_id, self.bucket_name))
             .build()))
     }
 }
