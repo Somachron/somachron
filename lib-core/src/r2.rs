@@ -34,7 +34,9 @@ pub struct R2Storage {
 }
 
 impl R2Storage {
-    pub fn new(config: R2Config) -> Self {
+    pub fn new() -> Self {
+        let config = R2Config::new();
+
         let creds = Credentials::new(config.access_key, config.secret_key, None, None, "static");
         let endpoint_resolver = R2Endpoint {
             account_id: config.account_id,

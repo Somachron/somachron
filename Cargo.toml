@@ -10,9 +10,31 @@ members = ["lib-core", "lib-domain"]
 [workspace.dependencies]
 tokio = { version = "=1.45.1", features = ["full"] }
 
+axum = { version = "0.8.4", features = ["macros", "multipart"] }
+tracing = "0.1.40"
+
+utoipa = { version = "5.4.0", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.140"
+validator = { version = "0.20.0", features = ["derive"] }
+
+chrono = "0.4"
+
 [dependencies]
 lib-core = { path = "lib-core" }
+lib-domain = { path = "lib-domain" }
 
 tokio = { workspace = true }
+
+axum = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+serde = { workspace = true }
+
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
 
 dotenv = "0.15.0"
