@@ -19,7 +19,7 @@ validator = { workspace = true }
 utoipa = { workspace = true }
 
 backtrace = "0.3.75"
-nanoid = "0.4.0"
+nanoid = { workspace = true }
 jsonwebtoken = "9.3.0"
 chrono = { workspace = true }
 

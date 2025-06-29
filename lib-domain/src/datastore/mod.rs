@@ -1,8 +1,13 @@
 use lib_core::config;
+use nanoid::nanoid;
 use tokio_postgres::{Client, NoTls};
+
+mod statements;
+pub mod user;
 
 pub struct Datastore {
     client: Client,
+    user_stmts: statements::UserStatements,
 }
 
 impl Datastore {
@@ -20,8 +25,12 @@ impl Datastore {
             }
         });
 
+        // prepared statements
+        let user_stmts = statements::UserStatements::new(&client).await;
+
         Self {
             client,
+            user_stmts,
         }
     }
 
@@ -31,4 +40,8 @@ impl Datastore {
 
         sqlx::migrate!("./migrations").run(&db).await.expect("Failed to run migrations");
     }
+}
+
+fn create_id() -> String {
+    nanoid!(8)
 }

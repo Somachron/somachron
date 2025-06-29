@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use jsonwebtoken::{jwk::JwkSet, DecodingKey};
+use jsonwebtoken::{decode, decode_header, jwk::JwkSet, DecodingKey, Validation};
 use reqwest::StatusCode;
 use serde::Deserialize;
 
@@ -9,18 +9,42 @@ use crate::{config::GoogleConfig, AppError, AppResult, ErrType};
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const CERTS_URL: &str = "https://www.googleapis.com/oauth2/v3/certs";
 
+#[derive(Deserialize)]
+pub struct AuthCode {
+    pub access_token: String,
+    pub expires_in: u16,
+    pub id_token: String,
+    pub refresh_token: String,
+}
+
+#[derive(Deserialize)]
+pub struct TokenClaims {
+    pub email: String,
+    pub given_name: String,
+    pub picture: String,
+}
+
 pub struct GoogleAuth {
     config: GoogleConfig,
     client: reqwest::Client,
     decoding_keys: BTreeMap<String, DecodingKey>,
+    validation: Validation,
 }
 
 impl GoogleAuth {
     pub async fn new() -> Self {
+        let config = GoogleConfig::new();
+
+        let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
+        validation.set_audience(&[config.client_id]);
+        validation.validate_exp = true;
+        validation.validate_nbf = true;
+
         Self {
-            config: GoogleConfig::new(),
+            config,
             client: reqwest::Client::new(),
             decoding_keys: Self::get_keys().await,
+            validation,
         }
     }
 
@@ -66,12 +90,16 @@ impl GoogleAuth {
             _ => Err(AppError::new(ErrType::BadRequest, res.text().await.unwrap_or_default())),
         }
     }
-}
 
-#[derive(Deserialize)]
-pub struct AuthCode {
-    pub access_token: String,
-    pub expires_in: u16,
-    pub id_token: String,
-    pub refresh_token: String,
+    pub async fn validate_token_for_claims(&self, token: &str) -> AppResult<TokenClaims> {
+        let header =
+            decode_header(token).map_err(|err| AppError::err(ErrType::Unauthorized, err, "Failed to parse header"))?;
+        let kid = header.kid.ok_or(AppError::new(ErrType::Unauthorized, "Missing kid"))?;
+
+        let decoding_key = self.decoding_keys.get(&kid).ok_or(AppError::new(ErrType::Unauthorized, "Invalid kid"))?;
+
+        decode::<TokenClaims>(token, decoding_key, &self.validation)
+            .map(|data| data.claims)
+            .map_err(|err| AppError::err(ErrType::Unauthorized, err, "Invalid JWT"))
+    }
 }

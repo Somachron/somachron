@@ -3,7 +3,7 @@ use axum::{
     routing::{post, Router},
     Extension,
 };
-use lib_core::{interceptor::ReqId, ApiResponse, Json};
+use lib_core::{interceptor::ReqId, ApiError, ApiResult, Json};
 use lib_domain::dto::auth::{req::ExchangeCodeRequest, res::_AuthTokenResponse};
 
 use crate::app::AppState;
@@ -15,8 +15,8 @@ pub fn bind_routes(router: Router<AppState>) -> Router<AppState> {
 }
 
 #[utoipa::path(
-    get,
-    path = "/api/v1/auth/exchange_code",
+    post,
+    path = "/v1/auth/exchange-code",
     responses((status=200, description="")),
     tag = "Auth"
 )]
@@ -24,11 +24,12 @@ pub async fn exchange_code(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Json(body): Json<ExchangeCodeRequest>,
-) -> ApiResponse<_AuthTokenResponse> {
-    let auth_code = match app.auth().exchange_code(body.code).await {
-        Ok(code) => code,
-        Err(err) => return ApiResponse::Err(err, req_id),
-    };
+) -> ApiResult<_AuthTokenResponse> {
+    let auth_code = app.auth().exchange_code(body.code).await.map_err(|err| ApiError(err, req_id.clone()))?;
+    let claims =
+        app.auth().validate_token_for_claims(&auth_code.id_token).await.map_err(|err| ApiError(err, req_id.clone()))?;
 
-    ApiResponse::map(app.service().exchange_code_routine(auth_code).await, req_id)
+    app.service().exchange_code_routine(claims).await.map_err(|err| ApiError(err, req_id.clone()))?;
+
+    Ok(Json(_AuthTokenResponse(auth_code)))
 }

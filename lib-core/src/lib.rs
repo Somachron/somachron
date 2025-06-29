@@ -10,7 +10,6 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use validator::Validate;
 
-pub mod auth;
 pub mod config;
 pub mod google;
 pub mod interceptor;
@@ -54,9 +53,9 @@ where
     T: Validate,
     S: Send + Sync,
 {
-    type Rejection = ApiResponse<()>;
+    type Rejection = ApiError;
 
-    async fn from_request(req: Request, state: &S) -> Result<Self, ApiResponse<()>> {
+    async fn from_request(req: Request, state: &S) -> Result<Self, ApiError> {
         let req_id: ReqId = {
             let req = &req;
             let id: &ReqId = req.extensions().get().unwrap();
@@ -65,12 +64,12 @@ where
 
         let axum::Json(payload) = axum::Json::<T>::from_request(req, state).await.map_err(|e| {
             let err_msg = e.body_text();
-            ApiResponse::Err(AppError::err(ErrType::InvalidBody, e, err_msg), req_id.clone())
+            ApiError(AppError::err(ErrType::InvalidBody, e, err_msg), req_id.clone())
         })?;
 
         payload.validate().map_err(|e| {
             let err_msg = format!("Bad Payload: {}", e);
-            ApiResponse::Err(AppError::err(ErrType::InvalidBody, e, err_msg), req_id.clone())
+            ApiError(AppError::err(ErrType::InvalidBody, e, err_msg), req_id.clone())
         })?;
 
         Ok(Json(payload))
@@ -136,7 +135,7 @@ impl AppError {
         let mut file_addr = String::from("");
 
         let bt = backtrace::Backtrace::new_unresolved();
-        let frame = match bt.frames().get(3) {
+        let frame = match bt.frames().get(7) {
             Some(frame) => frame,
             _ => return "".into(),
         };
@@ -153,79 +152,54 @@ impl AppError {
         });
         file_addr
     }
-
-    pub fn get_messages(self) -> (String, String, String) {
-        (self.message, self.err_msg, self.at)
-    }
 }
 
 pub type AppResult<T> = Result<T, AppError>;
+pub struct ApiError(pub AppError, pub ReqId);
+pub type ApiResult<T> = axum::response::Result<Json<T>, ApiError>;
 
-pub enum ApiResponse<T> {
-    Ok(T),
-    Err(AppError, ReqId),
-}
-
-impl<T> ApiResponse<T>
-where
-    T: Serialize,
-{
-    pub fn map(res: AppResult<T>, req_id: ReqId) -> Self {
-        match res {
-            Ok(ok) => ApiResponse::Ok(ok),
-            Err(err) => ApiResponse::Err(err, req_id),
-        }
-    }
-}
-
-impl<T> IntoResponse for ApiResponse<T>
-where
-    T: Serialize,
-    axum::Json<T>: IntoResponse,
-{
+impl IntoResponse for ApiError {
     /// Function to map errors into appropriate responses
     fn into_response(self) -> Response {
-        match self {
-            ApiResponse::Ok(json) => Json(json).into_response(),
-            ApiResponse::Err(err, req_id) => {
-                let id: &str = req_id.as_ref();
-                let _type = err._type;
-                let err_msg = err.err_msg;
-                let message = format!("[{}]: {}", _type, err.message);
-                let at = err.at;
+        let err = self.0;
+        let req_id = self.1;
 
-                let status = match _type {
-                    ErrType::InvalidBody => StatusCode::BAD_REQUEST,
-                    ErrType::Unauthorized => StatusCode::UNAUTHORIZED,
-                    ErrType::BadRequest => StatusCode::BAD_REQUEST,
-                    ErrType::NotFound => StatusCode::NOT_FOUND,
-                    ErrType::ServerError => StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrType::DbError => StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrType::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
-                };
+        let id: &str = req_id.as_ref();
+        let _type = err._type;
+        let err_msg = err.err_msg;
+        let message = format!("[{}]: {}", _type, err.message);
+        let at = err.at;
 
-                match status {
-                    StatusCode::INTERNAL_SERVER_ERROR | StatusCode::FAILED_DEPENDENCY => {
-                        tracing::error!(req_id = id, message = message, at = at, err = err_msg)
-                    }
-                    _ => tracing::warn!(req_id = id, message = message, at = at, err = err_msg),
-                };
+        let status = match _type {
+            ErrType::InvalidBody => StatusCode::BAD_REQUEST,
+            ErrType::Unauthorized => StatusCode::UNAUTHORIZED,
+            ErrType::BadRequest => StatusCode::BAD_REQUEST,
+            ErrType::NotFound => StatusCode::NOT_FOUND,
+            ErrType::ServerError => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrType::DbError => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrType::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
+        };
 
-                (
-                    status,
-                    Json(EmptyResponse {
-                        status: status.as_u16(),
-                        message,
-                    }),
-                )
-                    .into_response()
+        match status {
+            StatusCode::INTERNAL_SERVER_ERROR | StatusCode::FAILED_DEPENDENCY => {
+                tracing::error!(req_id = id, message = message, at = at, err = err_msg)
             }
-        }
+            _ => tracing::warn!(req_id = id, message = message, at = at, err = err_msg),
+        };
+
+        (
+            status,
+            Json(EmptyResponse {
+                status: status.as_u16(),
+                message,
+            }),
+        )
+            .into_response()
     }
 }
 
-impl From<JsonRejection> for ApiResponse<()> {
+impl From<JsonRejection> for ApiError {
     fn from(rejection: JsonRejection) -> Self {
-        ApiResponse::Err(AppError::err(ErrType::InvalidBody, rejection, "Invalid payload"), "".into())
+        Self(AppError::err(ErrType::InvalidBody, rejection, "Invalid payload"), "".into())
     }
 }
