@@ -26,7 +26,7 @@ pub async fn serve() {
 
 pub async fn get_router(app: AppState) -> Router {
     // Prepare swagger
-    let swagger = SwaggerUi::new("/swagger").url("/api-docs/openapi.json", routes::ApiDoc::openapi());
+    let swagger = SwaggerUi::new("/v1/swagger").url("/v1/api-docs/openapi.json", routes::ApiDoc::openapi());
 
     routes::bind_routes(Router::<AppState>::new())
         .merge(swagger)
