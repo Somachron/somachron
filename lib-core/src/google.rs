@@ -7,6 +7,7 @@ use serde::Deserialize;
 use crate::{config::GoogleConfig, AppError, AppResult, ErrType};
 
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+const REVOKE_TOKEN_URL: &str = "https://oauth2.googleapis.com/revoke?token=";
 const CERTS_URL: &str = "https://www.googleapis.com/oauth2/v3/certs";
 
 #[derive(Deserialize)]
@@ -14,7 +15,7 @@ pub struct AuthCode {
     pub access_token: String,
     pub expires_in: u16,
     pub id_token: String,
-    pub refresh_token: String,
+    pub refresh_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +90,46 @@ impl GoogleAuth {
                 .map_err(|err| AppError::err(ErrType::InvalidBody, err, "Failed to parse exchange code response")),
             _ => Err(AppError::new(ErrType::BadRequest, res.text().await.unwrap_or_default())),
         }
+    }
+
+    pub async fn refresh_token(&self, refresh_token: String) -> AppResult<AuthCode> {
+        let res = self
+            .client
+            .post(TOKEN_URL)
+            .header("Content-Length", 0)
+            .header("Accept", "*/*")
+            .query(&[
+                ("client_id", self.config.client_id),
+                ("client_secret", self.config.client_secret),
+                ("grant_type", "refresh_token"),
+                ("redirect_uri", self.config.redirect_uri),
+                ("refresh_token", &refresh_token),
+            ])
+            .send()
+            .await
+            .map_err(|err| AppError::err(ErrType::ServerError, err, "Failed to request exchange"))?;
+
+        match res.status() {
+            StatusCode::OK => res
+                .json::<AuthCode>()
+                .await
+                .map_err(|err| AppError::err(ErrType::InvalidBody, err, "Failed to parse exchange code response")),
+            _ => Err(AppError::new(ErrType::BadRequest, res.text().await.unwrap_or_default())),
+        }
+    }
+
+    pub async fn revoke_token(&self, token: &str) -> AppResult<()> {
+        let res = self
+            .client
+            .post(format!("{REVOKE_TOKEN_URL}{token}"))
+            .header("Content-Length", 0)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .send()
+            .await
+            .map_err(|err| AppError::err(ErrType::ServerError, err, "Failed to send revoke request"))?;
+
+        println!("{:?}", res.text().await.unwrap());
+        Ok(())
     }
 
     pub async fn validate_token_for_claims(&self, token: &str) -> AppResult<TokenClaims> {
