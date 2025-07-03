@@ -2,12 +2,14 @@ use lib_core::config;
 use nanoid::nanoid;
 use tokio_postgres::{Client, NoTls};
 
+pub mod space;
 mod statements;
 pub mod user;
 
 pub struct Datastore {
     client: Client,
     user_stmts: statements::UserStatements,
+    space_stmts: statements::SpaceStatements,
 }
 
 impl Datastore {
@@ -27,10 +29,12 @@ impl Datastore {
 
         // prepared statements
         let user_stmts = statements::UserStatements::new(&client).await;
+        let space_stmts = statements::SpaceStatements::new(&client).await;
 
         Self {
             client,
             user_stmts,
+            space_stmts,
         }
     }
 

@@ -26,7 +26,6 @@ impl From<tokio_postgres::Row> for User {
 }
 
 impl Datastore {
-    /// Get user by email
     pub async fn get_user_by_email(&self, email: &str) -> AppResult<Option<User>> {
         let rows = self
             .client
@@ -34,7 +33,7 @@ impl Datastore {
             .await
             .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to query user by email"))?;
 
-        Ok(rows.into_iter().nth(0).map(|u| User::from(u)))
+        Ok(rows.into_iter().nth(0).map(User::from))
     }
 
     pub async fn insert_user(&self, given_name: &str, email: &str, picture_url: &str) -> AppResult<User> {
