@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+lib-migrations = { path = "../lib-migrations" }
 lib-core = { path = "../lib-core" }
 
 tokio = { workspace = true }
@@ -15,7 +16,6 @@ ser_mapper = "0.2.1"
 utoipa = { workspace = true }
 
 # db
-sqlx = { version = "0.8.3", features = ["runtime-tokio", "macros", "postgres"] }
 tokio-postgres = { version = "=0.7.13", features = [
     "with-chrono-0_4",
     "with-serde_json-1",
