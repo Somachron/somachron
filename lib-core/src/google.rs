@@ -141,6 +141,6 @@ impl GoogleAuth {
 
         decode::<TokenClaims>(token, decoding_key, &self.validation)
             .map(|data| data.claims)
-            .map_err(|err| AppError::err(ErrType::Unauthorized, err, "Invalid JWT"))
+            .map_err(|err| AppError::err(ErrType::Unauthorized, err, "Invalid token"))
     }
 }

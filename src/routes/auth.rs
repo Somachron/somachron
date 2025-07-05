@@ -3,10 +3,10 @@ use axum::{
     routing::{post, Router},
     Extension,
 };
-use lib_core::{interceptor::ReqId, ApiError, ApiResult, Json};
+use lib_core::{ApiError, ApiResult, Json, ReqId};
 use lib_domain::dto::auth::{
     req::{ExchangeCodeRequest, RefreshTokenRequest},
-    res::_AuthTokenResponse,
+    res::{AuthTokenResponse, _AuthTokenResponse},
 };
 
 use crate::app::AppState;
@@ -21,7 +21,7 @@ pub fn bind_routes(router: Router<AppState>) -> Router<AppState> {
 #[utoipa::path(
     post,
     path = "/v1/auth/exchange-code",
-    responses((status=200, description="")),
+    responses((status=200, body=AuthTokenResponse)),
     tag = "Auth"
 )]
 pub async fn exchange_code(
@@ -41,7 +41,7 @@ pub async fn exchange_code(
 #[utoipa::path(
     post,
     path = "/v1/auth/refresh-token",
-    responses((status=200, description="")),
+    responses((status=200, body=AuthTokenResponse)),
     tag = "Auth"
 )]
 pub async fn refresh_token(

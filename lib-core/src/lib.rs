@@ -1,11 +1,10 @@
-use std::{error::Error, fmt::Display};
+use std::{error::Error, fmt::Display, sync::Arc};
 
 use axum::{
     extract::{rejection::JsonRejection, FromRequest, Request},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use interceptor::ReqId;
 use serde::Serialize;
 use utoipa::ToSchema;
 use validator::Validate;
@@ -14,6 +13,30 @@ pub mod config;
 pub mod google;
 pub mod interceptor;
 pub mod r2;
+
+#[repr(transparent)]
+pub struct ReqId(pub Arc<str>);
+impl Clone for ReqId {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+#[repr(transparent)]
+pub struct UserId(pub Arc<str>);
+impl Clone for UserId {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+#[repr(transparent)]
+pub struct SpaceId(pub Arc<str>);
+impl Clone for SpaceId {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 #[derive(Serialize, ToSchema)]
 pub struct EmptyResponse {
@@ -164,7 +187,7 @@ impl IntoResponse for ApiError {
         let err = self.0;
         let req_id = self.1;
 
-        let id: &str = req_id.as_ref();
+        let id: &str = &req_id.0;
         let _type = err._type;
         let err_msg = err.err_msg;
         let message = format!("[{}]: {}", _type, err.message);
@@ -200,6 +223,6 @@ impl IntoResponse for ApiError {
 
 impl From<JsonRejection> for ApiError {
     fn from(rejection: JsonRejection) -> Self {
-        Self(AppError::err(ErrType::InvalidBody, rejection, "Invalid payload"), "".into())
+        Self(AppError::err(ErrType::InvalidBody, rejection, "Invalid payload"), ReqId("".into()))
     }
 }

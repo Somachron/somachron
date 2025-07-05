@@ -28,7 +28,7 @@ pub async fn get_router(app: AppState) -> Router {
     // Prepare swagger
     let swagger = SwaggerUi::new("/v1/swagger").url("/v1/api-docs/openapi.json", routes::ApiDoc::openapi());
 
-    routes::bind_routes(Router::<AppState>::new())
+    routes::bind_routes(app.clone(), Router::<AppState>::new())
         .merge(swagger)
         .layer(axum::middleware::from_fn(lib_core::interceptor::intercept))
         .with_state(app)

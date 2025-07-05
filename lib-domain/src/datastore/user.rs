@@ -26,10 +26,20 @@ impl From<tokio_postgres::Row> for User {
 }
 
 impl Datastore {
-    pub async fn get_user_by_email(&self, email: &str) -> AppResult<Option<User>> {
+    pub async fn get_user_id(&self, email: &str) -> AppResult<String> {
+        let row = self
+            .client
+            .query_one(&self.user_stmts.get_user_id, &[&email])
+            .await
+            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to check for user"))?;
+
+        Ok(row.get(0))
+    }
+
+    pub async fn get_user_by_id(&self, id: &str) -> AppResult<Option<User>> {
         let rows = self
             .client
-            .query(&self.user_stmts.get_user_by_email, &[&email])
+            .query(&self.user_stmts.get_user_by_id, &[&id])
             .await
             .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to query user by email"))?;
 
