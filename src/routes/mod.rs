@@ -41,6 +41,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 
         auth::exchange_code,
         auth::refresh_token,
+        auth::revoke_token,
 
         user::get_user,
 
@@ -55,6 +56,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 
         lib_domain::dto::auth::req::ExchangeCodeRequest,
         lib_domain::dto::auth::req::RefreshTokenRequest,
+        lib_domain::dto::auth::req::RevokeTokenRequest,
         lib_domain::dto::auth::res::AuthTokenResponse,
 
         lib_domain::dto::user::res::UserResponse,

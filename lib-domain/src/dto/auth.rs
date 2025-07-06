@@ -34,4 +34,10 @@ pub mod req {
         #[validate(length(min = 64, max = 127))]
         pub refresh_token: String,
     }
+
+    #[derive(Deserialize, ToSchema, Validate)]
+    pub struct RevokeTokenRequest {
+        #[validate(length(min = 64, max = 127))]
+        pub token: String,
+    }
 }

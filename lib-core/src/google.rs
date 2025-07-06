@@ -128,8 +128,10 @@ impl GoogleAuth {
             .await
             .map_err(|err| AppError::err(ErrType::ServerError, err, "Failed to send revoke request"))?;
 
-        println!("{:?}", res.text().await.unwrap());
-        Ok(())
+        match res.status() {
+            StatusCode::OK => Ok(()),
+            _ => Err(AppError::new(ErrType::BadRequest, res.text().await.unwrap_or_default())),
+        }
     }
 
     pub async fn validate_token_for_claims(&self, token: &str) -> AppResult<TokenClaims> {
