@@ -1,4 +1,4 @@
-use lib_core::config;
+use lib_core::{config, extensions::UserRole};
 use nanoid::nanoid;
 use postgres_types::{FromSql, Kind, Oid, ToSql, Type};
 use serde::Serialize;
@@ -58,6 +58,17 @@ pub enum SpaceRole {
     Read,
     Upload,
     Modify,
+}
+
+impl From<SpaceRole> for UserRole {
+    fn from(value: SpaceRole) -> Self {
+        match value {
+            SpaceRole::Owner => UserRole::Owner,
+            SpaceRole::Read => UserRole::Read,
+            SpaceRole::Upload => UserRole::Upload,
+            SpaceRole::Modify => UserRole::Modify,
+        }
+    }
 }
 
 impl SpaceRole {

@@ -3,7 +3,10 @@ use axum::{
     routing::{get, post, Router},
     Extension,
 };
-use lib_core::{ApiError, ApiResult, Json, ReqId, UserId};
+use lib_core::{
+    extensions::{ReqId, UserId},
+    ApiError, ApiResult, Json,
+};
 use lib_domain::dto::space::{
     req::SpaceCreateRequest,
     res::{SpaceResponse, UserSpaceResponse, _SpaceResponse, _UserSpaceResponseVec},

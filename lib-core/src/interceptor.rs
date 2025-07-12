@@ -5,7 +5,7 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 
-use crate::ReqId;
+use super::extensions::ReqId;
 
 const REQ_ID_HEADER: &str = "x--id";
 

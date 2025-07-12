@@ -5,7 +5,10 @@ use axum::{
     response::Response,
     Extension,
 };
-use lib_core::{ApiError, AppError, AppResult, ErrType, ReqId, UserId};
+use lib_core::{
+    extensions::{ReqId, UserId},
+    ApiError, AppError, AppResult, ErrType,
+};
 
 use crate::app::AppState;
 

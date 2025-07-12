@@ -79,6 +79,9 @@ pub(super) struct UserSpaceStatements {
     /// `SELECT users.*, users_spaces.role FROM users INNER JOIN users_spaces ON users.id = users_spaces.user_id WHERE users_spaces.space_id = $1`
     pub(super) get_users_for_space: Statement,
 
+    /// `SELECT spaces.*, users_spaces.role FROM spaces INNER JOIN users_spaces ON spaces.id = users_spaces.space_id WHERE users_spaces.user_id = $1 AND users_spaces.space_id = $2`
+    pub(super) get_user_space: Statement,
+
     /// `INSERT INTO users_spaces (id, user_id, space_id, role) VALUES ($1, $2, $3, $4) RETURNING space_id`
     pub(super) add_user_to_space: Statement,
 
@@ -109,6 +112,15 @@ impl UserSpaceStatements {
                     INNER JOIN users_spaces ON users.id = users_spaces.user_id
                     WHERE users_spaces.space_id = $1",
                     &[Type::BPCHAR],
+                )
+                .await
+                .unwrap(),
+            get_user_space: client
+                .prepare_typed(
+                    "SELECT spaces.*, users_spaces.role FROM spaces
+                    INNER JOIN users_spaces ON spaces.id = users_spaces.space_id
+                    WHERE users_spaces.user_id = $1 AND users_spaces.space_id = $2",
+                    &[Type::BPCHAR, Type::BPCHAR],
                 )
                 .await
                 .unwrap(),

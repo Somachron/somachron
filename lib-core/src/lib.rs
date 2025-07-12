@@ -1,42 +1,21 @@
-use std::{error::Error, fmt::Display, sync::Arc};
+use std::{error::Error, fmt::Display};
 
 use axum::{
     extract::{rejection::JsonRejection, FromRequest, Request},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use extensions::ReqId;
 use serde::Serialize;
 use utoipa::ToSchema;
 use validator::Validate;
 
 pub mod config;
+pub mod extensions;
 pub mod google;
 pub mod interceptor;
 pub mod r2;
-
-#[repr(transparent)]
-pub struct ReqId(pub Arc<str>);
-impl Clone for ReqId {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-#[repr(transparent)]
-pub struct UserId(pub Arc<str>);
-impl Clone for UserId {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-#[repr(transparent)]
-pub struct SpaceId(pub Arc<str>);
-impl Clone for SpaceId {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
+pub mod storage;
 
 #[derive(Serialize, ToSchema)]
 pub struct EmptyResponse {
@@ -92,7 +71,7 @@ where
 
         payload.validate().map_err(|e| {
             let err_msg = format!("Bad Payload: {}", e);
-            ApiError(AppError::err(ErrType::InvalidBody, e, err_msg), req_id.clone())
+            ApiError(AppError::err(ErrType::BadRequest, e, err_msg), req_id.clone())
         })?;
 
         Ok(Json(payload))

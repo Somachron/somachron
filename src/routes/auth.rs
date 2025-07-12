@@ -4,7 +4,7 @@ use axum::{
     routing::{post, Router},
     Extension,
 };
-use lib_core::{ApiError, ApiResult, EmptyResponse, Json, ReqId};
+use lib_core::{extensions::ReqId, ApiError, ApiResult, EmptyResponse, Json};
 use lib_domain::dto::auth::{
     req::{ExchangeCodeRequest, RefreshTokenRequest, RevokeTokenRequest},
     res::{AuthTokenResponse, _AuthTokenResponse},

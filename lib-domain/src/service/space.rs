@@ -1,4 +1,4 @@
-use lib_core::{AppResult, UserId};
+use lib_core::{extensions::UserId, AppResult};
 
 use crate::{
     datastore::SpaceRole,

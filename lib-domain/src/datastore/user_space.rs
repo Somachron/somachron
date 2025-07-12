@@ -71,6 +71,16 @@ impl Datastore {
         Ok(rows.into_iter().map(UserSpace::from).collect())
     }
 
+    pub async fn get_user_space(&self, user_id: &str, space_id: &str) -> AppResult<Option<UserSpace>> {
+        let rows = self
+            .client
+            .query(&self.user_space_stmts.get_user_space, &[&user_id, &space_id])
+            .await
+            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to get spaces for users"))?;
+
+        Ok(rows.into_iter().nth(0).map(UserSpace::from))
+    }
+
     pub async fn get_users_from_space(&self, space_id: &str) -> AppResult<Vec<SpaceUser>> {
         let rows = self
             .client

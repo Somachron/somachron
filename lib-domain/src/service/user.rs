@@ -1,4 +1,4 @@
-use lib_core::{AppError, AppResult, ErrType, UserId};
+use lib_core::{extensions::UserId, AppError, AppResult, ErrType};
 
 use crate::dto::user::res::_UserResponse;
 
