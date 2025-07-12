@@ -36,7 +36,8 @@ pub async fn exchange_code(
     let claims =
         app.auth().validate_token_for_claims(&auth_code.id_token).await.map_err(|err| ApiError(err, req_id.clone()))?;
 
-    app.service().exchange_code_routine(claims).await.map_err(|err| ApiError(err, req_id.clone()))?;
+    let user_id = app.service().exchange_code_routine(claims).await.map_err(|err| ApiError(err, req_id.clone()))?;
+    app.storage().validate_user_drive(&user_id).await.map_err(|err| ApiError(err, req_id))?;
 
     Ok(Json(_AuthTokenResponse(auth_code)))
 }

@@ -14,7 +14,7 @@ pub mod config;
 pub mod extensions;
 pub mod google;
 pub mod interceptor;
-pub mod r2;
+mod r2;
 pub mod storage;
 
 #[derive(Serialize, ToSchema)]
@@ -85,6 +85,7 @@ pub enum ErrType {
     NotFound,
     ServerError,
     DbError,
+    FsError,
     InvalidBody,
     TooManyRequests,
 }
@@ -99,6 +100,7 @@ impl Display for ErrType {
                 ErrType::NotFound => "NotFound",
                 ErrType::ServerError => "ServerError",
                 ErrType::DbError => "DbError",
+                ErrType::FsError => "FileSystemError",
                 ErrType::InvalidBody => "InvalidBody",
                 ErrType::TooManyRequests => "TooManyRequests",
             }
@@ -179,6 +181,7 @@ impl IntoResponse for ApiError {
             ErrType::NotFound => StatusCode::NOT_FOUND,
             ErrType::ServerError => StatusCode::INTERNAL_SERVER_ERROR,
             ErrType::DbError => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrType::FsError => StatusCode::FAILED_DEPENDENCY,
             ErrType::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
         };
 

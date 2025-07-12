@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use lib_core::{google::GoogleAuth, r2::R2Storage};
+use lib_core::{google::GoogleAuth, storage::Storage};
 use lib_domain::service::Service;
 
 pub struct App {
     auth: GoogleAuth,
-    r2: R2Storage,
+    storage: Storage,
     service: Service,
 }
 
@@ -15,7 +15,7 @@ impl App {
     pub async fn new() -> AppState {
         let app = App {
             auth: GoogleAuth::new().await,
-            r2: R2Storage::new(),
+            storage: Storage::new().await,
             service: Service::new().await,
         };
         Arc::new(app)
@@ -25,8 +25,8 @@ impl App {
         &self.auth
     }
 
-    pub fn r2(&self) -> &R2Storage {
-        &self.r2
+    pub fn storage(&self) -> &Storage {
+        &self.storage
     }
 
     pub fn service(&self) -> &Service {

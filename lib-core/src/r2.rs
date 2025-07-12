@@ -25,7 +25,7 @@ impl ResolveEndpoint for R2Endpoint {
 
 /// Client for handling functions for R2
 /// storage providers
-pub struct R2Storage {
+pub(super) struct R2Storage {
     /// R2 client
     client: Client,
 
@@ -34,7 +34,7 @@ pub struct R2Storage {
 }
 
 impl R2Storage {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         let config = R2Config::new();
 
         let creds = Credentials::new(config.access_key, config.secret_key, None, None, "static");

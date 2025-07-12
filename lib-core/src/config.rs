@@ -9,6 +9,10 @@ pub fn get_db_url() -> &'static str {
     dotenv!("DATABASE_URL", "missing db url")
 }
 
+pub fn get_volume_path() -> &'static str {
+    dotenv!("VOLUME_PATH", "missing volume path")
+}
+
 pub(crate) struct R2Config {
     pub account_id: &'static str,
     pub bucket_name: &'static str,
