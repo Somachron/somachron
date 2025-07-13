@@ -71,6 +71,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         lib_domain::dto::space::res::UserSpaceResponse,
 
         lib_domain::dto::cloud::req::UploadSignedUrlRequest,
+        lib_domain::dto::cloud::req::UploadCompleteRequest,
         lib_domain::dto::cloud::res::UploadSignedUrlResponse,
     )),
     servers()

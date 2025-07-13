@@ -88,7 +88,14 @@ impl Storage {
     /// * download the media from R2
     /// * create and save thumbnail
     /// * extract and save exif data
-    pub async fn process_upload_skeleton_thumbnail_media(&self, user_id: &str, file_path: &str) -> AppResult<()> {
+    pub async fn process_upload_skeleton_thumbnail_media(
+        &self,
+        user_id: &str,
+        file_path: String,
+        file_size: usize,
+    ) -> AppResult<()> {
+        let file_path = self.clean_path(&file_path);
+
         // prepare media directory
         let media_path = self.root_path.join(user_id).join(file_path);
         if let Some(parent) = media_path.parent() {
@@ -105,62 +112,81 @@ impl Storage {
         let r2_path = self.root_folder.join(user_id).join(file_path);
         let r2_path = r2_path.to_str().ok_or(AppError::new(ErrType::FsError, "Failed to get str from file path"))?;
 
+        // prepare path
+        let mut thumbnail_path = self.root_path.join(user_id).join(file_path);
+        let file_stem = thumbnail_path.file_stem().and_then(|s| s.to_str()).unwrap();
+        thumbnail_path.set_file_name(format!("{file_stem}_thumbnail.{ext}"));
+
+        // process thumbnail and metadata
         let media_type = media::get_media_type(ext);
-        match media_type {
+        let metadata = match media_type {
             infer::MatcherType::Image => {
                 // download file from R2
                 let bytes = self.r2.download_photo(r2_path).await?;
-                let file_size = bytes.len();
 
                 // process image data
                 let exif_data = media::extract_exif_data(&bytes).await?;
                 let thumbnail_bytes = media::process_image_thumnail(bytes, &exif_data).await?;
 
                 // save thumbnail
-                {
-                    // prepare path
-                    let mut thumbnail_path = self.root_path.join(user_id).join(file_path);
-                    let file_stem = thumbnail_path.file_stem().and_then(|s| s.to_str()).unwrap();
-                    thumbnail_path.set_file_name(format!("{file_stem}_thumbnail.{ext}"));
+                let mut thumbnail_file = create_file(thumbnail_path).await?;
+                thumbnail_file
+                    .write_all(&thumbnail_bytes)
+                    .await
+                    .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to save thumbnail file"))?;
 
-                    // write to file
+                // return metadata
+                exif_data
+            }
+            infer::MatcherType::Video => {
+                // download initial chunk from R2
+                let bytes = self.r2.download_video(r2_path).await?;
+
+                // prepare tmp dir
+                let tmp_path = self.root_path.join(user_id).join("tmp");
+                create_dir(&tmp_path).await?;
+
+                // create tmp media file
+                let tmp_path = tmp_path.join("tmp_media");
+                let mut tmp_file = create_file(&tmp_path).await?;
+                tmp_file
+                    .write_all(&bytes)
+                    .await
+                    .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to write tmp media file"))?;
+
+                // process thumbnail
+                if let Some(thumbnail_bytes) = media::process_video_thumbnail(&tmp_path)? {
                     let mut thumbnail_file = create_file(thumbnail_path).await?;
                     thumbnail_file
                         .write_all(&thumbnail_bytes)
                         .await
-                        .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to save thumbnail file"))?;
+                        .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to write thumbnail file"))?;
                 }
 
-                // save metadata
-                {
-                    // prepare path
-                    let mut metadata_path = self.root_path.join(user_id).join(file_path);
-                    metadata_path.set_extension(format!("{ext}.json"));
-
-                    // serialize metadata to vec
-                    let metadata = media::FileMetadata {
-                        r2_path: Some(r2_path.to_string()),
-                        exif: exif_data,
-                        size: file_size,
-                    };
-                    let metadata_bytes = serde_json::to_vec(&metadata)
-                        .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to serialize metadata"))?;
-
-                    // save metadata
-                    let mut metadata_file = create_file(media_path).await?;
-                    metadata_file
-                        .write_all(&metadata_bytes)
-                        .await
-                        .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to write metadata bytes"))?
-                }
-            }
-            infer::MatcherType::Video => {
-                todo!("video impl");
-                // let bytes = self.r2.download_video(r2_path).await?;
+                // return metadata
+                media::extract_exif_data(&bytes).await?
             }
             _ => return Err(AppError::new(ErrType::FsError, format!("Invalid media extension: {ext}"))),
         };
 
-        Ok(())
+        // prepare path
+        let mut metadata_path = self.root_path.join(user_id).join(file_path);
+        metadata_path.set_extension(format!("{ext}.json"));
+
+        // serialize metadata to vec
+        let metadata = media::FileMetadata {
+            r2_path: Some(r2_path.to_string()),
+            metadata,
+            size: file_size,
+        };
+        let metadata_bytes = serde_json::to_vec(&metadata)
+            .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to serialize metadata"))?;
+
+        // save metadata
+        let mut metadata_file = create_file(media_path).await?;
+        metadata_file
+            .write_all(&metadata_bytes)
+            .await
+            .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to write metadata bytes"))
     }
 }

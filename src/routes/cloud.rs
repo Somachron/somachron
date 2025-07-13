@@ -9,7 +9,10 @@ use lib_core::{
     extensions::{ReqId, UserId},
     ApiError, ApiResult, EmptyResponse, Json,
 };
-use lib_domain::dto::cloud::{req::UploadSignedUrlRequest, res::UploadSignedUrlResponse};
+use lib_domain::dto::cloud::{
+    req::{UploadCompleteRequest, UploadSignedUrlRequest},
+    res::UploadSignedUrlResponse,
+};
 
 use crate::app::AppState;
 
@@ -57,10 +60,12 @@ pub async fn upload_completion(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(user_id): Extension<UserId>,
-    Json(body): Json<UploadSignedUrlRequest>,
+    Json(body): Json<UploadCompleteRequest>,
 ) -> ApiResult<EmptyResponse> {
     tokio::runtime::Handle::current().spawn(async move {
-        if let Err(err) = app.storage().process_upload_skeleton_thumbnail_media(&user_id.0, &body.file_path).await {
+        if let Err(err) =
+            app.storage().process_upload_skeleton_thumbnail_media(&user_id.0, body.file_path, body.file_size).await
+        {
             let _ = ApiError(err, req_id).into_response();
         }
     });

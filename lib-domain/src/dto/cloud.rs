@@ -18,4 +18,12 @@ pub mod req {
         #[validate(length(min = 3))]
         pub file_path: String,
     }
+
+    #[derive(Deserialize, ToSchema, Validate)]
+    pub struct UploadCompleteRequest {
+        #[validate(length(min = 3))]
+        pub file_path: String,
+
+        pub file_size: usize,
+    }
 }
