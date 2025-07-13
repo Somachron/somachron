@@ -6,6 +6,7 @@ use utoipa::{
 };
 
 pub mod auth;
+pub mod cloud;
 pub mod space;
 pub mod user;
 

@@ -14,6 +14,7 @@ pub mod config;
 pub mod extensions;
 pub mod google;
 pub mod interceptor;
+pub mod media;
 mod r2;
 pub mod storage;
 
