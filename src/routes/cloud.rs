@@ -41,7 +41,7 @@ pub async fn generate_upload_signed_url(
 ) -> ApiResult<UploadSignedUrlResponse> {
     let url = app
         .storage()
-        .generate_upload_signed_url(&user_id.0, &body.file_path.to_lowercase())
+        .generate_upload_signed_url(&user_id.0, &body.file_path)
         .await
         .map_err(|err| ApiError(err, req_id))?;
 

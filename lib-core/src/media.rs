@@ -95,23 +95,11 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
     }
 }
 
-pub(super) async fn process_image_thumnail(bytes: Vec<u8>, exif_data: &Option<Metadata>) -> AppResult<Vec<u8>> {
-    let kind =
-        infer::get(&bytes).ok_or(AppError::new(ErrType::FsError, "Could not detect file type from magic bytes"))?;
-
-    if kind.matcher_type() != infer::MatcherType::Image {
-        return Err(AppError::new(
-            ErrType::FsError,
-            format!("File is not an image, detected as: {} ({})", kind.mime_type(), kind.extension()),
-        ));
-    }
-
-    let format = infer_to_image_format(&kind)?;
-
-    create_thumbnail(bytes, format, exif_data)
-}
-
-fn create_thumbnail(bytes: Vec<u8>, format: image::ImageFormat, metadata: &Option<Metadata>) -> AppResult<Vec<u8>> {
+pub(super) fn create_thumbnail(
+    bytes: Vec<u8>,
+    format: image::ImageFormat,
+    metadata: &Option<Metadata>,
+) -> AppResult<Vec<u8>> {
     let img = image::load_from_memory_with_format(&bytes, format)
         .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to load image from bytes"))?;
 
@@ -164,7 +152,23 @@ fn infer_to_image_format(kind: &infer::Type) -> AppResult<image::ImageFormat> {
 }
 
 /// Extract [`ExifData`] from image bytes
-pub(super) async fn extract_exif_data(image_data: &[u8]) -> AppResult<Option<Metadata>> {
+pub(super) async fn extract_exif_data(image_data: &[u8]) -> AppResult<(Option<Metadata>, image::ImageFormat)> {
+    let kind =
+        infer::get(image_data).ok_or(AppError::new(ErrType::FsError, "Could not detect file type from magic bytes"))?;
+
+    if kind.matcher_type() != infer::MatcherType::Image {
+        return Err(AppError::new(
+            ErrType::FsError,
+            format!("File is not an image, detected as: {} ({})", kind.mime_type(), kind.extension()),
+        ));
+    }
+
+    let format = infer_to_image_format(&kind)?;
+
+    if !matches!(&format, image::ImageFormat::Jpeg | image::ImageFormat::Tiff) {
+        return Ok((None, format));
+    }
+
     let cursor = Cursor::new(image_data);
     let ms = nom_exif::AsyncMediaSource::seekable(cursor)
         .await
@@ -213,7 +217,7 @@ pub(super) async fn extract_exif_data(image_data: &[u8]) -> AppResult<Option<Met
             exif_data.set_gps_info(gps_latitude, gps_longitude);
         }
 
-        Ok(Some(exif_data))
+        Ok((Some(exif_data), format))
     } else if ms.has_track() {
         let track: nom_exif::TrackInfo =
             parser.parse(ms).await.map_err(|err| AppError::err(ErrType::FsError, err, "Error parsing track"))?;
@@ -240,9 +244,9 @@ pub(super) async fn extract_exif_data(image_data: &[u8]) -> AppResult<Option<Met
             track_data.set_gps_info(gps_latitude, gps_longitude);
         }
 
-        Ok(Some(track_data))
+        Ok((Some(track_data), format))
     } else {
-        Ok(None)
+        Ok((None, format))
     }
 }
 

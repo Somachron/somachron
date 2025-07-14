@@ -122,11 +122,11 @@ impl Storage {
         let metadata = match media_type {
             infer::MatcherType::Image => {
                 // download file from R2
-                let bytes = self.r2.download_photo(r2_path).await?;
+                let image_bytes = self.r2.download_photo(r2_path).await?;
 
                 // process image data
-                let exif_data = media::extract_exif_data(&bytes).await?;
-                let thumbnail_bytes = media::process_image_thumnail(bytes, &exif_data).await?;
+                let (exif_data, format) = media::extract_exif_data(&image_bytes).await?;
+                let thumbnail_bytes = media::create_thumbnail(image_bytes, format, &exif_data)?;
 
                 // save thumbnail
                 let mut thumbnail_file = create_file(thumbnail_path).await?;
@@ -140,7 +140,7 @@ impl Storage {
             }
             infer::MatcherType::Video => {
                 // download initial chunk from R2
-                let bytes = self.r2.download_video(r2_path).await?;
+                let video_bytes = self.r2.download_video(r2_path).await?;
 
                 // prepare tmp dir
                 let tmp_path = self.root_path.join(user_id).join("tmp");
@@ -150,7 +150,7 @@ impl Storage {
                 let tmp_path = tmp_path.join("tmp_media");
                 let mut tmp_file = create_file(&tmp_path).await?;
                 tmp_file
-                    .write_all(&bytes)
+                    .write_all(&video_bytes)
                     .await
                     .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to write tmp media file"))?;
 
@@ -164,7 +164,7 @@ impl Storage {
                 }
 
                 // return metadata
-                media::extract_exif_data(&bytes).await?
+                media::extract_exif_data(&video_bytes).await?.0
             }
             _ => return Err(AppError::new(ErrType::FsError, format!("Invalid media extension: {ext}"))),
         };
