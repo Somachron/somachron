@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use tokio::io::AsyncWriteExt;
 
-use super::{config, media, r2::R2Storage, AppError, AppResult, ErrType};
+use super::{config, media, r2::R2Storage, AppResult, ErrType};
 
 const ROOT_DATA: &str = "somachron-data";
 const SPACES_PATH: &str = "spaces";
@@ -22,15 +22,13 @@ pub struct Storage {
 }
 
 async fn create_dir(dir: impl AsRef<Path>) -> AppResult<()> {
-    tokio::fs::create_dir_all(dir.as_ref())
-        .await
-        .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to create dir"))
+    tokio::fs::create_dir_all(dir.as_ref()).await.map_err(|err| ErrType::FsError.err(err, "Failed to create dir"))
 }
 
 async fn create_file(file_path: impl AsRef<Path>) -> AppResult<tokio::fs::File> {
     tokio::fs::File::create(file_path.as_ref())
         .await
-        .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to create/truncate file"))
+        .map_err(|err| ErrType::FsError.err(err, "Failed to create/truncate file"))
 }
 
 impl Storage {
@@ -46,6 +44,10 @@ impl Storage {
             root_folder: PathBuf::from(ROOT_DATA),
             r2: R2Storage::new(),
         }
+    }
+
+    fn get_tmp_path(&self, user_id: &str) -> PathBuf {
+        self.root_path.join(user_id).join("tmp")
     }
 
     fn clean_path<'p>(&'p self, path: &'p str) -> &'p str {
@@ -64,8 +66,7 @@ impl Storage {
         let folder_path = self.clean_path(folder_path);
 
         let folder_path = self.root_folder.join(user_id).join(folder_path);
-        let folder_path =
-            folder_path.to_str().ok_or(AppError::new(ErrType::FsError, "Failed to get str from folder path"))?;
+        let folder_path = folder_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
         self.r2.create_folder(folder_path).await?;
 
         let folder_path = self.root_path.join(user_id).join(folder_path);
@@ -76,8 +77,7 @@ impl Storage {
         let file_path = self.clean_path(file_path);
 
         let file_path = self.root_folder.join(user_id).join(file_path);
-        let file_path =
-            file_path.to_str().ok_or(AppError::new(ErrType::FsError, "Failed to get str from file path"))?;
+        let file_path = file_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
 
         self.r2.generate_upload_signed_url(file_path).await
     }
@@ -106,11 +106,11 @@ impl Storage {
         let ext = media_path
             .extension()
             .and_then(|s| s.to_str())
-            .ok_or(AppError::new(ErrType::FsError, "Invalid file path without extenstion"))?;
+            .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
 
         // prepare r2 path
         let r2_path = self.root_folder.join(user_id).join(file_path);
-        let r2_path = r2_path.to_str().ok_or(AppError::new(ErrType::FsError, "Failed to get str from file path"))?;
+        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
 
         // prepare path
         let mut thumbnail_path = self.root_path.join(user_id).join(file_path);
@@ -124,16 +124,27 @@ impl Storage {
                 // download file from R2
                 let image_bytes = self.r2.download_photo(r2_path).await?;
 
+                // prepare tmp dir
+                let tmp_path = self.get_tmp_path(user_id);
+                create_dir(&tmp_path).await?;
+
+                let tmp_path = tmp_path.join("tmp_image");
+                let mut tmp_file = create_file(&tmp_path).await?;
+                tmp_file
+                    .write_all(&image_bytes)
+                    .await
+                    .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp image file"))?;
+
                 // process image data
-                let (exif_data, format) = media::extract_exif_data(&image_bytes).await?;
-                let thumbnail_bytes = media::create_thumbnail(image_bytes, format, &exif_data)?;
+                let exif_data = media::extract_exif_data(&tmp_path).await?;
+                let thumbnail_bytes = media::create_thumbnail(image_bytes, None, &exif_data)?;
 
                 // save thumbnail
                 let mut thumbnail_file = create_file(thumbnail_path).await?;
                 thumbnail_file
                     .write_all(&thumbnail_bytes)
                     .await
-                    .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to save thumbnail file"))?;
+                    .map_err(|err| ErrType::FsError.err(err, "Failed to save thumbnail file"))?;
 
                 // return metadata
                 exif_data
@@ -143,16 +154,16 @@ impl Storage {
                 let video_bytes = self.r2.download_video(r2_path).await?;
 
                 // prepare tmp dir
-                let tmp_path = self.root_path.join(user_id).join("tmp");
+                let tmp_path = self.get_tmp_path(user_id);
                 create_dir(&tmp_path).await?;
 
                 // create tmp media file
-                let tmp_path = tmp_path.join("tmp_media");
+                let tmp_path = tmp_path.join("tmp_video");
                 let mut tmp_file = create_file(&tmp_path).await?;
                 tmp_file
                     .write_all(&video_bytes)
                     .await
-                    .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to write tmp media file"))?;
+                    .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
 
                 // process thumbnail
                 if let Some(thumbnail_bytes) = media::process_video_thumbnail(&tmp_path)? {
@@ -160,13 +171,13 @@ impl Storage {
                     thumbnail_file
                         .write_all(&thumbnail_bytes)
                         .await
-                        .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to write thumbnail file"))?;
+                        .map_err(|err| ErrType::FsError.err(err, "Failed to write thumbnail file"))?;
                 }
 
                 // return metadata
-                media::extract_exif_data(&video_bytes).await?.0
+                media::extract_exif_data(&tmp_path).await?
             }
-            _ => return Err(AppError::new(ErrType::FsError, format!("Invalid media extension: {ext}"))),
+            _ => return Err(ErrType::FsError.new(format!("Invalid media extension: {ext}"))),
         };
 
         // prepare path
@@ -179,14 +190,14 @@ impl Storage {
             metadata,
             size: file_size,
         };
-        let metadata_bytes = serde_json::to_vec(&metadata)
-            .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to serialize metadata"))?;
+        let metadata_bytes =
+            serde_json::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
 
         // save metadata
         let mut metadata_file = create_file(media_path).await?;
         metadata_file
             .write_all(&metadata_bytes)
             .await
-            .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to write metadata bytes"))
+            .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))
     }
 }

@@ -7,7 +7,7 @@ use axum::{
 };
 use lib_core::{
     extensions::{ReqId, UserId},
-    ApiError, AppError, AppResult, ErrType,
+    ApiError, AppResult, ErrType,
 };
 
 use crate::app::AppState;
@@ -17,9 +17,9 @@ fn extract_bearer(headers: &HeaderMap) -> AppResult<&str> {
         .get(super::AUTHORIZATION_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .ok_or(AppError::new(ErrType::Unauthorized, "Missing authorization token"))?;
+        .ok_or(ErrType::Unauthorized.new("Missing authorization token"))?;
 
-    bearer_value.split(' ').last().ok_or(AppError::new(ErrType::Unauthorized, "Missing bearer"))
+    bearer_value.split(' ').last().ok_or(ErrType::Unauthorized.new("Missing bearer"))
 }
 
 pub async fn authenticate(
@@ -37,7 +37,7 @@ pub async fn authenticate(
         .ds()
         .get_user_id(&claims.email)
         .await
-        .map(|id| id.ok_or(ApiError(AppError::new(ErrType::Unauthorized, "User not found"), req_id.clone())))
+        .map(|id| id.ok_or(ApiError(ErrType::Unauthorized.new("User not found"), req_id.clone())))
         .map_err(|err| ApiError(err, req_id.clone()))??;
 
     let user_id = UserId(user_id.into());

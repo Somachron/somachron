@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use lib_core::{AppError, AppResult, ErrType};
+use lib_core::{AppResult, ErrType};
 
 use super::{create_id, Datastore, SpaceRole};
 
@@ -56,7 +56,7 @@ impl Datastore {
             .client
             .query_one(&self.user_space_stmts.add_user_to_space, &[&id, &user_id, &space_id, &role])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to add user to space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to add user to space"))?;
 
         Ok(row.get(0))
     }
@@ -66,7 +66,7 @@ impl Datastore {
             .client
             .query(&self.user_space_stmts.get_spaces_for_user, &[&user_id])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to get spaces for users"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get spaces for users"))?;
 
         Ok(rows.into_iter().map(UserSpace::from).collect())
     }
@@ -76,7 +76,7 @@ impl Datastore {
             .client
             .query(&self.user_space_stmts.get_user_space, &[&user_id, &space_id])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to get spaces for users"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get spaces for users"))?;
 
         Ok(rows.into_iter().nth(0).map(UserSpace::from))
     }
@@ -86,7 +86,7 @@ impl Datastore {
             .client
             .query(&self.user_space_stmts.get_users_for_space, &[&space_id])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to get users for space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get users for space"))?;
 
         Ok(rows.into_iter().map(SpaceUser::from).collect())
     }
@@ -96,7 +96,7 @@ impl Datastore {
             .client
             .query_one(&self.user_space_stmts.update_user_space_role, &[&role, &space_id, &user_id])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to update user space role"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to update user space role"))?;
 
         Ok(row.get(0))
     }
@@ -106,6 +106,6 @@ impl Datastore {
             .query(&self.user_space_stmts.remove_user_from_space, &[&space_id, &user_id])
             .await
             .map(|_| ())
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to remove user from space"))
+            .map_err(|err| ErrType::DbError.err(err, "Failed to remove user from space"))
     }
 }

@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use lib_core::{AppError, AppResult, ErrType};
+use lib_core::{AppResult, ErrType};
 
 use super::{create_id, Datastore};
 
@@ -31,7 +31,7 @@ impl Datastore {
             .client
             .query(&self.space_stmts.get_space_by_id, &[&id])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to query space by id"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query space by id"))?;
 
         Ok(rows.into_iter().nth(0).map(Space::from))
     }
@@ -42,10 +42,10 @@ impl Datastore {
             .client
             .query_one(&self.space_stmts.insert_space, &[&id, &name, &description, &""])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to insert space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to insert space"))?;
 
         if row.is_empty() {
-            return Err(AppError::new(ErrType::DbError, "Failed to get inserted space"));
+            return Err(ErrType::DbError.new("Failed to get inserted space"));
         }
 
         Ok(Space::from(row))
@@ -56,10 +56,10 @@ impl Datastore {
             .client
             .query_one(&self.space_stmts.update_space, &[&id, &name, &description])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to update space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to update space"))?;
 
         if row.is_empty() {
-            return Err(AppError::new(ErrType::DbError, "Failed to get updated space"));
+            return Err(ErrType::DbError.new("Failed to get updated space"));
         }
 
         Ok(Space::from(row))

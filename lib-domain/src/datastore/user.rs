@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use lib_core::{AppError, AppResult, ErrType};
+use lib_core::{AppResult, ErrType};
 
 use super::{create_id, Datastore};
 
@@ -31,7 +31,7 @@ impl Datastore {
             .client
             .query(&self.user_stmts.get_user_id, &[&email])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to check for user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to check for user"))?;
 
         Ok(rows.into_iter().nth(0).map(|r| r.get(0)))
     }
@@ -41,7 +41,7 @@ impl Datastore {
             .client
             .query(&self.user_stmts.get_user_by_id, &[&id])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to query user by email"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query user by email"))?;
 
         Ok(rows.into_iter().nth(0).map(User::from))
     }
@@ -52,10 +52,10 @@ impl Datastore {
             .client
             .query_one(&self.user_stmts.insert_user, &[&id, &given_name, &email, &picture_url])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to insert user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to insert user"))?;
 
         if row.is_empty() {
-            return Err(AppError::new(ErrType::DbError, "Failed to get inserted user"));
+            return Err(ErrType::DbError.new("Failed to get inserted user"));
         }
 
         Ok(User::from(row))
@@ -66,10 +66,10 @@ impl Datastore {
             .client
             .query_one(&self.user_stmts.update_user, &[&given_name, &picture_url, &id])
             .await
-            .map_err(|err| AppError::err(ErrType::DbError, err, "Failed to update user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to update user"))?;
 
         if row.is_empty() {
-            return Err(AppError::new(ErrType::DbError, "Failed to get updated user"));
+            return Err(ErrType::DbError.new("Failed to get updated user"));
         }
 
         Ok(User::from(row))

@@ -4,7 +4,7 @@ use jsonwebtoken::{decode, decode_header, jwk::JwkSet, DecodingKey, Validation};
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::{config::GoogleConfig, AppError, AppResult, ErrType};
+use crate::{config::GoogleConfig, AppResult, ErrType};
 
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const REVOKE_TOKEN_URL: &str = "https://oauth2.googleapis.com/revoke?token=";
@@ -81,14 +81,14 @@ impl GoogleAuth {
             ])
             .send()
             .await
-            .map_err(|err| AppError::err(ErrType::ServerError, err, "Failed to request exchange"))?;
+            .map_err(|err| ErrType::ServerError.err(err, "Failed to request exchange"))?;
 
         match res.status() {
             StatusCode::OK => res
                 .json::<AuthCode>()
                 .await
-                .map_err(|err| AppError::err(ErrType::InvalidBody, err, "Failed to parse exchange code response")),
-            _ => Err(AppError::new(ErrType::BadRequest, res.text().await.unwrap_or_default())),
+                .map_err(|err| ErrType::InvalidBody.err(err, "Failed to parse exchange code response")),
+            _ => Err(ErrType::BadRequest.new(res.text().await.unwrap_or_default())),
         }
     }
 
@@ -107,14 +107,14 @@ impl GoogleAuth {
             ])
             .send()
             .await
-            .map_err(|err| AppError::err(ErrType::ServerError, err, "Failed to request exchange"))?;
+            .map_err(|err| ErrType::ServerError.err(err, "Failed to request exchange"))?;
 
         match res.status() {
             StatusCode::OK => res
                 .json::<AuthCode>()
                 .await
-                .map_err(|err| AppError::err(ErrType::InvalidBody, err, "Failed to parse exchange code response")),
-            _ => Err(AppError::new(ErrType::BadRequest, res.text().await.unwrap_or_default())),
+                .map_err(|err| ErrType::InvalidBody.err(err, "Failed to parse exchange code response")),
+            _ => Err(ErrType::BadRequest.new(res.text().await.unwrap_or_default())),
         }
     }
 
@@ -126,23 +126,22 @@ impl GoogleAuth {
             .header("Content-Type", "application/x-www-form-urlencoded")
             .send()
             .await
-            .map_err(|err| AppError::err(ErrType::ServerError, err, "Failed to send revoke request"))?;
+            .map_err(|err| ErrType::ServerError.err(err, "Failed to send revoke request"))?;
 
         match res.status() {
             StatusCode::OK => Ok(()),
-            _ => Err(AppError::new(ErrType::BadRequest, res.text().await.unwrap_or_default())),
+            _ => Err(ErrType::BadRequest.new(res.text().await.unwrap_or_default())),
         }
     }
 
     pub async fn validate_token_for_claims(&self, token: &str) -> AppResult<TokenClaims> {
-        let header =
-            decode_header(token).map_err(|err| AppError::err(ErrType::Unauthorized, err, "Failed to parse header"))?;
-        let kid = header.kid.ok_or(AppError::new(ErrType::Unauthorized, "Missing kid"))?;
+        let header = decode_header(token).map_err(|err| ErrType::Unauthorized.err(err, "Failed to parse header"))?;
+        let kid = header.kid.ok_or(ErrType::Unauthorized.new("Missing kid"))?;
 
-        let decoding_key = self.decoding_keys.get(&kid).ok_or(AppError::new(ErrType::Unauthorized, "Invalid kid"))?;
+        let decoding_key = self.decoding_keys.get(&kid).ok_or(ErrType::Unauthorized.new("Invalid kid"))?;
 
         decode::<TokenClaims>(token, decoding_key, &self.validation)
             .map(|data| data.claims)
-            .map_err(|err| AppError::err(ErrType::Unauthorized, err, "Invalid token"))
+            .map_err(|err| ErrType::Unauthorized.err(err, "Invalid token"))
     }
 }

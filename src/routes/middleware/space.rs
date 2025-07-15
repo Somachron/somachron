@@ -7,7 +7,7 @@ use axum::{
 };
 use lib_core::{
     extensions::{ReqId, SpaceCtx, UserId},
-    ApiError, AppError, ErrType,
+    ApiError, ErrType,
 };
 
 use crate::app::AppState;
@@ -24,7 +24,7 @@ pub async fn validate_user_space(
         .get(super::X_SPACE_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .ok_or(ApiError(AppError::new(ErrType::BadRequest, "Missing space ID"), req_id.clone()))?;
+        .ok_or(ApiError(ErrType::BadRequest.new("Missing space ID"), req_id.clone()))?;
 
     let user_space = app
         .service()
@@ -32,7 +32,7 @@ pub async fn validate_user_space(
         .get_user_space(&user_id.0, space_id)
         .await
         .map_err(|err| ApiError(err, req_id.clone()))?
-        .ok_or(ApiError(AppError::new(ErrType::Unauthorized, "User not member of space"), req_id))?;
+        .ok_or(ApiError(ErrType::Unauthorized.new("User not member of space"), req_id))?;
 
     let space_ctx = SpaceCtx {
         id: user_space.id.into(),

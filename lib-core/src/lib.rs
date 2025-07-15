@@ -1,5 +1,10 @@
 use std::{error::Error, fmt::Display};
 
+use aws_sdk_s3::{
+    config::http::HttpResponse,
+    error::SdkError,
+    operation::{get_object::GetObjectError, put_object::PutObjectError},
+};
 use axum::{
     extract::{rejection::JsonRejection, FromRequest, Request},
     http::StatusCode,
@@ -67,12 +72,12 @@ where
 
         let axum::Json(payload) = axum::Json::<T>::from_request(req, state).await.map_err(|e| {
             let err_msg = e.body_text();
-            ApiError(AppError::err(ErrType::InvalidBody, e, err_msg), req_id.clone())
+            ApiError(ErrType::InvalidBody.err(e, err_msg), req_id.clone())
         })?;
 
         payload.validate().map_err(|e| {
             let err_msg = format!("Bad Payload: {}", e);
-            ApiError(AppError::err(ErrType::BadRequest, e, err_msg), req_id.clone())
+            ApiError(ErrType::BadRequest.err(e, err_msg), req_id.clone())
         })?;
 
         Ok(Json(payload))
@@ -85,10 +90,50 @@ pub enum ErrType {
     BadRequest,
     NotFound,
     ServerError,
-    DbError,
-    FsError,
     InvalidBody,
     TooManyRequests,
+
+    DbError,
+    FsError,
+    R2Error,
+    MediaError,
+}
+impl ErrType {
+    pub fn r2_put(err: SdkError<PutObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
+        AppError::init(
+            ErrType::R2Error,
+            match err.into_service_error() {
+                PutObjectError::EncryptionTypeMismatch(encryption_type_mismatch) => {
+                    Some(encryption_type_mismatch.into())
+                }
+                PutObjectError::InvalidRequest(invalid_request) => Some(invalid_request.into()),
+                PutObjectError::InvalidWriteOffset(invalid_write_offset) => Some(invalid_write_offset.into()),
+                PutObjectError::TooManyParts(too_many_parts) => Some(too_many_parts.into()),
+                err => Some(err.into()),
+            },
+            message,
+        )
+    }
+
+    pub fn r2_get(err: SdkError<GetObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
+        AppError::init(
+            ErrType::R2Error,
+            match err.into_service_error() {
+                GetObjectError::InvalidObjectState(invalid_object_state) => Some(invalid_object_state.into()),
+                GetObjectError::NoSuchKey(no_such_key) => Some(no_such_key.into()),
+                err => Some(err.into()),
+            },
+            message,
+        )
+    }
+
+    pub fn new(self, message: impl Into<String>) -> AppError {
+        AppError::init(self, None, message)
+    }
+
+    pub fn err(self, err: impl Into<Box<dyn Error>>, message: impl Into<String>) -> AppError {
+        AppError::init(self, Some(err.into()), message)
+    }
 }
 impl Display for ErrType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -100,10 +145,13 @@ impl Display for ErrType {
                 ErrType::BadRequest => "BadRequest",
                 ErrType::NotFound => "NotFound",
                 ErrType::ServerError => "ServerError",
-                ErrType::DbError => "DbError",
-                ErrType::FsError => "FileSystemError",
                 ErrType::InvalidBody => "InvalidBody",
                 ErrType::TooManyRequests => "TooManyRequests",
+
+                ErrType::DbError => "DbError",
+                ErrType::FsError => "FileSystemError",
+                ErrType::R2Error => "R2Error",
+                ErrType::MediaError => "MediaError",
             }
         )
     }
@@ -111,21 +159,13 @@ impl Display for ErrType {
 
 #[derive(Debug)]
 pub struct AppError {
-    pub _type: ErrType,
+    _type: ErrType,
     message: String,
     at: String,
     err_msg: String,
 }
 
 impl AppError {
-    pub fn new(_type: ErrType, message: impl Into<String>) -> Self {
-        AppError::init(_type, None, message)
-    }
-
-    pub fn err(_type: ErrType, err: impl Into<Box<dyn Error>>, message: impl Into<String>) -> Self {
-        AppError::init(_type, Some(err.into()), message)
-    }
-
     fn init(_type: ErrType, err: Option<Box<dyn Error>>, message: impl Into<String>) -> Self {
         let at = AppError::caller();
         AppError {
@@ -181,9 +221,12 @@ impl IntoResponse for ApiError {
             ErrType::BadRequest => StatusCode::BAD_REQUEST,
             ErrType::NotFound => StatusCode::NOT_FOUND,
             ErrType::ServerError => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrType::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
+
             ErrType::DbError => StatusCode::INTERNAL_SERVER_ERROR,
             ErrType::FsError => StatusCode::FAILED_DEPENDENCY,
-            ErrType::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
+            ErrType::R2Error => StatusCode::FAILED_DEPENDENCY,
+            ErrType::MediaError => StatusCode::UNPROCESSABLE_ENTITY,
         };
 
         match status {
@@ -206,6 +249,6 @@ impl IntoResponse for ApiError {
 
 impl From<JsonRejection> for ApiError {
     fn from(rejection: JsonRejection) -> Self {
-        Self(AppError::err(ErrType::InvalidBody, rejection, "Invalid payload"), ReqId("".into()))
+        Self(ErrType::InvalidBody.err(rejection, "Invalid payload"), ReqId("".into()))
     }
 }
