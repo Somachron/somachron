@@ -136,7 +136,7 @@ impl Storage {
                     .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp image file"))?;
 
                 // process image data
-                let exif_data = media::extract_exif_data(&tmp_path).await?;
+                let exif_data = media::extract_metadata(&tmp_path).await?;
                 let thumbnail_bytes = media::create_thumbnail(image_bytes, None, &exif_data)?;
 
                 // save thumbnail
@@ -175,7 +175,7 @@ impl Storage {
                 }
 
                 // return metadata
-                media::extract_exif_data(&tmp_path).await?
+                media::extract_metadata(&tmp_path).await?
             }
             _ => return Err(ErrType::FsError.new(format!("Invalid media extension: {ext}"))),
         };

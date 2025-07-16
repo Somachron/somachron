@@ -9,10 +9,7 @@ use crate::{AppResult, ErrType};
 #[derive(Serialize, Deserialize)]
 pub enum Metadata {
     ExifData {
-        #[serde(rename = "Make")]
         camera_make: Option<String>,
-
-        #[serde(rename = "Model")]
         camera_model: Option<String>,
         date_time: Option<DateTime<FixedOffset>>,
         orientation: Option<u32>,
@@ -25,13 +22,8 @@ pub enum Metadata {
         lens_make: Option<String>,
         lens_model: Option<String>,
         software: Option<String>,
-
-        #[serde(rename = "ImageWidth")]
         image_width: Option<u32>,
-
-        #[serde(rename = "ImageHeight")]
         image_height: Option<u32>,
-
         color_space: Option<String>,
         custom_fields: HashMap<String, String>,
         gps_latitude: Option<f64>,
@@ -48,6 +40,7 @@ pub enum Metadata {
         gps_latitude: Option<f64>,
         gps_longitude: Option<f64>,
     },
+    Generic(serde_json::Value),
 }
 impl Metadata {
     pub fn set_gps_info(&mut self, latitude: Option<f64>, longitude: Option<f64>) {
@@ -68,6 +61,7 @@ impl Metadata {
                 *gps_latitude = latitude;
                 *gps_longitude = longitude;
             }
+            Metadata::Generic(_) => {}
         }
     }
 }
@@ -75,10 +69,12 @@ impl Metadata {
 #[derive(Serialize, Deserialize)]
 pub struct FileMetadata {
     pub r2_path: Option<String>,
-    pub metadata: Option<Metadata>,
+    pub metadata: Metadata,
     pub size: usize,
 }
 
+/// Get media type [`infer::MatcherType::Image`] or [`infer::MatcherType::Video`]
+/// based on `ext` extension
 pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
     match ext {
         // images
@@ -106,7 +102,7 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 pub(super) fn create_thumbnail(
     bytes: Vec<u8>,
     format: Option<image::ImageFormat>,
-    metadata: &Option<Metadata>,
+    metadata: &Metadata,
 ) -> AppResult<Vec<u8>> {
     let format = match format {
         Some(f) => f,
@@ -125,24 +121,26 @@ pub(super) fn create_thumbnail(
         }
     };
 
+    let orientation = match metadata {
+        Metadata::ExifData {
+            orientation,
+            ..
+        } => orientation,
+        _ => &None,
+    };
+
     let img = image::load_from_memory_with_format(&bytes, format)
         .map_err(|err| ErrType::FsError.err(err, "Failed to load image from bytes"))?;
 
-    let img = match metadata {
-        Some(Metadata::ExifData {
-            orientation,
-            ..
-        }) => match orientation {
-            Some(2) => img.fliph(),
-            Some(3) => img.rotate180(),
-            Some(4) => img.flipv(),
-            Some(5) => img.rotate90().fliph(),
-            Some(6) => img.rotate90(),
-            Some(7) => img.rotate270().fliph(),
-            Some(8) => img.rotate270(),
-            _ => img, // No rotation needed for 1 or unknown
-        },
-        _ => img,
+    let img = match orientation {
+        Some(2) => img.fliph(),
+        Some(3) => img.rotate180(),
+        Some(4) => img.flipv(),
+        Some(5) => img.rotate90().fliph(),
+        Some(6) => img.rotate90(),
+        Some(7) => img.rotate270().fliph(),
+        Some(8) => img.rotate270(),
+        _ => img, // No rotation needed for 1 or unknown
     };
 
     let thumbnail = img.thumbnail(100, 100);
@@ -175,124 +173,6 @@ fn infer_to_image_format(kind: &infer::Type) -> AppResult<image::ImageFormat> {
         mime => Err(ErrType::MediaError.new(format!("{} ({})", mime, kind.extension()))),
     }
 }
-
-pub(super) async fn extract_exif_data(tmp_image_path: impl AsRef<Path>) -> AppResult<Option<Metadata>> {
-    let mut tool = exiftool::ExifTool::new().map_err(|err| ErrType::MediaError.err(err, "Failed to init exif tool"))?;
-
-    let _result = tool
-        .json(tmp_image_path.as_ref(), &[])
-        .map_err(|err| ErrType::MediaError.err(err, "Failed to extract exif data"))?;
-
-    Ok(None)
-}
-
-/// Extract [`ExifData`] from image byte
-// pub(super) async fn extract_exif_data(image_data: &[u8]) -> AppResult<(Option<Metadata>, image::ImageFormat)> {
-//     let kind = infer::get(image_data).ok_or(ErrType::FsError.new("Could not detect file type from magic bytes"))?;
-//
-//     if kind.matcher_type() != infer::MatcherType::Image {
-//         return Err(ErrType::FsError.new(format!(
-//             "File is not an image, detected as: {} ({})",
-//             kind.mime_type(),
-//             kind.extension()
-//         )));
-//     }
-//
-//     let format = infer_to_image_format(&kind)?;
-//
-//     if !matches!(&format, image::ImageFormat::Jpeg | image::ImageFormat::Tiff) {
-//         return Ok((None, format));
-//     }
-//
-//     let cursor = Cursor::new(image_data);
-//     let ms = nom_exif::AsyncMediaSource::seekable(cursor)
-//         .await
-//         .map_err(|err| AppError::err(ErrType::FsError, err, "Failed to create seekable source"))?;
-//     let mut parser = nom_exif::AsyncMediaParser::new();
-//
-//     if ms.has_exif() {
-//         let iter: nom_exif::ExifIter =
-//             parser.parse(ms).await.map_err(|err| AppError::err(ErrType::FsError, err, "Error parsing exif"))?;
-//
-//         let exif: nom_exif::Exif = iter.into();
-//
-//         let mut exif_data = Metadata::ExifData {
-//             camera_make: exif.get(nom_exif::ExifTag::Make).and_then(|make| make.as_str()).map(|s| s.to_string()),
-//             camera_model: exif.get(nom_exif::ExifTag::Model).and_then(|model| model.as_str()).map(|s| s.to_string()),
-//             date_time: exif.get(nom_exif::ExifTag::DateTimeOriginal).and_then(|dt| dt.as_time()),
-//             orientation: exif.get(nom_exif::ExifTag::Orientation).and_then(|o| o.as_u32()),
-//             focal_length: exif
-//                 .get(nom_exif::ExifTag::FocalLength)
-//                 .and_then(|fl| fl.as_irational())
-//                 .map(|f| f.as_float()),
-//             aperture: exif.get(nom_exif::ExifTag::FNumber).and_then(|ap| ap.as_irational()).map(|f| f.as_float()),
-//             iso: exif.get(nom_exif::ExifTag::ISOSpeedRatings).and_then(|iso| iso.as_u32()),
-//             exposure_time: exif.get(nom_exif::ExifTag::ExposureTime).and_then(|et| et.as_str()).map(|s| s.to_string()),
-//             flash: exif.get(nom_exif::ExifTag::Flash).and_then(|fl| fl.as_u32()).map(|v| v != 0),
-//             white_balance: exif
-//                 .get(nom_exif::ExifTag::WhiteBalanceMode)
-//                 .and_then(|wb| wb.as_str())
-//                 .map(|s| s.to_string()),
-//             lens_make: exif.get(nom_exif::ExifTag::LensMake).and_then(|lm| lm.as_str()).map(|s| s.to_string()),
-//             lens_model: exif.get(nom_exif::ExifTag::LensModel).and_then(|lm| lm.as_str()).map(|s| s.to_string()),
-//             software: exif.get(nom_exif::ExifTag::Software).and_then(|sw| sw.as_str()).map(|s| s.to_string()),
-//             image_width: exif.get(nom_exif::ExifTag::ImageWidth).and_then(|v| v.as_u32()),
-//             image_height: exif.get(nom_exif::ExifTag::ImageHeight).and_then(|v| v.as_u32()),
-//             color_space: exif.get(nom_exif::ExifTag::ColorSpace).and_then(|cs| cs.as_str()).map(|s| s.to_string()),
-//             custom_fields: HashMap::new(),
-//             gps_latitude: None,
-//             gps_longitude: None,
-//         };
-//
-//         // Handle GPS data using the built-in GPS parsing
-//         if let Ok(Some(gps_info)) = exif.get_gps_info() {
-//             // Convert GPS coordinates from degrees/minutes/seconds to decimal
-//             let gps_latitude = Some(dms_to_decimal(&gps_info.latitude, gps_info.latitude_ref));
-//             let gps_longitude = Some(dms_to_decimal(&gps_info.longitude, gps_info.longitude_ref));
-//             exif_data.set_gps_info(gps_latitude, gps_longitude);
-//         }
-//
-//         Ok((Some(exif_data), format))
-//     } else if ms.has_track() {
-//         let track: nom_exif::TrackInfo =
-//             parser.parse(ms).await.map_err(|err| AppError::err(ErrType::FsError, err, "Error parsing track"))?;
-//
-//         let mut track_data = Metadata::TrackData {
-//             camera_make: track.get(nom_exif::TrackInfoTag::Make).and_then(|make| make.as_str()).map(|s| s.to_string()),
-//             camera_model: track
-//                 .get(nom_exif::TrackInfoTag::Model)
-//                 .and_then(|model| model.as_str())
-//                 .map(|s| s.to_string()),
-//             date_time: track.get(nom_exif::TrackInfoTag::CreateDate).and_then(|date| date.as_time()),
-//             duration: track.get(nom_exif::TrackInfoTag::DurationMs).and_then(|duration| duration.as_u64()),
-//             width: track.get(nom_exif::TrackInfoTag::ImageWidth).and_then(|w| w.as_u32()),
-//             height: track.get(nom_exif::TrackInfoTag::ImageHeight).and_then(|h| h.as_u32()),
-//             author: track.get(nom_exif::TrackInfoTag::Author).and_then(|a| a.as_str()).map(|s| s.to_string()),
-//             gps_latitude: None,
-//             gps_longitude: None,
-//         };
-//
-//         if let Some(gps_info) = track.get_gps_info() {
-//             // Convert GPS coordinates from degrees/minutes/seconds to decimal
-//             let gps_latitude = Some(dms_to_decimal(&gps_info.latitude, gps_info.latitude_ref));
-//             let gps_longitude = Some(dms_to_decimal(&gps_info.longitude, gps_info.longitude_ref));
-//             track_data.set_gps_info(gps_latitude, gps_longitude);
-//         }
-//
-//         Ok((Some(track_data), format))
-//     } else {
-//         Ok((None, format))
-//     }
-// }
-
-// fn dms_to_decimal(dms: &nom_exif::LatLng, reference: char) -> f64 {
-//     let decimal = dms.0.as_float() + (dms.1.as_float() / 60.0) + (dms.2.as_float() / 3600.0);
-//     if reference == 'S' || reference == 'W' {
-//         -decimal
-//     } else {
-//         decimal
-//     }
-// }
 
 pub(super) fn process_video_thumbnail(tmp_bytes_path: impl AsRef<Path>) -> AppResult<Option<Vec<u8>>> {
     ffmpeg::init().map_err(|err| ErrType::MediaError.err(err, "Failed to init ffmpeg"))?;
@@ -369,10 +249,123 @@ pub(super) fn process_video_thumbnail(tmp_bytes_path: impl AsRef<Path>) -> AppRe
                     thumbnail.extend_from_slice(data);
                 }
 
-                return create_thumbnail(thumbnail, Some(image::ImageFormat::Jpeg), &None).map(Some);
+                return create_thumbnail(
+                    thumbnail,
+                    Some(image::ImageFormat::Jpeg),
+                    &Metadata::Generic(serde_json::Value::Null),
+                )
+                .map(Some);
             }
         }
     }
 
     Ok(None)
+}
+
+/// Extract [`Metadata`] from image byte
+///
+/// First attempts to extract EXIF(image) or Track(video) data.
+/// On failure, extracts generic metadata
+pub(super) async fn extract_metadata(tmp_path: impl AsRef<Path>) -> AppResult<Metadata> {
+    match extract_exif_track(tmp_path.as_ref()).await? {
+        Some(data) => Ok(data),
+        None => {
+            let mut tool =
+                exiftool::ExifTool::new().map_err(|err| ErrType::MediaError.err(err, "Failed to init exif tool"))?;
+
+            tool.json(tmp_path.as_ref(), &[])
+                .map(Metadata::Generic)
+                .map_err(|err| ErrType::MediaError.err(err, "Failed to extract metadata data"))
+        }
+    }
+}
+
+async fn extract_exif_track(tmp_path: impl AsRef<Path>) -> AppResult<Option<Metadata>> {
+    let ms = nom_exif::AsyncMediaSource::file_path(tmp_path.as_ref())
+        .await
+        .map_err(|err| ErrType::MediaError.err(err, "Failed to create media source"))?;
+    let mut parser = nom_exif::AsyncMediaParser::new();
+
+    if ms.has_exif() {
+        let iter: nom_exif::ExifIter =
+            parser.parse(ms).await.map_err(|err| ErrType::MediaError.err(err, "Error parsing exif"))?;
+
+        let exif: nom_exif::Exif = iter.into();
+
+        let mut exif_data = Metadata::ExifData {
+            camera_make: exif.get(nom_exif::ExifTag::Make).and_then(|make| make.as_str()).map(|s| s.to_string()),
+            camera_model: exif.get(nom_exif::ExifTag::Model).and_then(|model| model.as_str()).map(|s| s.to_string()),
+            date_time: exif.get(nom_exif::ExifTag::DateTimeOriginal).and_then(|dt| dt.as_time()),
+            orientation: exif.get(nom_exif::ExifTag::Orientation).and_then(|o| o.as_u32()),
+            focal_length: exif
+                .get(nom_exif::ExifTag::FocalLength)
+                .and_then(|fl| fl.as_irational())
+                .map(|f| f.as_float()),
+            aperture: exif.get(nom_exif::ExifTag::FNumber).and_then(|ap| ap.as_irational()).map(|f| f.as_float()),
+            iso: exif.get(nom_exif::ExifTag::ISOSpeedRatings).and_then(|iso| iso.as_u32()),
+            exposure_time: exif.get(nom_exif::ExifTag::ExposureTime).and_then(|et| et.as_str()).map(|s| s.to_string()),
+            flash: exif.get(nom_exif::ExifTag::Flash).and_then(|fl| fl.as_u32()).map(|v| v != 0),
+            white_balance: exif
+                .get(nom_exif::ExifTag::WhiteBalanceMode)
+                .and_then(|wb| wb.as_str())
+                .map(|s| s.to_string()),
+            lens_make: exif.get(nom_exif::ExifTag::LensMake).and_then(|lm| lm.as_str()).map(|s| s.to_string()),
+            lens_model: exif.get(nom_exif::ExifTag::LensModel).and_then(|lm| lm.as_str()).map(|s| s.to_string()),
+            software: exif.get(nom_exif::ExifTag::Software).and_then(|sw| sw.as_str()).map(|s| s.to_string()),
+            image_width: exif.get(nom_exif::ExifTag::ImageWidth).and_then(|v| v.as_u32()),
+            image_height: exif.get(nom_exif::ExifTag::ImageHeight).and_then(|v| v.as_u32()),
+            color_space: exif.get(nom_exif::ExifTag::ColorSpace).and_then(|cs| cs.as_str()).map(|s| s.to_string()),
+            custom_fields: HashMap::new(),
+            gps_latitude: None,
+            gps_longitude: None,
+        };
+
+        // Handle GPS data using the built-in GPS parsing
+        if let Ok(Some(gps_info)) = exif.get_gps_info() {
+            // Convert GPS coordinates from degrees/minutes/seconds to decimal
+            let gps_latitude = Some(dms_to_decimal(&gps_info.latitude, gps_info.latitude_ref));
+            let gps_longitude = Some(dms_to_decimal(&gps_info.longitude, gps_info.longitude_ref));
+            exif_data.set_gps_info(gps_latitude, gps_longitude);
+        }
+
+        Ok(Some(exif_data))
+    } else if ms.has_track() {
+        let track: nom_exif::TrackInfo =
+            parser.parse(ms).await.map_err(|err| ErrType::MediaError.err(err, "Error parsing track"))?;
+
+        let mut track_data = Metadata::TrackData {
+            camera_make: track.get(nom_exif::TrackInfoTag::Make).and_then(|make| make.as_str()).map(|s| s.to_string()),
+            camera_model: track
+                .get(nom_exif::TrackInfoTag::Model)
+                .and_then(|model| model.as_str())
+                .map(|s| s.to_string()),
+            date_time: track.get(nom_exif::TrackInfoTag::CreateDate).and_then(|date| date.as_time()),
+            duration: track.get(nom_exif::TrackInfoTag::DurationMs).and_then(|duration| duration.as_u64()),
+            width: track.get(nom_exif::TrackInfoTag::ImageWidth).and_then(|w| w.as_u32()),
+            height: track.get(nom_exif::TrackInfoTag::ImageHeight).and_then(|h| h.as_u32()),
+            author: track.get(nom_exif::TrackInfoTag::Author).and_then(|a| a.as_str()).map(|s| s.to_string()),
+            gps_latitude: None,
+            gps_longitude: None,
+        };
+
+        if let Some(gps_info) = track.get_gps_info() {
+            // Convert GPS coordinates from degrees/minutes/seconds to decimal
+            let gps_latitude = Some(dms_to_decimal(&gps_info.latitude, gps_info.latitude_ref));
+            let gps_longitude = Some(dms_to_decimal(&gps_info.longitude, gps_info.longitude_ref));
+            track_data.set_gps_info(gps_latitude, gps_longitude);
+        }
+
+        Ok(Some(track_data))
+    } else {
+        Ok(None)
+    }
+}
+
+fn dms_to_decimal(dms: &nom_exif::LatLng, reference: char) -> f64 {
+    let decimal = dms.0.as_float() + (dms.1.as_float() / 60.0) + (dms.2.as_float() / 3600.0);
+    if reference == 'S' || reference == 'W' {
+        -decimal
+    } else {
+        decimal
+    }
 }
