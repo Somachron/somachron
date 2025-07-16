@@ -31,6 +31,10 @@ async fn create_file(file_path: impl AsRef<Path>) -> AppResult<tokio::fs::File> 
         .map_err(|err| ErrType::FsError.err(err, "Failed to create/truncate file"))
 }
 
+async fn remove_file(file_path: impl AsRef<Path>) -> AppResult<()> {
+    tokio::fs::remove_file(file_path).await.map_err(|err| ErrType::FsError.err(err, "Failed to remove file"))
+}
+
 impl Storage {
     pub async fn new() -> Self {
         let volume_path = Path::new(config::get_volume_path());
@@ -136,7 +140,7 @@ impl Storage {
                     .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp image file"))?;
 
                 // process image data
-                let exif_data = media::extract_metadata(&tmp_path).await?;
+                let exif_data = media::extract_metadata(&tmp_path)?;
                 let thumbnail_bytes = media::create_thumbnail(image_bytes, None, &exif_data)?;
 
                 // save thumbnail
@@ -145,6 +149,8 @@ impl Storage {
                     .write_all(&thumbnail_bytes)
                     .await
                     .map_err(|err| ErrType::FsError.err(err, "Failed to save thumbnail file"))?;
+
+                remove_file(tmp_path).await?;
 
                 // return metadata
                 exif_data
@@ -174,8 +180,12 @@ impl Storage {
                         .map_err(|err| ErrType::FsError.err(err, "Failed to write thumbnail file"))?;
                 }
 
+                let metadata = media::extract_metadata(&tmp_path)?;
+
+                remove_file(tmp_path).await?;
+
                 // return metadata
-                media::extract_metadata(&tmp_path).await?
+                metadata
             }
             _ => return Err(ErrType::FsError.new(format!("Invalid media extension: {ext}"))),
         };
@@ -194,7 +204,7 @@ impl Storage {
             serde_json::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
 
         // save metadata
-        let mut metadata_file = create_file(media_path).await?;
+        let mut metadata_file = create_file(metadata_path).await?;
         metadata_file
             .write_all(&metadata_bytes)
             .await
