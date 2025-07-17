@@ -35,3 +35,4 @@ image = "0.25.6"
 nom-exif = { version = "2.5.4", features = ["async"] }
 exiftool = "0.2.5"
 ffmpeg-next = { version = "7.1.0" }
+libheif-rs = { version = "2.2.0", features = ["v1_19"] }

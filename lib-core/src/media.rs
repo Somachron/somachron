@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AppResult, ErrType};
 
+pub enum ImageFormat {
+    General(image::ImageFormat),
+    Heic,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct FileMetadata {
     pub r2_path: Option<String>,
@@ -40,7 +45,7 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 
 pub(super) fn create_thumbnail(
     bytes: Vec<u8>,
-    format: Option<image::ImageFormat>,
+    format: Option<ImageFormat>,
     _metadata: &serde_json::Value,
 ) -> AppResult<Vec<u8>> {
     let format = match format {
@@ -63,8 +68,12 @@ pub(super) fn create_thumbnail(
     // TODO: get orientation from metadata "Orientation" tag
     let orientation = None;
 
-    let img = image::load_from_memory_with_format(&bytes, format)
-        .map_err(|err| ErrType::FsError.err(err, "Failed to load image from bytes"))?;
+    let (img, format) = match format {
+        ImageFormat::General(format) => image::load_from_memory_with_format(&bytes, format)
+            .map(|img| (img, format))
+            .map_err(|err| ErrType::FsError.err(err, "Failed to load image from bytes")),
+        ImageFormat::Heic => heif_image(&bytes).map(|img| (img, image::ImageFormat::Jpeg)),
+    }?;
 
     let img = match orientation {
         Some(2) => img.fliph(),
@@ -94,18 +103,41 @@ pub(super) fn create_thumbnail(
     .map_err(|err| ErrType::FsError.err(err, "Failed to write image to buffer"))
 }
 
-fn infer_to_image_format(kind: &infer::Type) -> AppResult<image::ImageFormat> {
+fn infer_to_image_format(kind: &infer::Type) -> AppResult<ImageFormat> {
     match kind.mime_type() {
-        "image/jpeg" => Ok(image::ImageFormat::Jpeg),
-        "image/png" => Ok(image::ImageFormat::Png),
-        "image/gif" => Ok(image::ImageFormat::Gif),
-        "image/webp" => Ok(image::ImageFormat::WebP),
-        "image/bmp" => Ok(image::ImageFormat::Bmp),
-        "image/tiff" => Ok(image::ImageFormat::Tiff),
-        "image/avif" => Ok(image::ImageFormat::Avif),
-        "image/x-icon" => Ok(image::ImageFormat::Ico),
+        "image/jpeg" => Ok(ImageFormat::General(image::ImageFormat::Jpeg)),
+        "image/png" => Ok(ImageFormat::General(image::ImageFormat::Png)),
+        "image/gif" => Ok(ImageFormat::General(image::ImageFormat::Gif)),
+        "image/webp" => Ok(ImageFormat::General(image::ImageFormat::WebP)),
+        "image/bmp" => Ok(ImageFormat::General(image::ImageFormat::Bmp)),
+        "image/tiff" => Ok(ImageFormat::General(image::ImageFormat::Tiff)),
+        "image/avif" => Ok(ImageFormat::General(image::ImageFormat::Avif)),
+        "image/x-icon" => Ok(ImageFormat::General(image::ImageFormat::Ico)),
+        "image/heif" => Ok(ImageFormat::Heic),
         mime => Err(ErrType::MediaError.new(format!("{} ({})", mime, kind.extension()))),
     }
+}
+
+fn heif_image(bytes: &[u8]) -> AppResult<image::DynamicImage> {
+    let heif =
+        libheif_rs::LibHeif::new_checked().map_err(|err| ErrType::MediaError.err(err, "Failed to init LibHeif"))?;
+
+    let ctx = libheif_rs::HeifContext::read_from_bytes(bytes)
+        .map_err(|err| ErrType::MediaError.err(err, "Failed to create HeifContext"))?;
+    let handle =
+        ctx.primary_image_handle().map_err(|err| ErrType::MediaError.err(err, "Failed to get heif primary handle"))?;
+
+    let image = heif
+        .decode(&handle, libheif_rs::ColorSpace::Rgb(libheif_rs::RgbChroma::Rgb), None)
+        .map_err(|err| ErrType::MediaError.err(err, "Failed to decode from heif handle"))?;
+    let planes = image.planes();
+    let interleaved =
+        planes.interleaved.ok_or(ErrType::MediaError.new("Interleaved planes not found in heif image"))?;
+
+    let img_buffer: image::RgbImage =
+        image::ImageBuffer::from_raw(interleaved.width, interleaved.height, interleaved.data.to_vec()).unwrap();
+
+    Ok(image::DynamicImage::ImageRgb8(img_buffer))
 }
 
 pub(super) fn process_video_thumbnail(tmp_bytes_path: impl AsRef<Path>) -> AppResult<Option<Vec<u8>>> {
@@ -183,7 +215,12 @@ pub(super) fn process_video_thumbnail(tmp_bytes_path: impl AsRef<Path>) -> AppRe
                     thumbnail.extend_from_slice(data);
                 }
 
-                return create_thumbnail(thumbnail, Some(image::ImageFormat::Jpeg), &serde_json::Value::Null).map(Some);
+                return create_thumbnail(
+                    thumbnail,
+                    Some(ImageFormat::General(image::ImageFormat::Jpeg)),
+                    &serde_json::Value::Null,
+                )
+                .map(Some);
             }
         }
     }
