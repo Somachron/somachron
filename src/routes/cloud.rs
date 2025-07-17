@@ -63,11 +63,17 @@ pub async fn upload_completion(
     Json(body): Json<UploadCompleteRequest>,
 ) -> ApiResult<EmptyResponse> {
     tokio::runtime::Handle::current().spawn(async move {
-        if let Err(err) =
-            app.storage().process_upload_skeleton_thumbnail_media(&user_id.0, body.file_path, body.file_size).await
-        {
-            let _ = ApiError(err, req_id).into_response();
-        }
+        match app.storage().process_upload_skeleton_thumbnail_media(&user_id.0, &body.file_path, body.file_size).await {
+            Ok(_) => {
+                tracing::info!(
+                    req_id = req_id.0.as_ref(),
+                    message = format!("Skeleton thumbnail complete: {}", body.file_path)
+                );
+            }
+            Err(err) => {
+                let _ = ApiError(err, req_id).into_response();
+            }
+        };
     });
 
     Ok(Json(EmptyResponse::new(StatusCode::OK, "Processing completion")))
