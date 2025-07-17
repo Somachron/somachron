@@ -177,7 +177,7 @@ pub(super) fn process_video_thumbnail(tmp_bytes_path: impl AsRef<Path>) -> AppRe
         decoder.format(),
         decoder.width(),
         decoder.height(),
-        ffmpeg::format::Pixel::YUVJ420P,
+        ffmpeg::format::Pixel::YUV420P,
         decoder.width(),
         decoder.height(),
         ffmpeg::software::scaling::flag::Flags::BILINEAR,
