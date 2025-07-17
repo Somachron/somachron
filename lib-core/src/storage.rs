@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use nanoid::nanoid;
 use tokio::io::AsyncWriteExt;
 
 use super::{config, media, r2::R2Storage, AppResult, ErrType};
@@ -50,8 +51,13 @@ impl Storage {
         }
     }
 
-    fn get_tmp_path(&self, user_id: &str) -> PathBuf {
-        self.root_path.join(user_id).join("tmp")
+    async fn get_tmp_file(&self, user_id: &str) -> AppResult<(tokio::fs::File, PathBuf)> {
+        let tmp_dir_path = self.root_path.join(user_id).join("tmp");
+        create_dir(&tmp_dir_path).await?;
+
+        let id = nanoid!(8);
+        let tmp_file_path = tmp_dir_path.join(format!("tmp_f_{id}"));
+        create_file(&tmp_file_path).await.map(|f| (f, tmp_file_path))
     }
 
     fn clean_path<'p>(&'p self, path: &'p str) -> &'p str {
@@ -95,7 +101,7 @@ impl Storage {
     pub async fn process_upload_skeleton_thumbnail_media(
         &self,
         user_id: &str,
-        file_path: String,
+        file_path: &str,
         file_size: usize,
     ) -> AppResult<()> {
         let file_path = self.clean_path(&file_path);
@@ -128,12 +134,8 @@ impl Storage {
                 // download file from R2
                 let image_bytes = self.r2.download_photo(r2_path).await?;
 
-                // prepare tmp dir
-                let tmp_path = self.get_tmp_path(user_id);
-                create_dir(&tmp_path).await?;
-
-                let tmp_path = tmp_path.join("tmp_image");
-                let mut tmp_file = create_file(&tmp_path).await?;
+                // prepare tmp file
+                let (mut tmp_file, tmp_path) = self.get_tmp_file(user_id).await?;
                 tmp_file
                     .write_all(&image_bytes)
                     .await
@@ -159,13 +161,8 @@ impl Storage {
                 // download initial chunk from R2
                 let video_bytes = self.r2.download_video(r2_path).await?;
 
-                // prepare tmp dir
-                let tmp_path = self.get_tmp_path(user_id);
-                create_dir(&tmp_path).await?;
-
-                // create tmp media file
-                let tmp_path = tmp_path.join("tmp_video");
-                let mut tmp_file = create_file(&tmp_path).await?;
+                // prepare tmp file
+                let (mut tmp_file, tmp_path) = self.get_tmp_file(user_id).await?;
                 tmp_file
                     .write_all(&video_bytes)
                     .await
