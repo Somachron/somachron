@@ -54,6 +54,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         cloud::upload_completion,
         cloud::list_directory,
         cloud::get_file,
+        cloud::create_folder,
     ),
     components(schemas(
         lib_core::EmptyResponse,

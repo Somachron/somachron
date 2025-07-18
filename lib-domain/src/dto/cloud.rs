@@ -26,4 +26,10 @@ pub mod req {
 
         pub file_size: usize,
     }
+
+    #[derive(Deserialize, ToSchema, Validate)]
+    pub struct CreateFolderRequest {
+        #[validate(length(min = 3))]
+        pub folder_path: String,
+    }
 }

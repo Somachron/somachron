@@ -90,8 +90,9 @@ impl Storage {
     /// * Remove `/` from start and end
     /// * Remove [`FS_TAG`] from start
     /// * Replace `..` with empty from start and end
-    fn clean_path(&self, path: &str) -> String {
-        path.trim_start_matches(FS_TAG).replace("..", "").trim_matches('/').to_owned()
+    fn clean_path(&self, path: &str) -> AppResult<String> {
+        let path = urlencoding::decode(path).map_err(|err| ErrType::FsError.err(err, "Invalid path"))?;
+        Ok(path.trim_start_matches(FS_TAG).replace("..", "").trim_matches('/').to_owned())
     }
 
     pub async fn validate_user_drive(&self, user_id: &str) -> AppResult<()> {
@@ -103,11 +104,11 @@ impl Storage {
     ///
     /// * `folder_path`: some/existing/path/new_folder
     pub async fn create_folder(&self, user_id: &str, folder_path: &str) -> AppResult<()> {
-        let folder_path = self.clean_path(folder_path);
+        let folder_path = self.clean_path(folder_path)?;
 
-        let folder_path = self.root_folder.join(user_id).join(folder_path);
-        let folder_path = folder_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
-        self.r2.create_folder(folder_path).await?;
+        let r2_path = self.root_folder.join(user_id).join(&folder_path);
+        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+        self.r2.create_folder(r2_path).await?;
 
         let folder_path = self.root_path.join(user_id).join(folder_path);
         create_dir(folder_path).await
@@ -117,7 +118,7 @@ impl Storage {
     ///
     /// To be used by frontend
     pub async fn generate_upload_signed_url(&self, user_id: &str, file_path: &str) -> AppResult<String> {
-        let file_path = self.clean_path(file_path);
+        let file_path = self.clean_path(file_path)?;
 
         let file_path = self.root_folder.join(user_id).join(file_path);
         let file_path = file_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
@@ -133,8 +134,7 @@ impl Storage {
     ///
     /// Returns vec [`FileEntry`]
     pub async fn list_dir(&self, user_id: &str, dir: &str) -> AppResult<Vec<FileEntry>> {
-        let dir = self.clean_path(dir);
-        let dir = dir.trim_start_matches(&['f', 's', ':', ':']);
+        let dir = self.clean_path(dir)?;
         let dir_path = self.root_path.join(user_id).join(dir);
 
         let mut rd = tokio::fs::read_dir(&dir_path)
@@ -203,7 +203,7 @@ impl Storage {
         user_id: &str,
         file_path: &str,
     ) -> AppResult<(tokio_util::io::ReaderStream<tokio::fs::File>, String)> {
-        let file_path = self.clean_path(file_path);
+        let file_path = self.clean_path(file_path)?;
         let fs_path = self.root_path.join(user_id).join(&file_path);
         let ext = fs_path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
@@ -234,7 +234,7 @@ impl Storage {
         file_path: &str,
         file_size: usize,
     ) -> AppResult<()> {
-        let file_path = self.clean_path(&file_path);
+        let file_path = self.clean_path(&file_path)?;
         let file_path = file_path.as_str();
 
         // prepare media directory

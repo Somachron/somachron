@@ -12,7 +12,7 @@ use lib_core::{
     ApiError, ApiResult, EmptyResponse, Json,
 };
 use lib_domain::dto::cloud::{
-    req::{UploadCompleteRequest, UploadSignedUrlRequest},
+    req::{CreateFolderRequest, UploadCompleteRequest, UploadSignedUrlRequest},
     res::UploadSignedUrlResponse,
 };
 
@@ -22,8 +22,9 @@ use super::middleware;
 
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
-        .route("/{dir}", get(list_directory))
+        .route("/{*dir}", get(list_directory))
         .route("/f/{*path}", get(get_file))
+        .route("/d", post(create_folder))
         .route("/upload", post(generate_upload_signed_url))
         .route("/upload/complete", post(upload_completion))
         .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate));
@@ -99,5 +100,24 @@ pub async fn upload_completion(
         .process_upload_skeleton_thumbnail_media(&user_id.0, &body.file_path, body.file_size)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Processing completion")))
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/media/d",
+    responses((status=200, body=EmptyResponse)),
+    tag = "Cloud"
+)]
+pub async fn create_folder(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(user_id): Extension<UserId>,
+    Json(body): Json<CreateFolderRequest>,
+) -> ApiResult<EmptyResponse> {
+    app.storage()
+        .create_folder(&user_id.0, &body.folder_path)
+        .await
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))
         .map_err(|err| ApiError(err, req_id))
 }
