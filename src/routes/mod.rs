@@ -52,9 +52,13 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 
         cloud::generate_upload_signed_url,
         cloud::upload_completion,
+        cloud::list_directory,
+        cloud::get_file,
     ),
     components(schemas(
         lib_core::EmptyResponse,
+        lib_core::storage::FileMetadata,
+        lib_core::storage::FileEntry,
 
         lib_domain::datastore::SpaceRole,
         lib_domain::dto::Datetime,

@@ -1,20 +1,14 @@
 use std::{io::Cursor, path::Path};
 
 use ffmpeg_next as ffmpeg;
-use serde::{Deserialize, Serialize};
 
 use crate::{AppResult, ErrType};
+
+const THUMBNAIL_DIM: u32 = 256;
 
 pub enum ImageFormat {
     General(image::ImageFormat),
     Heic,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct FileMetadata {
-    pub r2_path: Option<String>,
-    pub metadata: serde_json::Value,
-    pub size: usize,
 }
 
 /// Get media type [`infer::MatcherType::Image`] or [`infer::MatcherType::Video`]
@@ -86,7 +80,7 @@ pub(super) fn create_thumbnail(
         _ => img, // No rotation needed for 1 or unknown
     };
 
-    let thumbnail = img.thumbnail(256, 256);
+    let thumbnail = img.resize(THUMBNAIL_DIM, THUMBNAIL_DIM, image::imageops::FilterType::Lanczos3);
 
     let quality = 80;
     let mut buffer = Vec::new();
