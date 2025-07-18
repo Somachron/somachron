@@ -170,6 +170,7 @@ impl Storage {
 
                 // process thumbnail
                 if let Some(thumbnail_bytes) = media::process_video_thumbnail(&tmp_path)? {
+                    thumbnail_path.set_extension("jpeg");
                     let mut thumbnail_file = create_file(thumbnail_path).await?;
                     thumbnail_file
                         .write_all(&thumbnail_bytes)
