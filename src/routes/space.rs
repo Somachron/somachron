@@ -38,7 +38,7 @@ pub async fn create_space(
     Extension(user_id): Extension<UserId>,
     Json(dto): Json<SpaceCreateRequest>,
 ) -> ApiResult<_SpaceResponse> {
-    app.service().create_user_space(user_id, dto).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.service().create_user_space(user_id, app.storage(), dto).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(

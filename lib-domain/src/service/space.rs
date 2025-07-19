@@ -1,4 +1,4 @@
-use lib_core::{extensions::UserId, AppResult};
+use lib_core::{extensions::UserId, storage::Storage, AppResult};
 
 use crate::{
     datastore::SpaceRole,
@@ -14,10 +14,15 @@ impl Service {
     pub async fn create_user_space(
         &self,
         UserId(user_id): UserId,
+        storage: &Storage,
         dto: SpaceCreateRequest,
     ) -> AppResult<_SpaceResponse> {
         let space = self.ds.insert_space(&dto.name, &dto.description).await?;
+
         let _ = self.ds.add_user_to_space(&user_id, &space.id, SpaceRole::Owner).await?;
+
+        storage.create_space_folder(&space.id).await?;
+
         Ok(_SpaceResponse(space))
     }
 

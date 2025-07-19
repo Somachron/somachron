@@ -7,7 +7,7 @@ use axum::{
     Extension,
 };
 use lib_core::{
-    extensions::{ReqId, UserId},
+    extensions::{ReqId, SpaceCtx, UserId},
     storage::FileEntry,
     ApiError, ApiResult, EmptyResponse, Json,
 };
@@ -27,6 +27,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .route("/d", post(create_folder))
         .route("/upload", post(generate_upload_signed_url))
         .route("/upload/complete", post(upload_completion))
+        .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
         .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate));
 
     router.nest("/media", routes)
@@ -41,20 +42,20 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 pub async fn list_directory(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
-    Extension(user_id): Extension<UserId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
     Path(dir): Path<String>,
 ) -> ApiResult<Vec<FileEntry>> {
-    app.storage().list_dir(&user_id.0, &dir).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.storage().list_dir(&space_ctx.id, &dir).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(get, path = "/v1/media/f/{path}", tag = "Cloud")]
 pub async fn get_file(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
-    Extension(user_id): Extension<UserId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
     Path(path): Path<String>,
 ) -> axum::response::Result<impl IntoResponse, ApiError> {
-    let (stream, ext) = app.storage().get_file(&user_id.0, &path).await.map_err(|err| ApiError(err, req_id))?;
+    let (stream, ext) = app.storage().get_file(&space_ctx.id, &path).await.map_err(|err| ApiError(err, req_id))?;
 
     let body = Body::from_stream(stream);
 
@@ -70,18 +71,14 @@ pub async fn get_file(
 pub async fn generate_upload_signed_url(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
-    Extension(user_id): Extension<UserId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<UploadSignedUrlRequest>,
 ) -> ApiResult<UploadSignedUrlResponse> {
-    let url = app
-        .storage()
-        .generate_upload_signed_url(&user_id.0, &body.file_path)
+    app.service()
+        .generate_upload_signed_url(space_ctx, app.storage(), body.file_path)
         .await
-        .map_err(|err| ApiError(err, req_id))?;
-
-    Ok(Json(UploadSignedUrlResponse {
-        url,
-    }))
+        .map(Json)
+        .map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -94,10 +91,11 @@ pub async fn upload_completion(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(user_id): Extension<UserId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<UploadCompleteRequest>,
 ) -> ApiResult<EmptyResponse> {
-    app.storage()
-        .process_upload_skeleton_thumbnail_media(&user_id.0, &body.file_path, body.file_size)
+    app.service()
+        .process_upload_skeleton_thumbnail(user_id, space_ctx, app.storage(), body)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Processing completion")))
         .map_err(|err| ApiError(err, req_id))
@@ -112,11 +110,11 @@ pub async fn upload_completion(
 pub async fn create_folder(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
-    Extension(user_id): Extension<UserId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<CreateFolderRequest>,
 ) -> ApiResult<EmptyResponse> {
-    app.storage()
-        .create_folder(&user_id.0, &body.folder_path)
+    app.service()
+        .create_folder(space_ctx, app.storage(), body.folder_path)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))
         .map_err(|err| ApiError(err, req_id))

@@ -18,6 +18,7 @@ pub struct FileMetadata {
     pub thumbnail_path: String,
     pub metadata: serde_json::Value,
     pub size: usize,
+    pub user_id: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -40,8 +41,11 @@ pub struct Storage {
     /// /mounted/volume/[`ROOT_DATA`]
     root_path: PathBuf,
 
-    /// Root folder for R2: [`ROOT_DATA`],
-    root_folder: PathBuf,
+    /// /mounted/volume/[`ROOT_DATA`]/[`SPACES_PATH`]
+    spaces_path: PathBuf,
+
+    /// Root folder for R2: [`ROOT_DATA`]/[`SPACES_PATH`],
+    r2_spaces: PathBuf,
 
     /// R2 client
     r2: R2Storage,
@@ -67,11 +71,15 @@ impl Storage {
 
         // create necessary volumes
         let root_path = volume_path.join(ROOT_DATA);
-        create_dir(root_path.join(SPACES_PATH)).await.unwrap();
+        create_dir(&root_path).await.unwrap();
+
+        let spaces_path = root_path.join(SPACES_PATH);
+        create_dir(&root_path).await.unwrap();
 
         Self {
             root_path,
-            root_folder: PathBuf::from(ROOT_DATA),
+            spaces_path,
+            r2_spaces: PathBuf::from(ROOT_DATA).join(SPACES_PATH),
             r2: R2Storage::new(),
         }
     }
@@ -100,27 +108,37 @@ impl Storage {
         create_dir(user_dir).await
     }
 
-    /// Creates folder for `user_id`
-    ///
-    /// * `folder_path`: some/existing/path/new_folder
-    pub async fn create_folder(&self, user_id: &str, folder_path: &str) -> AppResult<()> {
-        let folder_path = self.clean_path(folder_path)?;
-
-        let r2_path = self.root_folder.join(user_id).join(&folder_path);
+    /// Creates space folder
+    pub async fn create_space_folder(&self, space_id: &str) -> AppResult<()> {
+        let r2_path = self.r2_spaces.join(space_id);
         let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
         self.r2.create_folder(r2_path).await?;
 
-        let folder_path = self.root_path.join(user_id).join(folder_path);
+        let folder_path = self.spaces_path.join(space_id);
+        create_dir(folder_path).await
+    }
+
+    /// Creates folder in `space_id`
+    ///
+    /// * `folder_path`: some/existing/path/new_folder
+    pub async fn create_folder(&self, space_id: &str, folder_path: &str) -> AppResult<()> {
+        let folder_path = self.clean_path(folder_path)?;
+
+        let r2_path = self.r2_spaces.join(space_id).join(&folder_path);
+        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+        self.r2.create_folder(r2_path).await?;
+
+        let folder_path = self.spaces_path.join(space_id).join(folder_path);
         create_dir(folder_path).await
     }
 
     /// Generate presigned URL for uploading image
     ///
     /// To be used by frontend
-    pub async fn generate_upload_signed_url(&self, user_id: &str, file_path: &str) -> AppResult<String> {
+    pub async fn generate_upload_signed_url(&self, space_id: &str, file_path: &str) -> AppResult<String> {
         let file_path = self.clean_path(file_path)?;
 
-        let file_path = self.root_folder.join(user_id).join(file_path);
+        let file_path = self.r2_spaces.join(space_id).join(file_path);
         let file_path = file_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
 
         self.r2.generate_upload_signed_url(file_path).await
@@ -133,9 +151,9 @@ impl Storage {
     /// * Processes only `*.json` files
     ///
     /// Returns vec [`FileEntry`]
-    pub async fn list_dir(&self, user_id: &str, dir: &str) -> AppResult<Vec<FileEntry>> {
+    pub async fn list_dir(&self, space_id: &str, dir: &str) -> AppResult<Vec<FileEntry>> {
         let dir = self.clean_path(dir)?;
-        let dir_path = self.root_path.join(user_id).join(dir);
+        let dir_path = self.spaces_path.join(space_id).join(dir);
 
         let mut rd = tokio::fs::read_dir(&dir_path)
             .await
@@ -200,11 +218,11 @@ impl Storage {
     /// Get requested file from filesystem
     pub async fn get_file(
         &self,
-        user_id: &str,
+        space_id: &str,
         file_path: &str,
     ) -> AppResult<(tokio_util::io::ReaderStream<tokio::fs::File>, String)> {
         let file_path = self.clean_path(file_path)?;
-        let fs_path = self.root_path.join(user_id).join(&file_path);
+        let fs_path = self.spaces_path.join(space_id).join(&file_path);
         let ext = fs_path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
         if !fs_path.exists() {
@@ -228,9 +246,10 @@ impl Storage {
     /// * download the media from R2
     /// * create and save thumbnail
     /// * extract and save exif data
-    pub async fn process_upload_skeleton_thumbnail_media(
+    pub async fn process_upload_skeleton_thumbnail(
         &self,
         user_id: &str,
+        space_id: &str,
         file_path: &str,
         file_size: usize,
     ) -> AppResult<()> {
@@ -238,7 +257,7 @@ impl Storage {
         let file_path = file_path.as_str();
 
         // prepare media directory
-        let media_path = self.root_path.join(user_id).join(file_path);
+        let media_path = self.spaces_path.join(space_id).join(file_path);
         if let Some(parent) = media_path.parent() {
             create_dir(parent).await?;
         }
@@ -254,11 +273,11 @@ impl Storage {
             .ok_or(ErrType::FsError.new("Invalid file path without name"))?;
 
         // prepare r2 path
-        let r2_path = self.root_folder.join(user_id).join(file_path);
+        let r2_path = self.r2_spaces.join(space_id).join(file_path);
         let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
 
         // prepare path
-        let mut thumbnail_path = self.root_path.join(user_id).join(file_path);
+        let mut thumbnail_path = self.spaces_path.join(space_id).join(file_path);
         let file_stem = thumbnail_path.file_stem().and_then(|s| s.to_str()).unwrap();
         let mut thumbnail_file_name = PathBuf::from(format!("{file_stem}_thumbnail.{ext}"));
         thumbnail_path.set_file_name(&thumbnail_file_name);
@@ -271,7 +290,7 @@ impl Storage {
                 let image_bytes = self.r2.download_photo(r2_path).await?;
 
                 // prepare tmp file
-                let (mut tmp_file, tmp_path) = self.get_tmp_file(user_id).await?;
+                let (mut tmp_file, tmp_path) = self.get_tmp_file(space_id).await?;
                 tmp_file
                     .write_all(&image_bytes)
                     .await
@@ -298,7 +317,7 @@ impl Storage {
                 let video_bytes = self.r2.download_video(r2_path).await?;
 
                 // prepare tmp file
-                let (mut tmp_file, tmp_path) = self.get_tmp_file(user_id).await?;
+                let (mut tmp_file, tmp_path) = self.get_tmp_file(space_id).await?;
                 tmp_file
                     .write_all(&video_bytes)
                     .await
@@ -328,7 +347,7 @@ impl Storage {
         };
 
         // prepare path
-        let mut metadata_path = self.root_path.join(user_id).join(file_path);
+        let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
         metadata_path.set_extension(format!("{ext}.json"));
 
         // serialize metadata to vec
@@ -342,6 +361,7 @@ impl Storage {
             },
             metadata,
             size: file_size,
+            user_id: user_id.to_string(),
         };
         let metadata_bytes =
             serde_json::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;

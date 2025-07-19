@@ -1,6 +1,7 @@
 use crate::datastore::Datastore;
 
 mod auth;
+mod cloud;
 mod space;
 mod user;
 
