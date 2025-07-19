@@ -3,7 +3,10 @@ use std::{error::Error, fmt::Display};
 use aws_sdk_s3::{
     config::http::HttpResponse,
     error::SdkError,
-    operation::{get_object::GetObjectError, put_object::PutObjectError},
+    operation::{
+        delete_object::DeleteObjectError, get_object::GetObjectError, list_objects_v2::ListObjectsV2Error,
+        put_object::PutObjectError,
+    },
 };
 use axum::{
     extract::{rejection::JsonRejection, FromRequest, Request},
@@ -121,6 +124,27 @@ impl ErrType {
             match err.into_service_error() {
                 GetObjectError::InvalidObjectState(invalid_object_state) => Some(invalid_object_state.into()),
                 GetObjectError::NoSuchKey(no_such_key) => Some(no_such_key.into()),
+                err => Some(err.into()),
+            },
+            message,
+        )
+    }
+
+    pub fn r2_delete(err: SdkError<DeleteObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
+        AppError::init(
+            ErrType::R2Error,
+            match err.into_service_error() {
+                err => Some(err.into()),
+            },
+            message,
+        )
+    }
+
+    pub fn r2_list_err(err: SdkError<ListObjectsV2Error, HttpResponse>, message: impl Into<String>) -> AppError {
+        AppError::init(
+            ErrType::R2Error,
+            match err.into_service_error() {
+                ListObjectsV2Error::NoSuchBucket(no_such_bucket) => Some(no_such_bucket.into()),
                 err => Some(err.into()),
             },
             message,

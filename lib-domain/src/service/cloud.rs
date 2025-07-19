@@ -63,4 +63,23 @@ impl Service {
 
         storage.process_upload_skeleton_thumbnail(&user_id, &space_id, &body.file_path, body.file_size).await
     }
+
+    pub async fn delete_path(
+        &self,
+        SpaceCtx {
+            id: space_id,
+            role,
+        }: SpaceCtx,
+        storage: &Storage,
+        path: String,
+    ) -> AppResult<()> {
+        match role {
+            UserRole::Read | UserRole::Upload => {
+                return Err(ErrType::Unauthorized.new("Cannot delete: Unauthorized read role"))
+            }
+            _ => (),
+        };
+
+        storage.delete_path(&space_id, &path).await
+    }
 }

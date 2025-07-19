@@ -113,4 +113,32 @@ impl R2Storage {
             .map(|bytes| bytes.to_vec())
             .map_err(|err| ErrType::R2Error.err(err, "Failed to collect bytes"))
     }
+
+    pub(super) async fn delete_folder(&self, path: &str) -> AppResult<()> {
+        let objects = self
+            .client
+            .list_objects_v2()
+            .bucket(self.bucket_name)
+            .prefix(path)
+            .send()
+            .await
+            .map_err(|err| ErrType::r2_list_err(err, "Failed to list objects"))?;
+
+        for obj in objects.contents().into_iter() {
+            if let Some(key) = obj.key() {
+                match self.delete_key(key).await {
+                    Ok(_) => (),
+                    Err(err) => tracing::error!("Failed to remove R2 key: {:?}", err),
+                };
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(super) async fn delete_key(&self, path: &str) -> AppResult<()> {
+        let builder = self.client.delete_object().bucket(self.bucket_name);
+        let _ = builder.key(path).send().await.map_err(|err| ErrType::r2_delete(err, "Failed to delete object"))?;
+        Ok(())
+    }
 }

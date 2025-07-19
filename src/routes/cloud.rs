@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
     response::IntoResponse,
-    routing::{get, post, Router},
+    routing::{delete, get, post, Router},
     Extension,
 };
 use lib_core::{
@@ -23,6 +23,7 @@ use super::middleware;
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
         .route("/{*dir}", get(list_directory))
+        .route("/{*dir}", delete(delete_path))
         .route("/f/{*path}", get(get_file))
         .route("/d", post(create_folder))
         .route("/upload", post(generate_upload_signed_url))
@@ -31,6 +32,25 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate));
 
     router.nest("/media", routes)
+}
+
+#[utoipa::path(
+    delete,
+    path = "/v1/media/{dir}",
+    responses((status=200, body=EmptyResponse)),
+    tag = "Cloud"
+)]
+pub async fn delete_path(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+    Path(dir): Path<String>,
+) -> ApiResult<EmptyResponse> {
+    app.service()
+        .delete_path(space_ctx, app.storage(), dir)
+        .await
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Path deleted")))
+        .map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(

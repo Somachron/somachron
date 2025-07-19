@@ -373,4 +373,37 @@ impl Storage {
             .await
             .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))
     }
+
+    pub async fn delete_path(&self, space_id: &str, path: &str) -> AppResult<()> {
+        let path = self.clean_path(path)?;
+
+        let r2_path = self.r2_spaces.join(space_id).join(&path);
+        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+
+        let fs_path = self.spaces_path.join(space_id).join(path);
+        if fs_path.is_dir() {
+            self.r2.delete_folder(r2_path).await?;
+
+            tokio::fs::remove_dir_all(&fs_path)
+                .await
+                .map_err(|err| ErrType::FsError.err(err, format!("Failed to delete path: {:?}", fs_path)))
+        } else {
+            let file_stem =
+                fs_path.file_stem().and_then(|s| s.to_str()).ok_or(ErrType::FsError.new("Failed to get file_stem"))?;
+            let ext = fs_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
+
+            let mut thumbnail_path = fs_path.clone();
+            thumbnail_path.set_file_name(format!("{file_stem}_thumbnail.{ext}"));
+
+            let mut json_path = fs_path.clone();
+            json_path.set_extension(format!("{ext}.json"));
+
+            let _ = tokio::fs::remove_file(&thumbnail_path).await;
+            let _ = tokio::fs::remove_file(&json_path).await;
+            Ok(())
+        }
+    }
 }
