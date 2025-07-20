@@ -39,35 +39,14 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 
 pub(super) fn create_thumbnail(
     bytes: Vec<u8>,
-    format: Option<ImageFormat>,
+    format: image::ImageFormat,
     metadata: &serde_json::Value,
 ) -> AppResult<Vec<u8>> {
-    let format = match format {
-        Some(f) => f,
-        None => {
-            let kind = infer::get(&bytes).ok_or(ErrType::FsError.new("Could not detect file type from magic bytes"))?;
-
-            if kind.matcher_type() != infer::MatcherType::Image {
-                return Err(ErrType::FsError.new(format!(
-                    "File is not an image, detected as: {} ({})",
-                    kind.mime_type(),
-                    kind.extension()
-                )));
-            }
-
-            infer_to_image_format(&kind)?
-        }
-    };
-
     let orientation = metadata.get("Orientation").and_then(|v| v.as_u64());
     let rotation = metadata.get("Rotation").and_then(|v| v.as_u64()).unwrap_or(0);
 
-    let (img, format) = match format {
-        ImageFormat::General(format) => image::load_from_memory_with_format(&bytes, format)
-            .map(|img| (img, format))
-            .map_err(|err| ErrType::FsError.err(err, "Failed to load image from bytes")),
-        ImageFormat::Heic => heif_image(&bytes).map(|img| (img, image::ImageFormat::Jpeg)),
-    }?;
+    let img = image::load_from_memory_with_format(&bytes, format)
+        .map_err(|err| ErrType::FsError.err(err, "Failed to load image from bytes"))?;
 
     let img = match orientation {
         Some(2) => img.fliph(),
@@ -104,7 +83,17 @@ pub(super) fn create_thumbnail(
     .map_err(|err| ErrType::FsError.err(err, "Failed to write image to buffer"))
 }
 
-fn infer_to_image_format(kind: &infer::Type) -> AppResult<ImageFormat> {
+pub(super) fn infer_to_image_format(bytes: &[u8]) -> AppResult<ImageFormat> {
+    let kind = infer::get(&bytes).ok_or(ErrType::MediaError.new("Could not detect file type from magic bytes"))?;
+
+    if kind.matcher_type() != infer::MatcherType::Image {
+        return Err(ErrType::MediaError.new(format!(
+            "File is not an image, detected as: {} ({})",
+            kind.mime_type(),
+            kind.extension()
+        )));
+    }
+
     match kind.mime_type() {
         "image/jpeg" => Ok(ImageFormat::General(image::ImageFormat::Jpeg)),
         "image/png" => Ok(ImageFormat::General(image::ImageFormat::Png)),
@@ -119,11 +108,11 @@ fn infer_to_image_format(kind: &infer::Type) -> AppResult<ImageFormat> {
     }
 }
 
-fn heif_image(bytes: &[u8]) -> AppResult<image::DynamicImage> {
+pub(super) fn convert_heif_to_jpeg(bytes: Vec<u8>) -> AppResult<Vec<u8>> {
     let heif =
         libheif_rs::LibHeif::new_checked().map_err(|err| ErrType::MediaError.err(err, "Failed to init LibHeif"))?;
 
-    let ctx = libheif_rs::HeifContext::read_from_bytes(bytes)
+    let ctx = libheif_rs::HeifContext::read_from_bytes(&bytes)
         .map_err(|err| ErrType::MediaError.err(err, "Failed to create HeifContext"))?;
     let handle =
         ctx.primary_image_handle().map_err(|err| ErrType::MediaError.err(err, "Failed to get heif primary handle"))?;
@@ -138,7 +127,15 @@ fn heif_image(bytes: &[u8]) -> AppResult<image::DynamicImage> {
     let img_buffer: image::RgbImage =
         image::ImageBuffer::from_raw(interleaved.width, interleaved.height, interleaved.data.to_vec()).unwrap();
 
-    Ok(image::DynamicImage::ImageRgb8(img_buffer))
+    let img = image::DynamicImage::ImageRgb8(img_buffer);
+
+    let mut buffer = Vec::new();
+    let mut cursor = Cursor::new(&mut buffer);
+
+    let encoder = image::codecs::jpeg::JpegEncoder::new(&mut cursor);
+    img.write_with_encoder(encoder).map_err(|err| ErrType::MediaError.err(err, "Failed to encode heif to jpeg"))?;
+
+    Ok(buffer)
 }
 
 pub(super) fn process_video_thumbnail(
@@ -219,8 +216,7 @@ pub(super) fn process_video_thumbnail(
                     thumbnail.extend_from_slice(data);
                 }
 
-                return create_thumbnail(thumbnail, Some(ImageFormat::General(image::ImageFormat::Jpeg)), metadata)
-                    .map(Some);
+                return create_thumbnail(thumbnail, image::ImageFormat::Jpeg, metadata).map(Some);
             }
         }
     }

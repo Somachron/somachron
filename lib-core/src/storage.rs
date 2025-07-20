@@ -91,8 +91,8 @@ impl Storage {
         }
     }
 
-    async fn get_tmp_file(&self, user_id: &str) -> AppResult<(tokio::fs::File, PathBuf)> {
-        let tmp_dir_path = self.root_path.join(user_id).join("tmp");
+    async fn get_tmp_file(&self, space_id: &str) -> AppResult<(tokio::fs::File, PathBuf)> {
+        let tmp_dir_path = self.root_path.join(space_id).join("tmp");
         create_dir(&tmp_dir_path).await?;
 
         let id = nanoid!(8);
@@ -305,6 +305,7 @@ impl Storage {
             infer::MatcherType::Image => {
                 // download file from R2
                 let image_bytes = self.r2.download_photo(r2_path).await?;
+                let image_format = media::infer_to_image_format(&image_bytes)?;
 
                 // prepare tmp file
                 let (mut tmp_file, tmp_path) = self.get_tmp_file(space_id).await?;
@@ -313,9 +314,24 @@ impl Storage {
                     .await
                     .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp image file"))?;
 
-                // process image data
+                // process image metadata
                 let exif_data = media::extract_metadata(&tmp_path)?;
-                let thumbnail_bytes = media::create_thumbnail(image_bytes, None, &exif_data)?;
+                remove_file(tmp_path).await?;
+
+                // handle heif images
+                let (image_bytes, image_format) = match image_format {
+                    media::ImageFormat::General(fmt) => (image_bytes, fmt),
+                    media::ImageFormat::Heic => {
+                        let converted_bytes = media::convert_heif_to_jpeg(image_bytes)?;
+
+                        // upload jpeg bytes on same heic path
+                        self.r2.upload_photo(r2_path, converted_bytes.clone()).await?;
+
+                        (converted_bytes, image::ImageFormat::Jpeg)
+                    }
+                };
+
+                let thumbnail_bytes = media::create_thumbnail(image_bytes, image_format, &exif_data)?;
 
                 // save thumbnail
                 let mut thumbnail_file = create_file(&thumbnail_path).await?;
@@ -323,8 +339,6 @@ impl Storage {
                     .write_all(&thumbnail_bytes)
                     .await
                     .map_err(|err| ErrType::FsError.err(err, "Failed to save thumbnail file"))?;
-
-                remove_file(tmp_path).await?;
 
                 // return metadata
                 exif_data
