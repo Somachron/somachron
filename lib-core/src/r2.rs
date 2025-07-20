@@ -11,9 +11,6 @@ use aws_sdk_s3::{
 
 use crate::{config::R2Config, AppResult, ErrType};
 
-/// Max video part to download - 5 MB
-const VIDEO_PREVIEW_SIZE: usize = 5 * 1024 * 1024;
-
 #[derive(Debug)]
 struct R2Endpoint {
     account_id: &'static str,
@@ -97,21 +94,11 @@ impl R2Storage {
             .map_err(|err| ErrType::R2Error.err(err, "Failed to collect bytes"))
     }
 
-    pub(super) async fn download_video(&self, path: &str) -> AppResult<Vec<u8>> {
+    pub(super) async fn download_video(&self, path: &str) -> AppResult<ByteStream> {
         let builder = self.client.get_object().bucket(self.bucket_name);
-        let result = builder
-            .key(path)
-            .range(format!("bytes=0-{VIDEO_PREVIEW_SIZE}"))
-            .send()
-            .await
-            .map_err(|err| ErrType::r2_get(err, "Failed to download video"))?;
-
-        result
-            .body
-            .collect()
-            .await
-            .map(|bytes| bytes.to_vec())
-            .map_err(|err| ErrType::R2Error.err(err, "Failed to collect bytes"))
+        let result =
+            builder.clone().key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download video"))?;
+        Ok(result.body)
     }
 
     pub(super) async fn delete_folder(&self, path: &str) -> AppResult<()> {

@@ -40,7 +40,7 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 pub(super) fn create_thumbnail(
     bytes: Vec<u8>,
     format: Option<ImageFormat>,
-    _metadata: &serde_json::Value,
+    metadata: &serde_json::Value,
 ) -> AppResult<Vec<u8>> {
     let format = match format {
         Some(f) => f,
@@ -59,8 +59,8 @@ pub(super) fn create_thumbnail(
         }
     };
 
-    // TODO: get orientation from metadata "Orientation" tag
-    let orientation = None;
+    let orientation = metadata.get("Orientation").and_then(|v| v.as_u64());
+    let rotation = metadata.get("Rotation").and_then(|v| v.as_u64()).unwrap_or(0);
 
     let (img, format) = match format {
         ImageFormat::General(format) => image::load_from_memory_with_format(&bytes, format)
@@ -77,6 +77,13 @@ pub(super) fn create_thumbnail(
         Some(6) => img.rotate90(),
         Some(7) => img.rotate270().fliph(),
         Some(8) => img.rotate270(),
+        _ => img, // No rotation needed for 1 or unknown
+    };
+
+    let img = match rotation {
+        90 => img.rotate90(),
+        180 => img.rotate180(),
+        270 => img.rotate270(),
         _ => img, // No rotation needed for 1 or unknown
     };
 
@@ -134,10 +141,13 @@ fn heif_image(bytes: &[u8]) -> AppResult<image::DynamicImage> {
     Ok(image::DynamicImage::ImageRgb8(img_buffer))
 }
 
-pub(super) fn process_video_thumbnail(tmp_bytes_path: impl AsRef<Path>) -> AppResult<Option<Vec<u8>>> {
+pub(super) fn process_video_thumbnail(
+    tmp_path: impl AsRef<Path>,
+    metadata: &serde_json::Value,
+) -> AppResult<Option<Vec<u8>>> {
     ffmpeg::init().map_err(|err| ErrType::MediaError.err(err, "Failed to init ffmpeg"))?;
 
-    let mut input = ffmpeg::format::input(tmp_bytes_path.as_ref())
+    let mut input = ffmpeg::format::input(tmp_path.as_ref())
         .map_err(|err| ErrType::MediaError.err(err, "Failed to input bytes"))?;
 
     let video_stream =
@@ -209,12 +219,8 @@ pub(super) fn process_video_thumbnail(tmp_bytes_path: impl AsRef<Path>) -> AppRe
                     thumbnail.extend_from_slice(data);
                 }
 
-                return create_thumbnail(
-                    thumbnail,
-                    Some(ImageFormat::General(image::ImageFormat::Jpeg)),
-                    &serde_json::Value::Null,
-                )
-                .map(Some);
+                return create_thumbnail(thumbnail, Some(ImageFormat::General(image::ImageFormat::Jpeg)), metadata)
+                    .map(Some);
             }
         }
     }

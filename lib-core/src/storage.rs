@@ -314,17 +314,27 @@ impl Storage {
             }
             infer::MatcherType::Video => {
                 // download initial chunk from R2
-                let video_bytes = self.r2.download_video(r2_path).await?;
+                let mut video_stream = self.r2.download_video(r2_path).await?;
 
                 // prepare tmp file
                 let (mut tmp_file, tmp_path) = self.get_tmp_file(space_id).await?;
-                tmp_file
-                    .write_all(&video_bytes)
+
+                while let Some(chunk) = video_stream
+                    .try_next()
                     .await
-                    .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
+                    .map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?
+                {
+                    tmp_file
+                        .write_all(&chunk)
+                        .await
+                        .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
+                }
+                let _ = tmp_file.flush().await;
+
+                let metadata = media::extract_metadata(&tmp_path)?;
 
                 // process thumbnail
-                if let Some(thumbnail_bytes) = media::process_video_thumbnail(&tmp_path)? {
+                if let Some(thumbnail_bytes) = media::process_video_thumbnail(&tmp_path, &metadata)? {
                     // set thumbnail extension to jpeg
                     thumbnail_path.set_extension("jpeg");
                     thumbnail_file_name.set_extension("jpeg");
@@ -335,8 +345,6 @@ impl Storage {
                         .await
                         .map_err(|err| ErrType::FsError.err(err, "Failed to write thumbnail file"))?;
                 }
-
-                let metadata = media::extract_metadata(&tmp_path)?;
 
                 remove_file(tmp_path).await?;
 
@@ -401,6 +409,7 @@ impl Storage {
             let mut json_path = fs_path.clone();
             json_path.set_extension(format!("{ext}.json"));
 
+            self.r2.delete_key(r2_path).await?;
             let _ = tokio::fs::remove_file(&thumbnail_path).await;
             let _ = tokio::fs::remove_file(&json_path).await;
             Ok(())
