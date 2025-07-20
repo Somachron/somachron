@@ -25,7 +25,7 @@ RUN RUSTFLAGS='-C target-feature=-crt-static' cargo install --locked --path .
 FROM alpine:3.21
 
 # Copy the binary from the build stage
-COPY --from=builder /usr/local/cargo/bin/somacrhon /usr/local/bin/somachron
+COPY --from=builder /usr/local/cargo/bin/somachron /usr/local/bin/somachron
 COPY --from=builder /usr/src/app/lib-migrations/migrations /usr/local/bin/migrations
 
 EXPOSE 8080
