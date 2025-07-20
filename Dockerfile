@@ -4,7 +4,7 @@ WORKDIR /usr/src/app
 COPY . .
 
 # Install build dependencies
-RUN apk add --no-cache musl-dev perl-utils make curl make pkgconf openssl-dev openssl-libs-static libheif libheif-dev ffmpeg ffmpeg-dev
+RUN apk add --no-cache musl-dev perl-utils make curl make pkgconf openssl-dev openssl-libs-static libheif libheif-dev ffmpeg ffmpeg-dev clang17-libclang
 
 ARG R2_ACCOUNT_ID
 ARG R2_BUCKET
@@ -19,7 +19,7 @@ ARG DATABASE_URL
 ARG VOLUME_PATH
 
 # Build the application
-RUN cargo install --locked --path .
+RUN RUSTFLAGS='-C target-feature=-crt-static' cargo install --locked --path .
 
 # Start a new, final image
 FROM alpine:3.21
