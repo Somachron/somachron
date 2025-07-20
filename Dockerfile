@@ -40,9 +40,11 @@ ARG VOLUME_PATH
 RUN cargo install --locked --path .
 
 # Start a new, final image
-FROM debian:buster-slim
+FROM debian:bookworm-slim
 
 # Copy the binary from the build stage
+COPY --from=builder /usr/local/lib /usr/local/lib
+COPY --from=builder /usr/local/include /usr/local/include
 COPY --from=builder /usr/local/cargo/bin/somachron /usr/local/bin/somachron
 COPY --from=builder /usr/src/app/lib-migrations/migrations /usr/local/bin/migrations
 
