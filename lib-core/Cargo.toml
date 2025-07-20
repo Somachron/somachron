@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dotenv_codegen = "0.15.0"
-
 tokio = { workspace = true }
 tokio-util = { version = "0.7.15", features = ["io"] }
 

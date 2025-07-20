@@ -37,7 +37,7 @@ impl GoogleAuth {
         let config = GoogleConfig::new();
 
         let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
-        validation.set_audience(&[config.client_id]);
+        validation.set_audience(&[&config.client_id]);
         validation.validate_exp = true;
         validation.validate_nbf = true;
 
@@ -73,10 +73,10 @@ impl GoogleAuth {
             .header("Content-Length", 0)
             .header("Accept", "*/*")
             .query(&[
-                ("client_id", self.config.client_id),
-                ("client_secret", self.config.client_secret),
+                ("client_id", self.config.client_id.as_str()),
+                ("client_secret", self.config.client_secret.as_str()),
                 ("grant_type", "authorization_code"),
-                ("redirect_uri", self.config.redirect_uri),
+                ("redirect_uri", self.config.redirect_uri.as_str()),
                 ("code", &code),
             ])
             .send()
@@ -99,10 +99,10 @@ impl GoogleAuth {
             .header("Content-Length", 0)
             .header("Accept", "*/*")
             .query(&[
-                ("client_id", self.config.client_id),
-                ("client_secret", self.config.client_secret),
+                ("client_id", self.config.client_id.as_str()),
+                ("client_secret", self.config.client_secret.as_str()),
                 ("grant_type", "refresh_token"),
-                ("redirect_uri", self.config.redirect_uri),
+                ("redirect_uri", self.config.redirect_uri.as_str()),
                 ("refresh_token", &refresh_token),
             ])
             .send()

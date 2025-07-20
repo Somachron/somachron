@@ -1,48 +1,46 @@
-use dotenv_codegen::dotenv;
-
 pub fn get_host_addr() -> String {
     let port = std::env::var("PORT").unwrap_or("8080".into());
     format!("[::]:{port}")
 }
 
-pub fn get_db_url() -> &'static str {
-    dotenv!("DATABASE_URL", "missing db url")
+pub fn get_db_url() -> String {
+    std::env::var("DATABASE_URL").unwrap_or_default()
 }
 
-pub fn get_volume_path() -> &'static str {
-    dotenv!("VOLUME_PATH", "missing volume path")
+pub fn get_volume_path() -> String {
+    std::env::var("VOLUME_PATH").unwrap_or_default()
 }
 
 pub(crate) struct R2Config {
-    pub account_id: &'static str,
-    pub bucket_name: &'static str,
-    pub access_key: &'static str,
-    pub secret_key: &'static str,
+    pub account_id: String,
+    pub bucket_name: String,
+    pub access_key: String,
+    pub secret_key: String,
 }
 
 impl R2Config {
     pub(crate) fn new() -> Self {
         Self {
-            account_id: dotenv!("R2_ACCOUNT_ID", "missing R2 account ID"),
-            bucket_name: dotenv!("R2_BUCKET", "missing R2 bucket"),
-            access_key: dotenv!("R2_ACCESS_KEY", "missing R2 access key"),
-            secret_key: dotenv!("R2_SECRET_KEY", "missing R2 secret key"),
+            account_id: std::env::var("R2_ACCOUNT_ID").unwrap_or_default(),
+            bucket_name: std::env::var("R2_BUCKET").unwrap_or_default(),
+            access_key: std::env::var("R2_ACCESS_KEY").unwrap_or_default(),
+            secret_key: std::env::var("R2_SECRET_KEY").unwrap_or_default(),
         }
     }
 }
 
 pub(crate) struct GoogleConfig {
-    pub client_id: &'static str,
-    pub client_secret: &'static str,
-    pub redirect_uri: &'static str,
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
 }
 
 impl GoogleConfig {
     pub(crate) fn new() -> Self {
         Self {
-            client_id: dotenv!("GOOGLE_CLIENT_ID", "missing google client ID"),
-            client_secret: dotenv!("GOOGLE_CLIENT_SECRET", "missing google client secret"),
-            redirect_uri: dotenv!("GOOGLE_REDIRECT_URI", "missing google redirect uri"),
+            client_id: std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
+            client_secret: std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
+            redirect_uri: std::env::var("GOOGLE_REDIRECT_URI").unwrap_or_default(),
         }
     }
 }

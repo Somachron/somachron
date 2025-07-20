@@ -74,7 +74,8 @@ async fn remove_file(file_path: impl AsRef<Path>) -> AppResult<()> {
 
 impl Storage {
     pub async fn new() -> Self {
-        let volume_path = Path::new(config::get_volume_path());
+        let volume_path = config::get_volume_path();
+        let volume_path = Path::new(&volume_path);
 
         // create necessary volumes
         let root_path = volume_path.join(ROOT_DATA);

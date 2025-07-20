@@ -13,8 +13,8 @@ use crate::{config::R2Config, AppResult, ErrType};
 
 #[derive(Debug)]
 struct R2Endpoint {
-    account_id: &'static str,
-    bucket_name: &'static str,
+    account_id: String,
+    bucket_name: String,
 }
 
 impl ResolveEndpoint for R2Endpoint {
@@ -32,7 +32,7 @@ pub(super) struct R2Storage {
     client: Client,
 
     /// Bucket name - user configured from secrets
-    bucket_name: &'static str,
+    bucket_name: String,
 }
 
 impl R2Storage {
@@ -42,7 +42,7 @@ impl R2Storage {
         let creds = Credentials::new(config.access_key, config.secret_key, None, None, "static");
         let endpoint_resolver = R2Endpoint {
             account_id: config.account_id,
-            bucket_name: config.bucket_name,
+            bucket_name: config.bucket_name.clone(),
         };
 
         let client_config = Config::builder()
@@ -60,7 +60,7 @@ impl R2Storage {
 
     pub(super) async fn create_folder(&self, path: &str) -> AppResult<()> {
         let stream = ByteStream::from("fd".as_bytes().to_vec());
-        let builder = self.client.put_object().bucket(self.bucket_name);
+        let builder = self.client.put_object().bucket(&self.bucket_name);
         let result = builder.key(format!("{path}/fd.dat")).body(stream).send().await;
         result.map_err(|err| ErrType::r2_put(err, "Failed to create dir"))?;
         Ok(())
@@ -73,7 +73,7 @@ impl R2Storage {
         let request = self
             .client
             .put_object()
-            .bucket(self.bucket_name)
+            .bucket(&self.bucket_name)
             .key(path)
             .presigned(config)
             .await
@@ -89,7 +89,7 @@ impl R2Storage {
         let request = self
             .client
             .get_object()
-            .bucket(self.bucket_name)
+            .bucket(&self.bucket_name)
             .key(path)
             .presigned(config)
             .await
@@ -100,14 +100,14 @@ impl R2Storage {
 
     pub(super) async fn upload_photo(&self, path: &str, bytes: Vec<u8>) -> AppResult<()> {
         let stream = ByteStream::from(bytes);
-        let builder = self.client.put_object().bucket(self.bucket_name);
+        let builder = self.client.put_object().bucket(&self.bucket_name);
         let result = builder.key(path).body(stream).send().await;
         result.map_err(|err| ErrType::r2_put(err, "Failed to upload photo"))?;
         Ok(())
     }
 
     pub(super) async fn download_photo(&self, path: &str) -> AppResult<Vec<u8>> {
-        let builder = self.client.get_object().bucket(self.bucket_name);
+        let builder = self.client.get_object().bucket(&self.bucket_name);
         let result = builder.key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download photo"))?;
 
         result
@@ -119,7 +119,7 @@ impl R2Storage {
     }
 
     pub(super) async fn download_video(&self, path: &str) -> AppResult<ByteStream> {
-        let builder = self.client.get_object().bucket(self.bucket_name);
+        let builder = self.client.get_object().bucket(&self.bucket_name);
         let result =
             builder.clone().key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download video"))?;
         Ok(result.body)
@@ -129,7 +129,7 @@ impl R2Storage {
         let objects = self
             .client
             .list_objects_v2()
-            .bucket(self.bucket_name)
+            .bucket(&self.bucket_name)
             .prefix(path)
             .send()
             .await
@@ -148,7 +148,7 @@ impl R2Storage {
     }
 
     pub(super) async fn delete_key(&self, path: &str) -> AppResult<()> {
-        let builder = self.client.delete_object().bucket(self.bucket_name);
+        let builder = self.client.delete_object().bucket(&self.bucket_name);
         let _ = builder.key(path).send().await.map_err(|err| ErrType::r2_delete(err, "Failed to delete object"))?;
         Ok(())
     }

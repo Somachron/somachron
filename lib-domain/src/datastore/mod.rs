@@ -21,9 +21,9 @@ impl Datastore {
     pub(crate) async fn connect() -> Self {
         let url = config::get_db_url();
 
-        lib_migrations::migrate_schema(url).await;
+        lib_migrations::migrate_schema(&url).await;
 
-        let (client, connection) = tokio_postgres::connect(url, NoTls).await.expect("Failed to connect to postgres");
+        let (client, connection) = tokio_postgres::connect(&url, NoTls).await.expect("Failed to connect to postgres");
 
         // spawn connection
         tokio::spawn(async move {
