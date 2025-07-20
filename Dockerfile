@@ -22,6 +22,7 @@ RUN cmake --preset=release ..
 RUN make install
 
 WORKDIR /usr/src/app
+RUN rm -rf /usr/deps/libheif
 
 ARG R2_ACCOUNT_ID
 ARG R2_BUCKET
@@ -38,15 +39,6 @@ ARG VOLUME_PATH
 # Build the application
 # RUN RUSTFLAGS='-C target-feature=-crt-static' cargo install --locked --path .
 RUN cargo install --locked --path .
-
-# Start a new, final image
-FROM debian:bookworm-slim
-
-# Copy the binary from the build stage
-COPY --from=builder /usr/local/lib /usr/local/lib
-COPY --from=builder /usr/local/include /usr/local/include
-COPY --from=builder /usr/local/cargo/bin/somachron /usr/local/bin/somachron
-COPY --from=builder /usr/src/app/lib-migrations/migrations /usr/local/bin/migrations
 
 EXPOSE 8080
 
