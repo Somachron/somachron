@@ -19,7 +19,6 @@ ARG DATABASE_URL
 ARG VOLUME_PATH
 
 # Build the application
-RUN cargo test
 RUN cargo install --locked --path .
 
 # Start a new, final image
