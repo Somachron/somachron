@@ -2,6 +2,7 @@
 name = "somachron"
 version = "0.1.0"
 edition = "2024"
+build = true
 
 [workspace]
 resolver = "3"
@@ -38,4 +39,7 @@ serde = { workspace = true }
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 
+dotenv = "0.15.0"
+
+[build-dependencies]
 dotenv = "0.15.0"
