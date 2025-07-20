@@ -11,6 +11,7 @@ pub struct User {
     pub given_name: String,
     pub email: String,
     pub picture_url: String,
+    pub allowed: bool,
 }
 impl From<tokio_postgres::Row> for User {
     fn from(value: tokio_postgres::Row) -> Self {
@@ -21,19 +22,20 @@ impl From<tokio_postgres::Row> for User {
             given_name: value.get(3),
             email: value.get(4),
             picture_url: value.get(5),
+            allowed: value.get(6),
         }
     }
 }
 
 impl Datastore {
-    pub async fn get_user_id(&self, email: &str) -> AppResult<Option<String>> {
+    pub async fn get_user_by_email(&self, email: &str) -> AppResult<Option<User>> {
         let rows = self
             .client
             .query(&self.user_stmts.get_user_id, &[&email])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to check for user"))?;
 
-        Ok(rows.into_iter().nth(0).map(|r| r.get(0)))
+        Ok(rows.into_iter().nth(0).map(User::from))
     }
 
     pub async fn get_user_by_id(&self, id: &str) -> AppResult<Option<User>> {

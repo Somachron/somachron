@@ -7,7 +7,7 @@ use axum::response::Response;
 
 use super::extensions::ReqId;
 
-const REQ_ID_HEADER: &str = "x--id";
+const REQ_ID_HEADER: &str = "x-sc-id";
 
 /// Interceptor to log request and response
 ///

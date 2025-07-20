@@ -32,15 +32,19 @@ pub async fn authenticate(
     let token = extract_bearer(&headers).map_err(|err| ApiError(err, req_id.clone()))?;
 
     let claims = app.auth().validate_token_for_claims(token).await.map_err(|err| ApiError(err, req_id.clone()))?;
-    let user_id = app
+    let user = app
         .service()
         .ds()
-        .get_user_id(&claims.email)
+        .get_user_by_email(&claims.email)
         .await
         .map(|id| id.ok_or(ApiError(ErrType::Unauthorized.new("User not found"), req_id.clone())))
         .map_err(|err| ApiError(err, req_id.clone()))??;
 
-    let user_id = UserId(user_id.into());
+    if !user.allowed {
+        return Err(ApiError(ErrType::Unauthorized.new("Not allowed"), req_id));
+    }
+
+    let user_id = UserId(user.id.into());
 
     req.extensions_mut().insert(user_id);
 

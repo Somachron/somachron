@@ -19,7 +19,7 @@ pub(super) struct UserStatements {
 impl UserStatements {
     pub(super) async fn new(client: &Client) -> Self {
         Self {
-            get_user_id: client.prepare_typed("SELECT id FROM users WHERE email = $1", &[Type::TEXT]).await.unwrap(),
+            get_user_id: client.prepare_typed("SELECT * FROM users WHERE email = $1", &[Type::TEXT]).await.unwrap(),
             get_user_by_id: client.prepare_typed("SELECT * FROM users WHERE id = $1", &[Type::BPCHAR]).await.unwrap(),
             insert_user: client
                 .prepare_typed(

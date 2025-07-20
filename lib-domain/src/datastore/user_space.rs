@@ -44,7 +44,8 @@ impl From<tokio_postgres::Row> for SpaceUser {
             updated_at: value.get(2),
             given_name: value.get(3),
             picture_url: value.get(5),
-            role: value.get(6),
+            // skipped `allowed` at 6
+            role: value.get(7),
         }
     }
 }
