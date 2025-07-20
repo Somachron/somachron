@@ -7,6 +7,7 @@ COPY . .
 RUN apt update
 RUN apt install -y make curl make pkgconf clang git cmake \
     libssl-dev openssl \
+    libimage-exiftool-perl \
     libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev ffmpeg
 
 # Build libheif
