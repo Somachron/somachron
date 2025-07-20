@@ -12,6 +12,12 @@ const SPACES_PATH: &str = "spaces";
 const FS_TAG: &str = "fs::";
 
 #[derive(Serialize, Deserialize, ToSchema)]
+pub enum MediaType {
+    Image,
+    Video,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct FileMetadata {
     pub file_name: String,
     pub r2_path: String,
@@ -19,6 +25,7 @@ pub struct FileMetadata {
     pub metadata: serde_json::Value,
     pub size: usize,
     pub user_id: String,
+    pub media_type: MediaType,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -370,6 +377,10 @@ impl Storage {
             metadata,
             size: file_size,
             user_id: user_id.to_string(),
+            media_type: match media_type {
+                infer::MatcherType::Video => MediaType::Video,
+                _ => MediaType::Image,
+            },
         };
         let metadata_bytes =
             serde_json::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
