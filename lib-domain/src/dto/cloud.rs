@@ -3,7 +3,7 @@ pub mod res {
     use utoipa::ToSchema;
 
     #[derive(Serialize, ToSchema)]
-    pub struct UploadSignedUrlResponse {
+    pub struct SignedUrlResponse {
         pub url: String,
     }
 }
@@ -14,7 +14,7 @@ pub mod req {
     use validator::Validate;
 
     #[derive(Deserialize, ToSchema, Validate)]
-    pub struct UploadSignedUrlRequest {
+    pub struct SignedUrlRequest {
         #[validate(length(min = 3))]
         pub file_path: String,
     }

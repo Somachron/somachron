@@ -12,8 +12,8 @@ use lib_core::{
     ApiError, ApiResult, EmptyResponse, Json,
 };
 use lib_domain::dto::cloud::{
-    req::{CreateFolderRequest, UploadCompleteRequest, UploadSignedUrlRequest},
-    res::UploadSignedUrlResponse,
+    req::{CreateFolderRequest, SignedUrlRequest, UploadCompleteRequest},
+    res::SignedUrlResponse,
 };
 
 use crate::app::AppState;
@@ -26,6 +26,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .route("/{*dir}", delete(delete_path))
         .route("/f/{*path}", get(get_file))
         .route("/d", post(create_folder))
+        .route("/stream", post(generate_download_signed_url))
         .route("/upload", post(generate_upload_signed_url))
         .route("/upload/complete", post(upload_completion))
         .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
@@ -85,19 +86,42 @@ pub async fn get_file(
 #[utoipa::path(
     post,
     path = "/v1/media/upload",
-    responses((status=200, body=UploadSignedUrlResponse)),
+    responses((status=200, body=SignedUrlResponse)),
     tag = "Cloud"
 )]
 pub async fn generate_upload_signed_url(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Json(body): Json<UploadSignedUrlRequest>,
-) -> ApiResult<UploadSignedUrlResponse> {
+    Json(body): Json<SignedUrlRequest>,
+) -> ApiResult<SignedUrlResponse> {
     app.service()
         .generate_upload_signed_url(space_ctx, app.storage(), body.file_path)
         .await
         .map(Json)
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/media/stream",
+    responses((status=200, body=SignedUrlResponse)),
+    tag = "Cloud"
+)]
+pub async fn generate_download_signed_url(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+    Json(body): Json<SignedUrlRequest>,
+) -> ApiResult<SignedUrlResponse> {
+    app.storage()
+        .generate_download_signed_url(&space_ctx.id, &body.file_path)
+        .await
+        .map(|url| {
+            Json(SignedUrlResponse {
+                url,
+            })
+        })
         .map_err(|err| ApiError(err, req_id))
 }
 

@@ -68,7 +68,7 @@ impl R2Storage {
 
     pub(super) async fn generate_upload_signed_url(&self, path: &str) -> AppResult<String> {
         let config = PresigningConfig::expires_in(std::time::Duration::from_secs(60 * 60))
-            .map_err(|err| ErrType::ServerError.err(err, "Failed to generate presign config"))?;
+            .map_err(|err| ErrType::R2Error.err(err, "Failed to generate presign config"))?;
 
         let request = self
             .client
@@ -80,6 +80,30 @@ impl R2Storage {
             .map_err(|err| ErrType::r2_put(err, "Failed to generate upload presigned URL"))?;
 
         Ok(request.uri().to_string())
+    }
+
+    pub(super) async fn generate_download_signed_url(&self, path: &str) -> AppResult<String> {
+        let config = PresigningConfig::expires_in(std::time::Duration::from_secs(3 * 60 * 60))
+            .map_err(|err| ErrType::R2Error.err(err, "Failed to generate presign config"))?;
+
+        let request = self
+            .client
+            .get_object()
+            .bucket(self.bucket_name)
+            .key(path)
+            .presigned(config)
+            .await
+            .map_err(|err| ErrType::r2_get(err, "Faiedl to generate download presigned URL"))?;
+
+        Ok(request.uri().to_string())
+    }
+
+    pub(super) async fn upload_photo(&self, path: &str, bytes: Vec<u8>) -> AppResult<()> {
+        let stream = ByteStream::from(bytes);
+        let builder = self.client.put_object().bucket(self.bucket_name);
+        let result = builder.key(path).body(stream).send().await;
+        result.map_err(|err| ErrType::r2_put(err, "Failed to upload photo"))?;
+        Ok(())
     }
 
     pub(super) async fn download_photo(&self, path: &str) -> AppResult<Vec<u8>> {

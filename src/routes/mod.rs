@@ -51,6 +51,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         space::get_user_spaces,
 
         cloud::generate_upload_signed_url,
+        cloud::generate_download_signed_url,
         cloud::upload_completion,
         cloud::list_directory,
         cloud::get_file,
@@ -76,9 +77,9 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         lib_domain::dto::space::res::SpaceResponse,
         lib_domain::dto::space::res::UserSpaceResponse,
 
-        lib_domain::dto::cloud::req::UploadSignedUrlRequest,
+        lib_domain::dto::cloud::req::SignedUrlRequest,
         lib_domain::dto::cloud::req::UploadCompleteRequest,
-        lib_domain::dto::cloud::res::UploadSignedUrlResponse,
+        lib_domain::dto::cloud::res::SignedUrlResponse,
     )),
     servers()
 )]

@@ -4,7 +4,7 @@ use lib_core::{
     AppResult, ErrType,
 };
 
-use crate::dto::cloud::{req::UploadCompleteRequest, res::UploadSignedUrlResponse};
+use crate::dto::cloud::{req::UploadCompleteRequest, res::SignedUrlResponse};
 
 use super::Service;
 
@@ -34,14 +34,14 @@ impl Service {
         }: SpaceCtx,
         storage: &Storage,
         path: String,
-    ) -> AppResult<UploadSignedUrlResponse> {
+    ) -> AppResult<SignedUrlResponse> {
         match role {
             UserRole::Read => return Err(ErrType::Unauthorized.new("Cannot upload: Unauthorized read role")),
             _ => (),
         };
 
         let url = storage.generate_upload_signed_url(&space_id, &path).await?;
-        Ok(UploadSignedUrlResponse {
+        Ok(SignedUrlResponse {
             url,
         })
     }
