@@ -4,7 +4,7 @@ WORKDIR /usr/src/app
 COPY . .
 
 # Install build dependencies
-RUN apk add --no-cache musl-dev perl-utils make curl make pkgconf openssl-dev openssl-libs-static libheif libheif-dev ffmpeg
+RUN apk add --no-cache musl-dev perl-utils make curl make pkgconf openssl-dev openssl-libs-static libheif libheif-dev ffmpeg ffmpeg-dev
 
 ARG R2_ACCOUNT_ID
 ARG R2_BUCKET
