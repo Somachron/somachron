@@ -106,22 +106,10 @@ impl R2Storage {
         Ok(())
     }
 
-    pub(super) async fn download_photo(&self, path: &str) -> AppResult<Vec<u8>> {
-        let builder = self.client.get_object().bucket(&self.bucket_name);
-        let result = builder.key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download photo"))?;
-
-        result
-            .body
-            .collect()
-            .await
-            .map(|bytes| bytes.to_vec())
-            .map_err(|err| ErrType::R2Error.err(err, "Failed to collect bytes"))
-    }
-
-    pub(super) async fn download_video(&self, path: &str) -> AppResult<ByteStream> {
+    pub(super) async fn download_media(&self, path: &str) -> AppResult<ByteStream> {
         let builder = self.client.get_object().bucket(&self.bucket_name);
         let result =
-            builder.clone().key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download video"))?;
+            builder.clone().key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download media"))?;
         Ok(result.body)
     }
 

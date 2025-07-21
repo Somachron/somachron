@@ -1,9 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use aws_sdk_s3::primitives::ByteStream;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use utoipa::ToSchema;
+
+use crate::media::MediaProcessor;
 
 use super::{config, media, r2::R2Storage, AppResult, ErrType};
 
@@ -56,6 +59,9 @@ pub struct Storage {
 
     /// R2 client
     r2: R2Storage,
+
+    /// [`MediaProcessor`]
+    mp: MediaProcessor,
 }
 
 async fn create_dir(dir: impl AsRef<Path>) -> AppResult<()> {
@@ -89,16 +95,31 @@ impl Storage {
             spaces_path,
             r2_spaces: PathBuf::from(ROOT_DATA).join(SPACES_PATH),
             r2: R2Storage::new(),
+            mp: media::MediaProcessor::new(),
         }
     }
 
-    async fn get_tmp_file(&self, space_id: &str) -> AppResult<(tokio::fs::File, PathBuf)> {
+    async fn save_tmp_file(&self, space_id: &str, mut bytes_stream: ByteStream) -> AppResult<PathBuf> {
         let tmp_dir_path = self.root_path.join(space_id).join("tmp");
         create_dir(&tmp_dir_path).await?;
 
         let id = nanoid!(8);
         let tmp_file_path = tmp_dir_path.join(format!("tmp_f_{id}"));
-        create_file(&tmp_file_path).await.map(|f| (f, tmp_file_path))
+        let mut tmp_file = create_file(&tmp_file_path).await?;
+
+        while let Some(chunk) = bytes_stream
+            .try_next()
+            .await
+            .map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?
+        {
+            tmp_file
+                .write_all(&chunk)
+                .await
+                .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
+        }
+        let _ = tmp_file.flush().await;
+
+        Ok(tmp_file_path)
     }
 
     /// Cleans path for fs operations
@@ -301,38 +322,34 @@ impl Storage {
         thumbnail_path.set_file_name(&thumbnail_file_name);
 
         // process thumbnail and metadata
-        let media_type = media::get_media_type(ext);
+        let media_type = self.mp.get_media_type(ext);
         let metadata = match media_type {
             infer::MatcherType::Image => {
                 // download file from R2
-                let image_bytes = self.r2.download_photo(r2_path).await?;
-                let image_format = media::infer_to_image_format(&image_bytes)?;
+                let image_stream = self.r2.download_media(r2_path).await?;
 
-                // prepare tmp file
-                let (mut tmp_file, tmp_path) = self.get_tmp_file(space_id).await?;
-                tmp_file
-                    .write_all(&image_bytes)
-                    .await
-                    .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp image file"))?;
+                // save tmp file
+                let tmp_path = self.save_tmp_file(space_id, image_stream).await?;
 
                 // process image metadata
-                let exif_data = media::extract_metadata(&tmp_path)?;
-                remove_file(tmp_path).await?;
+                let exif_data = self.mp.extract_metadata(&tmp_path)?;
 
                 // handle heif images
-                let (image_bytes, image_format) = match image_format {
-                    media::ImageFormat::General(fmt) => (image_bytes, fmt),
+                let image_format = self.mp.infer_to_image_format(&tmp_path)?;
+                let (thumbnail_data, image_format) = match image_format {
+                    media::ImageFormat::General(fmt) => (media::ThumbnailType::Path(tmp_path), fmt),
                     media::ImageFormat::Heic => {
-                        let converted_bytes = media::convert_heif_to_jpeg(image_bytes)?;
+                        let converted_bytes = self.mp.convert_heif_to_jpeg(tmp_path.to_str().unwrap())?;
+                        remove_file(tmp_path).await?;
 
                         // upload jpeg bytes on same heic path
                         self.r2.upload_photo(r2_path, converted_bytes.clone()).await?;
 
-                        (converted_bytes, image::ImageFormat::Jpeg)
+                        (media::ThumbnailType::Bytes(converted_bytes), image::ImageFormat::Jpeg)
                     }
                 };
 
-                let thumbnail_bytes = media::create_thumbnail(image_bytes, image_format, &exif_data)?;
+                let thumbnail_bytes = self.mp.create_thumbnail(thumbnail_data, image_format, &exif_data)?;
 
                 // save thumbnail
                 let mut thumbnail_file = create_file(&thumbnail_path).await?;
@@ -340,33 +357,22 @@ impl Storage {
                     .write_all(&thumbnail_bytes)
                     .await
                     .map_err(|err| ErrType::FsError.err(err, "Failed to save thumbnail file"))?;
+                let _ = thumbnail_file.flush().await;
 
                 // return metadata
                 exif_data
             }
             infer::MatcherType::Video => {
                 // download initial chunk from R2
-                let mut video_stream = self.r2.download_video(r2_path).await?;
+                let video_stream = self.r2.download_media(r2_path).await?;
 
-                // prepare tmp file
-                let (mut tmp_file, tmp_path) = self.get_tmp_file(space_id).await?;
+                // save tmp file
+                let tmp_path = self.save_tmp_file(space_id, video_stream).await?;
 
-                while let Some(chunk) = video_stream
-                    .try_next()
-                    .await
-                    .map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?
-                {
-                    tmp_file
-                        .write_all(&chunk)
-                        .await
-                        .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
-                }
-                let _ = tmp_file.flush().await;
-
-                let metadata = media::extract_metadata(&tmp_path)?;
+                let metadata = self.mp.extract_metadata(&tmp_path)?;
 
                 // process thumbnail
-                if let Some(thumbnail_bytes) = media::process_video_thumbnail(&tmp_path, &metadata)? {
+                if let Some(thumbnail_bytes) = self.mp.process_video_thumbnail(&tmp_path, &metadata)? {
                     // set thumbnail extension to jpeg
                     thumbnail_path.set_extension("jpeg");
                     thumbnail_file_name.set_extension("jpeg");
@@ -376,6 +382,7 @@ impl Storage {
                         .write_all(&thumbnail_bytes)
                         .await
                         .map_err(|err| ErrType::FsError.err(err, "Failed to write thumbnail file"))?;
+                    let _ = thumbnail_file.flush().await;
                 }
 
                 remove_file(tmp_path).await?;
