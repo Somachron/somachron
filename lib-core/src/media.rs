@@ -64,8 +64,9 @@ impl MediaProcessor {
         &self,
         data: ThumbnailType,
         format: image::ImageFormat,
+        dest_path: PathBuf,
         metadata: &serde_json::Value,
-    ) -> AppResult<Vec<u8>> {
+    ) -> AppResult<()> {
         let orientation = metadata.get("Orientation").and_then(|v| v.as_u64());
         let rotation = metadata.get("Rotation").and_then(|v| v.as_u64()).unwrap_or(0);
 
@@ -100,19 +101,19 @@ impl MediaProcessor {
         };
 
         let thumbnail = img.resize(THUMBNAIL_DIM, THUMBNAIL_DIM, image::imageops::FilterType::Lanczos3);
+        // let thumbnail = img;
 
         let quality = 80;
-        let mut buffer = Vec::new();
-        let mut cursor = Cursor::new(&mut buffer);
+        let mut file =
+            std::fs::File::create(dest_path).map_err(|err| ErrType::FsError.err(err, "Failed to open dest file"))?;
 
         match format {
             image::ImageFormat::Jpeg => {
-                let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
+                let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, quality);
                 thumbnail.write_with_encoder(encoder)
             }
-            _ => thumbnail.write_to(&mut cursor, format),
+            _ => thumbnail.write_to(&mut file, format),
         }
-        .map(|_| buffer)
         .map_err(|err| ErrType::FsError.err(err, "Failed to write image to buffer"))
     }
 
@@ -175,8 +176,9 @@ impl MediaProcessor {
     pub(super) fn process_video_thumbnail(
         &self,
         tmp_path: impl AsRef<Path>,
+        dest_path: PathBuf,
         metadata: &serde_json::Value,
-    ) -> AppResult<Option<Vec<u8>>> {
+    ) -> AppResult<()> {
         let mut input = ffmpeg::format::input(tmp_path.as_ref())
             .map_err(|err| ErrType::MediaError.err(err, "Failed to input bytes"))?;
 
@@ -250,14 +252,17 @@ impl MediaProcessor {
                         thumbnail.extend_from_slice(data);
                     }
 
-                    return self
-                        .create_thumbnail(ThumbnailType::Bytes(thumbnail), image::ImageFormat::Jpeg, metadata)
-                        .map(Some);
+                    return self.create_thumbnail(
+                        ThumbnailType::Bytes(thumbnail),
+                        image::ImageFormat::Jpeg,
+                        dest_path,
+                        metadata,
+                    );
                 }
             }
         }
 
-        Ok(None)
+        Ok(())
     }
 
     /// Extract [`Metadata`] from image byte

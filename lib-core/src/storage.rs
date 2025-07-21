@@ -337,10 +337,10 @@ impl Storage {
                 // handle heif images
                 let image_format = self.mp.infer_to_image_format(&tmp_path)?;
                 let (thumbnail_data, image_format) = match image_format {
-                    media::ImageFormat::General(fmt) => (media::ThumbnailType::Path(tmp_path), fmt),
+                    media::ImageFormat::General(fmt) => (media::ThumbnailType::Path(tmp_path.clone()), fmt),
                     media::ImageFormat::Heic => {
                         let converted_bytes = self.mp.convert_heif_to_jpeg(tmp_path.to_str().unwrap())?;
-                        remove_file(tmp_path).await?;
+                        remove_file(&tmp_path).await?;
 
                         // upload jpeg bytes on same heic path
                         self.r2.upload_photo(r2_path, converted_bytes.clone()).await?;
@@ -349,15 +349,9 @@ impl Storage {
                     }
                 };
 
-                let thumbnail_bytes = self.mp.create_thumbnail(thumbnail_data, image_format, &exif_data)?;
+                self.mp.create_thumbnail(thumbnail_data, image_format, thumbnail_path, &exif_data)?;
 
-                // save thumbnail
-                let mut thumbnail_file = create_file(&thumbnail_path).await?;
-                thumbnail_file
-                    .write_all(&thumbnail_bytes)
-                    .await
-                    .map_err(|err| ErrType::FsError.err(err, "Failed to save thumbnail file"))?;
-                let _ = thumbnail_file.flush().await;
+                let _ = remove_file(tmp_path).await;
 
                 // return metadata
                 exif_data
@@ -372,18 +366,9 @@ impl Storage {
                 let metadata = self.mp.extract_metadata(&tmp_path)?;
 
                 // process thumbnail
-                if let Some(thumbnail_bytes) = self.mp.process_video_thumbnail(&tmp_path, &metadata)? {
-                    // set thumbnail extension to jpeg
-                    thumbnail_path.set_extension("jpeg");
-                    thumbnail_file_name.set_extension("jpeg");
-
-                    let mut thumbnail_file = create_file(&thumbnail_path).await?;
-                    thumbnail_file
-                        .write_all(&thumbnail_bytes)
-                        .await
-                        .map_err(|err| ErrType::FsError.err(err, "Failed to write thumbnail file"))?;
-                    let _ = thumbnail_file.flush().await;
-                }
+                thumbnail_path.set_extension("jpeg");
+                thumbnail_file_name.set_extension("jpeg");
+                self.mp.process_video_thumbnail(&tmp_path, thumbnail_path, &metadata)?;
 
                 remove_file(tmp_path).await?;
 
