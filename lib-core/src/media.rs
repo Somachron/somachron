@@ -1,7 +1,4 @@
-use std::{
-    io::Cursor,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use ffmpeg_next as ffmpeg;
 
@@ -14,9 +11,9 @@ pub enum ImageFormat {
     Heic,
 }
 
-pub enum ThumbnailType {
+pub enum ThumbnailType<'a> {
     Bytes(Vec<u8>),
-    Path(PathBuf),
+    Path(&'a PathBuf),
 }
 
 pub struct MediaProcessor {
@@ -144,8 +141,8 @@ impl MediaProcessor {
         }
     }
 
-    pub(super) fn convert_heif_to_jpeg(&self, tmp_path: &str) -> AppResult<Vec<u8>> {
-        let ctx = libheif_rs::HeifContext::read_from_file(tmp_path)
+    pub(super) fn convert_heif_to_jpeg(&self, tmp_path: &PathBuf) -> AppResult<()> {
+        let ctx = libheif_rs::HeifContext::read_from_file(tmp_path.to_str().unwrap())
             .map_err(|err| ErrType::MediaError.err(err, "Failed to create HeifContext"))?;
         let handle = ctx
             .primary_image_handle()
@@ -164,13 +161,13 @@ impl MediaProcessor {
 
         let img = image::DynamicImage::ImageRgb8(img_buffer);
 
-        let mut buffer = Vec::new();
-        let mut cursor = Cursor::new(&mut buffer);
+        let file = std::fs::File::create(tmp_path)
+            .map_err(|err| ErrType::FsError.err(err, "Failed to create heif convert file"))?;
 
-        let encoder = image::codecs::jpeg::JpegEncoder::new(&mut cursor);
+        let encoder = image::codecs::jpeg::JpegEncoder::new(file);
         img.write_with_encoder(encoder).map_err(|err| ErrType::MediaError.err(err, "Failed to encode heif to jpeg"))?;
 
-        Ok(buffer)
+        Ok(())
     }
 
     pub(super) fn process_video_thumbnail(

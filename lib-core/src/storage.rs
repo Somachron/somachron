@@ -335,21 +335,24 @@ impl Storage {
                 let exif_data = self.mp.extract_metadata(&tmp_path)?;
 
                 // handle heif images
-                let image_format = self.mp.infer_to_image_format(&tmp_path)?;
-                let (thumbnail_data, image_format) = match image_format {
-                    media::ImageFormat::General(fmt) => (media::ThumbnailType::Path(tmp_path.clone()), fmt),
+                let image_format = match self.mp.infer_to_image_format(&tmp_path)? {
+                    media::ImageFormat::General(fmt) => fmt,
                     media::ImageFormat::Heic => {
-                        let converted_bytes = self.mp.convert_heif_to_jpeg(tmp_path.to_str().unwrap())?;
-                        remove_file(&tmp_path).await?;
+                        self.mp.convert_heif_to_jpeg(&tmp_path)?;
 
                         // upload jpeg bytes on same heic path
-                        self.r2.upload_photo(r2_path, converted_bytes.clone()).await?;
+                        self.r2.upload_photo(r2_path, &tmp_path).await?;
 
-                        (media::ThumbnailType::Bytes(converted_bytes), image::ImageFormat::Jpeg)
+                        image::ImageFormat::Jpeg
                     }
                 };
 
-                self.mp.create_thumbnail(thumbnail_data, image_format, thumbnail_path, &exif_data)?;
+                self.mp.create_thumbnail(
+                    media::ThumbnailType::Path(&tmp_path),
+                    image_format,
+                    thumbnail_path,
+                    &exif_data,
+                )?;
 
                 let _ = remove_file(tmp_path).await;
 
