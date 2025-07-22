@@ -5,6 +5,7 @@ members = [
     "lib-domain",
     "lib-migrations",
     "somachron",
+    "thumbnailer",
 ]
 default-members = ["somachron"]
 
