@@ -246,6 +246,45 @@ impl Storage {
             }
         }
 
+        entries.sort_by(|a: &FileEntry, b: &FileEntry| match (a, b) {
+            (
+                FileEntry::Dir {
+                    name,
+                    ..
+                },
+                FileEntry::Dir {
+                    name: b_name,
+                    ..
+                },
+            ) => name.cmp(b_name),
+            (
+                FileEntry::Dir {
+                    ..
+                },
+                FileEntry::File {
+                    ..
+                },
+            ) => std::cmp::Ordering::Less,
+            (
+                FileEntry::File {
+                    ..
+                },
+                FileEntry::Dir {
+                    ..
+                },
+            ) => std::cmp::Ordering::Greater,
+            (
+                FileEntry::File {
+                    data,
+                    ..
+                },
+                FileEntry::File {
+                    data: b_data,
+                    ..
+                },
+            ) => data.file_name.cmp(&b_data.file_name),
+        });
+
         Ok(entries)
     }
 
