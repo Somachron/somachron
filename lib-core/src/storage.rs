@@ -321,7 +321,7 @@ impl Storage {
 
         let bytes_stream = self.r2.download_media(r2_path).await?;
         let tmp_path = self.save_tmp_file(space_id, bytes_stream).await?;
-        let metadata = media::extract_metadata(&tmp_path)?;
+        let metadata = media::extract_metadata(&tmp_path).await?;
 
         match media_type {
             infer::MatcherType::Video => {

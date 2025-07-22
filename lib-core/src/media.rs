@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use crate::{AppResult, ErrType};
 
@@ -29,12 +29,25 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 }
 
 /// Extract metadata from image path
-pub(super) fn extract_metadata(tmp_path: impl AsRef<Path>) -> AppResult<serde_json::Value> {
-    let mut tool = exiftool::ExifTool::new().map_err(|err| ErrType::MediaError.err(err, "Failed to init exif tool"))?;
+pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<serde_json::Value> {
+    let output = tokio::process::Command::new("exiftool")
+        .args(&["-j", tmp_path.to_str().unwrap()])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+        .map_err(|err| ErrType::MediaError.err(err, "Failed to get exif data"))?;
 
-    let mut result = tool
-        .json(tmp_path.as_ref(), &[])
-        .map_err(|err| ErrType::MediaError.err(err, "Failed to extract metadata data"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ErrType::MediaError.new(stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let data = stdout.into_owned();
+
+    let mut result: serde_json::Value =
+        serde_json::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
 
     if let Some(value) = result.get_mut("SourceFile") {
         *value = serde_json::Value::String("".into());
