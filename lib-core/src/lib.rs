@@ -214,10 +214,10 @@ impl AppError {
                 _ => return,
             };
 
-            let file_name = file_path.file_name();
+            let file_name = file_path.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
             let lineno = symbol.lineno().unwrap_or(0);
             let colno = symbol.colno().unwrap_or(0);
-            file_addr = format!("{:?}:{}:{}", file_name, lineno, colno);
+            file_addr = format!("{}:{}:{}", file_name, lineno, colno);
         });
         file_addr
     }
