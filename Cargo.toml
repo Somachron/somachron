@@ -1,11 +1,12 @@
-[package]
-name = "somachron"
-version = "0.1.0"
-edition = "2024"
-
 [workspace]
 resolver = "3"
-members = ["lib-core", "lib-domain", "lib-migrations"]
+members = [
+    "lib-core",
+    "lib-domain",
+    "lib-migrations",
+    "somachron",
+]
+default-members = ["somachron"]
 
 [workspace.dependencies]
 tokio = { version = "=1.45.1", features = ["full"] }
@@ -22,20 +23,3 @@ validator = { version = "0.20.0", features = ["derive"] }
 
 chrono = { version = "0.4", features = ["serde"] }
 nanoid = "0.4.0"
-
-[dependencies]
-lib-core = { path = "lib-core" }
-lib-domain = { path = "lib-domain" }
-
-tokio = { workspace = true }
-
-axum = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-
-serde = { workspace = true }
-
-utoipa = { workspace = true }
-utoipa-swagger-ui = { workspace = true }
-
-dotenv = "0.15.0"
