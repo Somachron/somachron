@@ -6,10 +6,9 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use utoipa::ToSchema;
 
-use crate::media::MediaProcessor;
-
 use super::{config, media, r2::R2Storage, AppResult, ErrType};
 
+const THUMBNAIL_EXE: &str = "thumbnailer";
 const ROOT_DATA: &str = "somachron-data";
 const SPACES_PATH: &str = "spaces";
 const FS_TAG: &str = "fs::";
@@ -59,9 +58,6 @@ pub struct Storage {
 
     /// R2 client
     r2: R2Storage,
-
-    /// [`MediaProcessor`]
-    mp: MediaProcessor,
 }
 
 async fn create_dir(dir: impl AsRef<Path>) -> AppResult<()> {
@@ -95,7 +91,6 @@ impl Storage {
             spaces_path,
             r2_spaces: PathBuf::from(ROOT_DATA).join(SPACES_PATH),
             r2: R2Storage::new(),
-            mp: media::MediaProcessor::new(),
         }
     }
 
@@ -322,64 +317,22 @@ impl Storage {
         thumbnail_path.set_file_name(&thumbnail_file_name);
 
         // process thumbnail and metadata
-        let media_type = self.mp.get_media_type(ext);
-        let metadata = match media_type {
-            infer::MatcherType::Image => {
-                // download file from R2
-                let image_stream = self.r2.download_media(r2_path).await?;
+        let media_type = media::get_media_type(ext);
 
-                // save tmp file
-                let tmp_path = self.save_tmp_file(space_id, image_stream).await?;
+        let bytes_stream = self.r2.download_media(r2_path).await?;
+        let tmp_path = self.save_tmp_file(space_id, bytes_stream).await?;
+        let metadata = media::extract_metadata(&tmp_path)?;
 
-                // process image metadata
-                let exif_data = self.mp.extract_metadata(&tmp_path)?;
-
-                // handle heif images
-                let image_format = match self.mp.infer_to_image_format(&tmp_path)? {
-                    media::ImageFormat::General(fmt) => fmt,
-                    media::ImageFormat::Heic => {
-                        self.mp.convert_heif_to_jpeg(&tmp_path)?;
-
-                        // upload jpeg bytes on same heic path
-                        self.r2.upload_photo(r2_path, &tmp_path).await?;
-
-                        image::ImageFormat::Jpeg
-                    }
-                };
-
-                self.mp.create_thumbnail(
-                    media::ThumbnailType::Path(&tmp_path),
-                    image_format,
-                    thumbnail_path,
-                    &exif_data,
-                )?;
-
-                let _ = remove_file(tmp_path).await;
-
-                // return metadata
-                exif_data
-            }
+        match media_type {
             infer::MatcherType::Video => {
-                // download initial chunk from R2
-                let video_stream = self.r2.download_media(r2_path).await?;
-
-                // save tmp file
-                let tmp_path = self.save_tmp_file(space_id, video_stream).await?;
-
-                let metadata = self.mp.extract_metadata(&tmp_path)?;
-
-                // process thumbnail
                 thumbnail_path.set_extension("jpeg");
                 thumbnail_file_name.set_extension("jpeg");
-                self.mp.process_video_thumbnail(&tmp_path, thumbnail_path, &metadata)?;
-
-                remove_file(tmp_path).await?;
-
-                // return metadata
-                metadata
             }
-            _ => return Err(ErrType::FsError.new(format!("Invalid media extension: {ext}"))),
+            _ => (),
         };
+
+        // create thumbnail
+        self.run_thumbnailer(&tmp_path, &thumbnail_path, r2_path, media_type, &metadata).await?;
 
         // prepare path
         let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
@@ -445,5 +398,55 @@ impl Storage {
             let _ = tokio::fs::remove_file(&json_path).await;
             Ok(())
         }
+    }
+
+    /// Spawn thumbnailer binary
+    async fn run_thumbnailer(
+        &self,
+        src: &PathBuf,
+        dst: &PathBuf,
+        r2_path: &str,
+        media_type: infer::MatcherType,
+        metadata: &serde_json::Value,
+    ) -> AppResult<()> {
+        let mode = match media_type {
+            infer::MatcherType::Image => "image",
+            infer::MatcherType::Video => "video",
+            _ => "",
+        };
+
+        let orientation = metadata.get("Orientation").and_then(|v| v.as_u64());
+        let rotation = metadata.get("Rotation").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
+        let mut command = command.args(&["-m", mode]);
+
+        if let Some(orientation) = orientation {
+            command = command.args(&["-o", &orientation.to_string()]);
+        }
+        let output = command
+            .args(&["-r", &rotation.to_string(), src.to_str().unwrap(), dst.to_str().unwrap()])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+            .map_err(|err| ErrType::MediaError.err(err, "Failed to spawn command"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let _ = remove_file(src).await;
+            return Err(ErrType::MediaError.new(stderr.into_owned()));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout = stdout.into_owned();
+        let result = match stdout.trim() {
+            "true" => self.r2.upload_photo(r2_path, src).await,
+            _ => Ok(()),
+        };
+
+        let _ = remove_file(src).await;
+
+        result
     }
 }
