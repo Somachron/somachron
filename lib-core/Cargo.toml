@@ -12,7 +12,7 @@ tracing = { workspace = true }
 
 reqwest = { version = "0.12", features = ["json"] }
 
-serde_json = { workspace = true }
+sonic-rs = { workspace = true }
 serde = { workspace = true }
 validator = { workspace = true }
 utoipa = { workspace = true }

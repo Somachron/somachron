@@ -9,6 +9,7 @@ lib-core = { path = "../lib-core" }
 
 tokio = { workspace = true }
 
+sonic-rs = { workspace = true }
 serde = { workspace = true }
 validator = { workspace = true }
 ser_mapper = "0.2.1"

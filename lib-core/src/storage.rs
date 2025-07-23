@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use aws_sdk_s3::primitives::ByteStream;
 use nanoid::nanoid;
-use serde::{Deserialize, Serialize};
+use sonic_rs::{Deserialize, JsonValueTrait, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use utoipa::ToSchema;
 
@@ -24,7 +24,7 @@ pub struct FileMetadata {
     pub file_name: String,
     pub r2_path: String,
     pub thumbnail_path: String,
-    pub metadata: serde_json::Value,
+    pub metadata: sonic_rs::Value,
     pub size: usize,
     pub user_id: String,
     pub media_type: MediaType,
@@ -237,7 +237,7 @@ impl Storage {
                         .await
                         .map_err(|err| ErrType::FsError.err(err, format!("Failed to read file: {:?}", path)))?;
 
-                    let data: FileMetadata = serde_json::from_slice(&buf)
+                    let data: FileMetadata = sonic_rs::from_slice(&buf)
                         .map_err(|err| ErrType::FsError.err(err, "Failed to deserialize metadata"))?;
 
                     entries.push(FileEntry::File {
@@ -378,8 +378,8 @@ impl Storage {
                     _ => MediaType::Image,
                 },
             };
-            let metadata_bytes = serde_json::to_vec(&metadata)
-                .map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
+            let metadata_bytes =
+                sonic_rs::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
 
             // save metadata
             let mut metadata_file = create_file(&metadata_path).await?;
@@ -434,7 +434,7 @@ impl Storage {
         dst: &PathBuf,
         r2_path: &str,
         media_type: infer::MatcherType,
-        metadata: &serde_json::Value,
+        metadata: &sonic_rs::Value,
     ) -> AppResult<bool> {
         let mode = match media_type {
             infer::MatcherType::Image => "image",

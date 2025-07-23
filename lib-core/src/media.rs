@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use sonic_rs::JsonValueMutTrait;
+
 use crate::{AppResult, ErrType};
 
 /// Get media type [`infer::MatcherType::Image`] or [`infer::MatcherType::Video`]
@@ -29,7 +31,7 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 }
 
 /// Extract metadata from image path
-pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<serde_json::Value> {
+pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<sonic_rs::Value> {
     let output = tokio::process::Command::new("exiftool")
         .args(&["-j", tmp_path.to_str().unwrap()])
         .stdout(std::process::Stdio::piped())
@@ -46,14 +48,14 @@ pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<serde_json
     let stdout = String::from_utf8_lossy(&output.stdout);
     let data = stdout.into_owned();
 
-    let mut result: serde_json::Value =
-        serde_json::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
+    let mut result: sonic_rs::Value =
+        sonic_rs::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
 
     if let Some(value) = result.get_mut("SourceFile") {
-        *value = serde_json::Value::String("".into());
+        *value = sonic_rs::Value::from_static_str("");
     }
     if let Some(value) = result.get_mut("Directory") {
-        *value = serde_json::Value::String("".into());
+        *value = sonic_rs::Value::from_static_str("");
     }
 
     Ok(result)

@@ -14,7 +14,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use extensions::ReqId;
-use serde::Serialize;
+use sonic_rs::Serialize;
 use utoipa::ToSchema;
 use validator::Validate;
 
