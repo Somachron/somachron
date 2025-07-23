@@ -44,5 +44,8 @@ RUN rm -rf target
 
 EXPOSE 8080
 
+ENV JEMALLOC_SYS_WITH_MALLOC_CONF="background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true"
+ENV MALLOC_CONF="background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true"
+
 # Run the binary
 CMD [ "somachron" ]
