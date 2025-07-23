@@ -60,17 +60,15 @@ pub struct Storage {
     r2: R2Storage,
 }
 
-async fn create_dir(dir: impl AsRef<Path>) -> AppResult<()> {
-    tokio::fs::create_dir_all(dir.as_ref()).await.map_err(|err| ErrType::FsError.err(err, "Failed to create dir"))
+async fn create_dir(dir: &PathBuf) -> AppResult<()> {
+    tokio::fs::create_dir_all(&dir).await.map_err(|err| ErrType::FsError.err(err, "Failed to create dir"))
 }
 
-async fn create_file(file_path: impl AsRef<Path>) -> AppResult<tokio::fs::File> {
-    tokio::fs::File::create(file_path.as_ref())
-        .await
-        .map_err(|err| ErrType::FsError.err(err, "Failed to create/truncate file"))
+async fn create_file(file_path: &PathBuf) -> AppResult<tokio::fs::File> {
+    tokio::fs::File::create(&file_path).await.map_err(|err| ErrType::FsError.err(err, "Failed to create/truncate file"))
 }
 
-async fn remove_file(file_path: impl AsRef<Path>) -> AppResult<()> {
+async fn remove_file(file_path: &PathBuf) -> AppResult<()> {
     tokio::fs::remove_file(file_path).await.map_err(|err| ErrType::FsError.err(err, "Failed to remove file"))
 }
 
@@ -129,7 +127,7 @@ impl Storage {
 
     pub async fn validate_user_drive(&self, user_id: &str) -> AppResult<()> {
         let user_dir = self.root_path.join(user_id);
-        create_dir(user_dir).await
+        create_dir(&user_dir).await
     }
 
     /// Creates space folder
@@ -139,7 +137,7 @@ impl Storage {
         self.r2.create_folder(r2_path).await?;
 
         let folder_path = self.spaces_path.join(space_id);
-        create_dir(folder_path).await
+        create_dir(&folder_path).await
     }
 
     /// Creates folder in `space_id`
@@ -153,7 +151,7 @@ impl Storage {
         self.r2.create_folder(r2_path).await?;
 
         let folder_path = self.spaces_path.join(space_id).join(folder_path);
-        create_dir(folder_path).await
+        create_dir(&folder_path).await
     }
 
     /// Generate presigned URL for uploading media
@@ -332,7 +330,7 @@ impl Storage {
         // prepare media directory
         let media_path = self.spaces_path.join(space_id).join(file_path);
         if let Some(parent) = media_path.parent() {
-            create_dir(parent).await?;
+            create_dir(&parent.to_path_buf()).await?;
         }
 
         // get file extension
@@ -373,36 +371,42 @@ impl Storage {
         // create thumbnail
         self.run_thumbnailer(&tmp_path, &thumbnail_path, r2_path, media_type, &metadata).await?;
 
-        // prepare path
-        let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
-        metadata_path.set_extension(format!("{ext}.json"));
-
-        // serialize metadata to vec
-        let metadata = FileMetadata {
-            file_name: file_name.to_owned(),
-            r2_path: r2_path.to_string(),
-            thumbnail_path: {
-                let mut path = PathBuf::from(file_path);
-                path.set_file_name(thumbnail_file_name);
-                path.to_str().map(|s| s.to_owned()).unwrap()
-            },
-            metadata,
-            size: file_size,
-            user_id: user_id.to_string(),
-            media_type: match media_type {
-                infer::MatcherType::Video => MediaType::Video,
-                _ => MediaType::Image,
-            },
-        };
-        let metadata_bytes =
-            serde_json::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
-
         // save metadata
-        let mut metadata_file = create_file(metadata_path).await?;
-        metadata_file
-            .write_all(&metadata_bytes)
-            .await
-            .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))
+        {
+            // prepare path
+            let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
+            metadata_path.set_extension(format!("{ext}.json"));
+
+            // serialize metadata to vec
+            let metadata = FileMetadata {
+                file_name: file_name.to_owned(),
+                r2_path: r2_path.to_string(),
+                thumbnail_path: {
+                    let mut path = PathBuf::from(file_path);
+                    path.set_file_name(thumbnail_file_name);
+                    path.to_str().map(|s| s.to_owned()).unwrap()
+                },
+                metadata,
+                size: file_size,
+                user_id: user_id.to_string(),
+                media_type: match media_type {
+                    infer::MatcherType::Video => MediaType::Video,
+                    _ => MediaType::Image,
+                },
+            };
+            let metadata_bytes = serde_json::to_vec(&metadata)
+                .map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
+
+            // save metadata
+            let mut metadata_file = create_file(&metadata_path).await?;
+            metadata_file
+                .write_all(&metadata_bytes)
+                .await
+                .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
+            let _ = metadata_file.flush().await;
+        }
+
+        Ok(())
     }
 
     pub async fn delete_path(&self, space_id: &str, path: &str) -> AppResult<()> {
