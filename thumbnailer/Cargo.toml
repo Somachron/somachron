@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
-backtrace = "0.3.75"
 
 infer = "0.19.0"
 image = "0.25.6"
@@ -14,9 +13,6 @@ exiftool = "0.2.5"
 
 ffmpeg-next = { version = "7.1.0" }
 libheif-rs = { version = "2.2.0", features = ["v1_19"] }
-
-serde_json = { workspace = true }
-serde = { workspace = true }
 
 [profile.release]
 codegen-units = 1
