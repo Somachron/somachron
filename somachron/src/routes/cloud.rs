@@ -82,7 +82,7 @@ pub async fn get_file(
     let body = Body::from_stream(stream);
 
     let response = Response::builder()
-        .header(header::CONTENT_TYPE, format!("image/{ext}"))
+        .header(header::CONTENT_TYPE, "application/octet-stream")
         .header(header::CONTENT_LENGTH, size)
         .body(body)
         .map_err(|err| ApiError(ErrType::ServerError.err(err, "Failed to create response body"), req_id))?;

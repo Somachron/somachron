@@ -311,7 +311,7 @@ impl Storage {
 
         let metadata = file.metadata().await.map_err(|err| ErrType::FsError.err(err, "Failed to get metadata"))?;
 
-        let stream = tokio_util::io::ReaderStream::new(file);
+        let stream = tokio_util::io::ReaderStream::with_capacity(file, 4 * 1024);
         Ok((stream, metadata.len(), ext.to_owned()))
     }
 
