@@ -15,13 +15,21 @@ enum ThumbnailType {
     Path(PathBuf),
 }
 
-pub fn handle_image(src: PathBuf, dst: PathBuf, orientation: Option<u64>, rotation: Option<u64>) -> AppResult<bool> {
+pub fn handle_image(
+    src: PathBuf,
+    mut dst: PathBuf,
+    orientation: Option<u64>,
+    rotation: Option<u64>,
+) -> AppResult<bool> {
     let mut has_heic = false;
     let image_format = match infer_to_image_format(&src)? {
         ImageFormat::General(image_format) => image_format,
         ImageFormat::Heic => {
             has_heic = true;
+
             convert_heif_to_jpeg(&src)?;
+            dst.set_extension("jpeg");
+
             image::ImageFormat::Jpeg
         }
     };
