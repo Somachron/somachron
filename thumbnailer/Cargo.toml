@@ -17,3 +17,7 @@ libheif-rs = { version = "2.2.0", features = ["v1_19"] }
 
 serde_json = { workspace = true }
 serde = { workspace = true }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

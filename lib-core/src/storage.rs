@@ -293,7 +293,8 @@ impl Storage {
         &self,
         space_id: &str,
         file_path: &str,
-    ) -> AppResult<(tokio_util::io::ReaderStream<tokio::fs::File>, u64, String)> {
+    ) -> AppResult<(impl futures::Stream<Item = Result<tokio_util::bytes::Bytes, std::io::Error>> + use<>, u64, String)>
+    {
         let file_path = self.clean_path(file_path)?;
         let fs_path = self.spaces_path.join(space_id).join(&file_path);
         let ext = fs_path.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -311,8 +312,20 @@ impl Storage {
 
         let metadata = file.metadata().await.map_err(|err| ErrType::FsError.err(err, "Failed to get metadata"))?;
 
-        let stream = tokio_util::io::ReaderStream::with_capacity(file, 4 * 1024);
-        Ok((stream, metadata.len(), ext.to_owned()))
+        let reader = tokio::io::BufReader::new(file);
+        let unfold = futures::stream::unfold(reader, |mut rd| async move {
+            let mut buffer = vec![0; 4 * 1024];
+            match rd.read(&mut buffer).await {
+                Ok(0) => None,
+                Ok(n) => {
+                    buffer.truncate(n);
+                    Some((Ok(tokio_util::bytes::Bytes::from(buffer)), rd))
+                }
+                Err(e) => Some((Err(e), rd)),
+            }
+        });
+
+        Ok((unfold, metadata.len(), ext.to_owned()))
     }
 
     /// Process the uploaded media

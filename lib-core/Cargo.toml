@@ -17,7 +17,7 @@ serde = { workspace = true }
 validator = { workspace = true }
 utoipa = { workspace = true }
 
-backtrace = "0.3.75"
+futures = "0.3.31"
 nanoid = { workspace = true }
 jsonwebtoken = "9.3.0"
 chrono = { workspace = true }
