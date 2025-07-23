@@ -134,7 +134,7 @@ impl GoogleAuth {
         }
     }
 
-    pub async fn validate_token_for_claims(&self, token: &str) -> AppResult<TokenClaims> {
+    pub fn validate_token_for_claims(&self, token: &str) -> AppResult<TokenClaims> {
         let header = decode_header(token).map_err(|err| ErrType::Unauthorized.err(err, "Failed to parse header"))?;
         let kid = header.kid.ok_or(ErrType::Unauthorized.new("Missing kid"))?;
 

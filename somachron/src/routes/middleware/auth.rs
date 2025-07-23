@@ -31,7 +31,7 @@ pub async fn authenticate(
 ) -> Result<Response, ApiError> {
     let token = extract_bearer(&headers).map_err(|err| ApiError(err, req_id.clone()))?;
 
-    let claims = app.auth().validate_token_for_claims(token).await.map_err(|err| ApiError(err, req_id.clone()))?;
+    let claims = app.auth().validate_token_for_claims(token).map_err(|err| ApiError(err, req_id.clone()))?;
     let user = app
         .service()
         .ds()

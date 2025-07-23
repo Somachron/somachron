@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 #[repr(transparent)]
-pub struct ReqId(pub Arc<str>);
+pub struct ReqId(pub String);
 impl Clone for ReqId {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -9,7 +7,7 @@ impl Clone for ReqId {
 }
 
 #[repr(transparent)]
-pub struct UserId(pub Arc<str>);
+pub struct UserId(pub String);
 impl Clone for UserId {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -25,13 +23,13 @@ pub enum UserRole {
 }
 
 pub struct SpaceCtx {
-    pub id: Arc<str>,
+    pub id: String,
     pub role: UserRole,
 }
 impl Clone for SpaceCtx {
     fn clone(&self) -> Self {
         Self {
-            id: Arc::clone(&self.id),
+            id: self.id.clone(),
             role: self.role,
         }
     }

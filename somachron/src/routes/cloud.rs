@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{header, Response, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post, Router},
     Extension,
@@ -9,7 +9,7 @@ use axum::{
 use lib_core::{
     extensions::{ReqId, SpaceCtx, UserId},
     storage::FileEntry,
-    ApiError, ApiResult, EmptyResponse, Json,
+    ApiError, ApiResult, EmptyResponse, ErrType, Json,
 };
 use lib_domain::dto::cloud::{
     req::{CreateFolderRequest, SignedUrlRequest, UploadCompleteRequest},
@@ -76,11 +76,18 @@ pub async fn get_file(
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(path): Path<String>,
 ) -> axum::response::Result<impl IntoResponse, ApiError> {
-    let (stream, ext) = app.storage().get_file(&space_ctx.id, &path).await.map_err(|err| ApiError(err, req_id))?;
+    let (stream, size, ext) =
+        app.storage().get_file(&space_ctx.id, &path).await.map_err(|err| ApiError(err, req_id.clone()))?;
 
     let body = Body::from_stream(stream);
 
-    Ok(([(header::CONTENT_TYPE, format!("image/{ext}"))], body).into_response())
+    let response = Response::builder()
+        .header(header::CONTENT_TYPE, format!("image/{ext}"))
+        .header(header::CONTENT_LENGTH, size)
+        .body(body)
+        .map_err(|err| ApiError(ErrType::ServerError.err(err, "Failed to create response body"), req_id))?;
+
+    Ok(response)
 }
 
 #[utoipa::path(

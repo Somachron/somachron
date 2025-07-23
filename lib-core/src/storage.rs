@@ -98,19 +98,21 @@ impl Storage {
 
         let id = nanoid!(8);
         let tmp_file_path = tmp_dir_path.join(format!("tmp_f_{id}"));
-        let mut tmp_file = create_file(&tmp_file_path).await?;
-
-        while let Some(chunk) = bytes_stream
-            .try_next()
-            .await
-            .map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?
         {
-            tmp_file
-                .write_all(&chunk)
+            let mut tmp_file = create_file(&tmp_file_path).await?;
+
+            while let Some(chunk) = bytes_stream
+                .try_next()
                 .await
-                .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
+                .map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?
+            {
+                tmp_file
+                    .write(&chunk)
+                    .await
+                    .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
+            }
+            let _ = tmp_file.flush().await;
         }
-        let _ = tmp_file.flush().await;
 
         Ok(tmp_file_path)
     }
@@ -291,7 +293,7 @@ impl Storage {
         &self,
         space_id: &str,
         file_path: &str,
-    ) -> AppResult<(tokio_util::io::ReaderStream<tokio::fs::File>, String)> {
+    ) -> AppResult<(tokio_util::io::ReaderStream<tokio::fs::File>, u64, String)> {
         let file_path = self.clean_path(file_path)?;
         let fs_path = self.spaces_path.join(space_id).join(&file_path);
         let ext = fs_path.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -307,8 +309,10 @@ impl Storage {
             .await
             .map_err(|err| ErrType::FsError.err(err, format!("Failed to open file: {file_path}")))?;
 
+        let metadata = file.metadata().await.map_err(|err| ErrType::FsError.err(err, "Failed to get metadata"))?;
+
         let stream = tokio_util::io::ReaderStream::new(file);
-        Ok((stream, ext.to_owned()))
+        Ok((stream, metadata.len(), ext.to_owned()))
     }
 
     /// Process the uploaded media
@@ -400,7 +404,7 @@ impl Storage {
             // save metadata
             let mut metadata_file = create_file(&metadata_path).await?;
             metadata_file
-                .write_all(&metadata_bytes)
+                .write(&metadata_bytes)
                 .await
                 .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
             let _ = metadata_file.flush().await;

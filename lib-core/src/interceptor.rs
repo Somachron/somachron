@@ -13,11 +13,11 @@ const REQ_ID_HEADER: &str = "x-sc-id";
 ///
 /// This interceptor also inserts request ID for tracing
 pub async fn intercept(mut req: Request, next: Next) -> Response {
-    let id = ReqId(nanoid::nanoid!(22).into());
+    let id = ReqId(nanoid::nanoid!(22));
     let uri = req.uri().clone();
 
     let method = req.method().clone();
-    tracing::info!(req_id = id.0.as_ref(), message = format!("{}: {}", method, uri), method = ?method, uri = ?uri);
+    tracing::info!(req_id = &id.0, message = format!("{}: {}", method, uri), method = ?method, uri = ?uri);
 
     req.extensions_mut().insert(id.clone());
 
@@ -34,10 +34,10 @@ fn log_response(req_id: ReqId, status: StatusCode, duration: Duration) {
     let message = format!("Completed with status {}", status);
     let duration = format!("{:?}", duration);
     match status {
-        StatusCode::OK => tracing::info!(req_id = req_id.0.as_ref(), message, duration),
+        StatusCode::OK => tracing::info!(req_id = &req_id.0, message, duration),
         StatusCode::INTERNAL_SERVER_ERROR => {
-            tracing::error!(req_id = req_id.0.as_ref(), message, duration)
+            tracing::error!(req_id = &req_id.0, message, duration)
         }
-        _ => tracing::warn!(req_id = req_id.0.as_ref(), message, duration),
+        _ => tracing::warn!(req_id = &req_id.0, message, duration),
     };
 }
