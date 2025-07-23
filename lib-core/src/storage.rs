@@ -92,6 +92,10 @@ impl Storage {
         }
     }
 
+    pub fn spaces_path(&self) -> PathBuf {
+        self.spaces_path.clone()
+    }
+
     async fn save_tmp_file(&self, space_id: &str, mut bytes_stream: ByteStream) -> AppResult<PathBuf> {
         let tmp_dir_path = self.root_path.join(space_id).join("tmp");
         create_dir(&tmp_dir_path).await?;
@@ -288,46 +292,6 @@ impl Storage {
         Ok(entries)
     }
 
-    /// Get requested file from filesystem
-    pub async fn get_file(
-        &self,
-        space_id: &str,
-        file_path: &str,
-    ) -> AppResult<(impl futures::Stream<Item = Result<tokio_util::bytes::Bytes, std::io::Error>> + use<>, u64, String)>
-    {
-        let file_path = self.clean_path(file_path)?;
-        let fs_path = self.spaces_path.join(space_id).join(&file_path);
-        let ext = fs_path.extension().and_then(|s| s.to_str()).unwrap_or("");
-
-        if !fs_path.exists() {
-            return Err(ErrType::NotFound.new(format!("File not found: {file_path}")));
-        }
-        if ext.ends_with("json") {
-            return Err(ErrType::BadRequest.new(format!("Invalid file requested: {file_path}")));
-        }
-
-        let file = tokio::fs::File::open(&fs_path)
-            .await
-            .map_err(|err| ErrType::FsError.err(err, format!("Failed to open file: {file_path}")))?;
-
-        let metadata = file.metadata().await.map_err(|err| ErrType::FsError.err(err, "Failed to get metadata"))?;
-
-        let reader = tokio::io::BufReader::new(file);
-        let unfold = futures::stream::unfold(reader, |mut rd| async move {
-            let mut buffer = vec![0; 4 * 1024];
-            match rd.read(&mut buffer).await {
-                Ok(0) => None,
-                Ok(n) => {
-                    buffer.truncate(n);
-                    Some((Ok(tokio_util::bytes::Bytes::from(buffer)), rd))
-                }
-                Err(e) => Some((Err(e), rd)),
-            }
-        });
-
-        Ok((unfold, metadata.len(), ext.to_owned()))
-    }
-
     /// Process the uploaded media
     ///
     /// * prepares the directory in mounted volume
@@ -386,7 +350,10 @@ impl Storage {
         };
 
         // create thumbnail
-        self.run_thumbnailer(&tmp_path, &thumbnail_path, r2_path, media_type, &metadata).await?;
+        let was_heic = self.run_thumbnailer(&tmp_path, &thumbnail_path, r2_path, media_type, &metadata).await?;
+        if was_heic {
+            thumbnail_file_name.set_extension("jpeg");
+        }
 
         // save metadata
         {
@@ -468,7 +435,7 @@ impl Storage {
         r2_path: &str,
         media_type: infer::MatcherType,
         metadata: &serde_json::Value,
-    ) -> AppResult<()> {
+    ) -> AppResult<bool> {
         let mode = match media_type {
             infer::MatcherType::Image => "image",
             infer::MatcherType::Video => "video",
@@ -501,8 +468,8 @@ impl Storage {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stdout = stdout.into_owned();
         let result = match stdout.trim() {
-            "true" => self.r2.upload_photo(r2_path, src).await,
-            _ => Ok(()),
+            "true" => self.r2.upload_photo(r2_path, src).await.map(|_| true),
+            _ => Ok(false),
         };
 
         let _ = remove_file(src).await;
