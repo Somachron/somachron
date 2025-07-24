@@ -1,11 +1,12 @@
 use std::{
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
 };
 
 use aws_sdk_s3::primitives::ByteStream;
 use nanoid::nanoid;
 use sonic_rs::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 use utoipa::ToSchema;
 
 use super::{config, media, r2::R2Storage, AppResult, ErrType};
@@ -61,16 +62,16 @@ pub struct Storage {
     r2: R2Storage,
 }
 
-fn create_dir(dir: &PathBuf) -> AppResult<()> {
-    std::fs::create_dir_all(&dir).map_err(|err| ErrType::FsError.err(err, "Failed to create dir"))
+async fn create_dir(dir: &PathBuf) -> AppResult<()> {
+    tokio::fs::create_dir_all(&dir).await.map_err(|err| ErrType::FsError.err(err, "Failed to create dir"))
 }
 
-fn create_file(file_path: &PathBuf) -> AppResult<std::fs::File> {
-    std::fs::File::create(&file_path).map_err(|err| ErrType::FsError.err(err, "Failed to create/truncate file"))
+async fn create_file(file_path: &PathBuf) -> AppResult<tokio::fs::File> {
+    tokio::fs::File::create(&file_path).await.map_err(|err| ErrType::FsError.err(err, "Failed to create/truncate file"))
 }
 
-fn remove_file(file_path: &PathBuf) -> AppResult<()> {
-    std::fs::remove_file(file_path).map_err(|err| ErrType::FsError.err(err, "Failed to remove file"))
+async fn remove_file(file_path: &PathBuf) -> AppResult<()> {
+    tokio::fs::remove_file(file_path).await.map_err(|err| ErrType::FsError.err(err, "Failed to remove file"))
 }
 
 impl Storage {
@@ -80,10 +81,10 @@ impl Storage {
 
         // create necessary volumes
         let root_path = volume_path.join(ROOT_DATA);
-        create_dir(&root_path).unwrap();
+        create_dir(&root_path).await.unwrap();
 
         let spaces_path = root_path.join(SPACES_PATH);
-        create_dir(&root_path).unwrap();
+        create_dir(&root_path).await.unwrap();
 
         Self {
             root_path,
@@ -99,21 +100,24 @@ impl Storage {
 
     async fn save_tmp_file(&self, space_id: &str, mut bytes_stream: ByteStream) -> AppResult<PathBuf> {
         let tmp_dir_path = self.root_path.join(space_id).join("tmp");
-        create_dir(&tmp_dir_path)?;
+        create_dir(&tmp_dir_path).await?;
 
         let id = nanoid!(8);
         let tmp_file_path = tmp_dir_path.join(format!("tmp_f_{id}"));
         {
-            let mut tmp_file = create_file(&tmp_file_path)?;
+            let mut tmp_file = create_file(&tmp_file_path).await?;
 
             while let Some(chunk) = bytes_stream
                 .try_next()
                 .await
                 .map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?
             {
-                tmp_file.write(&chunk).map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
+                tmp_file
+                    .write(&chunk)
+                    .await
+                    .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
             }
-            let _ = tmp_file.flush();
+            let _ = tmp_file.flush().await;
         }
 
         Ok(tmp_file_path)
@@ -131,7 +135,7 @@ impl Storage {
 
     pub async fn validate_user_drive(&self, user_id: &str) -> AppResult<()> {
         let user_dir = self.root_path.join(user_id);
-        create_dir(&user_dir)
+        create_dir(&user_dir).await
     }
 
     /// Creates space folder
@@ -141,7 +145,7 @@ impl Storage {
         self.r2.create_folder(r2_path).await?;
 
         let folder_path = self.spaces_path.join(space_id);
-        create_dir(&folder_path)
+        create_dir(&folder_path).await
     }
 
     /// Creates folder in `space_id`
@@ -155,7 +159,7 @@ impl Storage {
         self.r2.create_folder(r2_path).await?;
 
         let folder_path = self.spaces_path.join(space_id).join(folder_path);
-        create_dir(&folder_path)
+        create_dir(&folder_path).await
     }
 
     /// Generate presigned URL for uploading media
@@ -330,7 +334,7 @@ impl Storage {
         // prepare media directory
         let media_path = self.spaces_path.join(space_id).join(file_path);
         if let Some(parent) = media_path.parent() {
-            create_dir(&parent.to_path_buf())?;
+            create_dir(&parent.to_path_buf()).await?;
         }
 
         // get file extension
@@ -410,9 +414,10 @@ impl Storage {
                 sonic_rs::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
 
             // save metadata
-            let mut metadata_file = create_file(&metadata_path)?;
+            let mut metadata_file = create_file(&metadata_path).await?;
             metadata_file
                 .write(&metadata_bytes)
+                .await
                 .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
             let _ = metadata_file.flush();
         }

@@ -22,6 +22,9 @@ utoipa-swagger-ui = { workspace = true }
 
 dotenv = "0.15.0"
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

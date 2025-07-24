@@ -79,7 +79,7 @@ pub(super) async fn run_thumbnailer(
     let orientation = metadata.get("Orientation").and_then(|v| v.as_u64());
     let rotation = metadata.get("Rotation").and_then(|v| v.as_u64()).unwrap_or(0);
 
-    let mut command = std::process::Command::new(THUMBNAIL_EXE);
+    let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
     let mut command = command.args(&["-m", mode]);
 
     if let Some(orientation) = orientation {
@@ -90,6 +90,7 @@ pub(super) async fn run_thumbnailer(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()
+        .await
         .map_err(|err| ErrType::MediaError.err(err, "Failed to spawn command"))?;
 
     if !output.status.success() {
