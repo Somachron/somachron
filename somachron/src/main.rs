@@ -5,10 +5,6 @@ mod app;
 mod routes;
 mod server;
 
-#[cfg(not(target_env = "msvc"))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
 async fn run() {
     // initialize tracing
     tracing_subscriber::registry()
