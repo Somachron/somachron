@@ -21,7 +21,7 @@ async fn run() {
             #[cfg(target_os = "linux")]
             {
                 while true {
-                    tokio::time::sleep(std::time::Duration::from_secs(5));
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
                     unsafe {
                         libc::malloc_trim(0);
