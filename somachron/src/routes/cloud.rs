@@ -1,32 +1,30 @@
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::StatusCode,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     routing::{delete, get, post, Router},
     Extension,
 };
 use lib_core::{
     extensions::{ReqId, SpaceCtx, UserId},
     storage::FileEntry,
-    ApiError, ApiResult, EmptyResponse, Json,
+    ApiError, ApiResult, EmptyResponse, ErrType, Json,
 };
 use lib_domain::dto::cloud::{
     req::{CreateFolderRequest, SignedUrlRequest, UploadCompleteRequest},
     res::SignedUrlResponse,
 };
-use tower_http::services::ServeDir;
 
 use crate::app::AppState;
 
 use super::middleware;
 
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
-    let fs_path = app.storage().spaces_path();
-
     let routes = Router::new()
-        .nest_service("/f", ServeDir::new(fs_path))
-        .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::cloud::validate_path))
         .route("/{*dir}", get(list_directory))
         .route("/{*dir}", delete(delete_path))
+        .route("/f/{*path}", get(get_file))
         .route("/d", post(create_folder))
         .route("/stream", post(generate_download_signed_url))
         .route("/upload", post(generate_upload_signed_url))
@@ -69,6 +67,28 @@ pub async fn list_directory(
     Path(dir): Path<String>,
 ) -> ApiResult<Vec<FileEntry>> {
     app.storage().list_dir(&space_ctx.id, &dir).await.map(Json).map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(get, path = "/v1/media/f/{path}", tag = "Cloud")]
+pub async fn get_file(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+    Path(path): Path<String>,
+) -> axum::response::Result<impl IntoResponse, ApiError> {
+    let (buffer, ext) =
+        app.storage().get_file(&space_ctx.id, &path).await.map_err(|err| ApiError(err, req_id.clone()))?;
+
+    let size = buffer.len();
+    let body = Body::from(buffer);
+
+    let response = Response::builder()
+        .header(header::CONTENT_TYPE, format!("image/{ext}"))
+        .header(header::CONTENT_LENGTH, size)
+        .body(body)
+        .map_err(|err| ApiError(ErrType::ServerError.err(err, "Failed to create response body"), req_id))?;
+
+    Ok(response)
 }
 
 #[utoipa::path(

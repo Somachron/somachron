@@ -1,14 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::{
+    io::{Read, Write},
+    path::{Path, PathBuf},
+};
 
 use aws_sdk_s3::primitives::ByteStream;
 use nanoid::nanoid;
-use sonic_rs::{Deserialize, JsonValueTrait, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use sonic_rs::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::{config, media, r2::R2Storage, AppResult, ErrType};
 
-const THUMBNAIL_EXE: &str = "thumbnailer";
 const ROOT_DATA: &str = "somachron-data";
 const SPACES_PATH: &str = "spaces";
 const FS_TAG: &str = "fs::";
@@ -60,16 +61,16 @@ pub struct Storage {
     r2: R2Storage,
 }
 
-async fn create_dir(dir: &PathBuf) -> AppResult<()> {
-    tokio::fs::create_dir_all(&dir).await.map_err(|err| ErrType::FsError.err(err, "Failed to create dir"))
+fn create_dir(dir: &PathBuf) -> AppResult<()> {
+    std::fs::create_dir_all(&dir).map_err(|err| ErrType::FsError.err(err, "Failed to create dir"))
 }
 
-async fn create_file(file_path: &PathBuf) -> AppResult<tokio::fs::File> {
-    tokio::fs::File::create(&file_path).await.map_err(|err| ErrType::FsError.err(err, "Failed to create/truncate file"))
+fn create_file(file_path: &PathBuf) -> AppResult<std::fs::File> {
+    std::fs::File::create(&file_path).map_err(|err| ErrType::FsError.err(err, "Failed to create/truncate file"))
 }
 
-async fn remove_file(file_path: &PathBuf) -> AppResult<()> {
-    tokio::fs::remove_file(file_path).await.map_err(|err| ErrType::FsError.err(err, "Failed to remove file"))
+fn remove_file(file_path: &PathBuf) -> AppResult<()> {
+    std::fs::remove_file(file_path).map_err(|err| ErrType::FsError.err(err, "Failed to remove file"))
 }
 
 impl Storage {
@@ -79,10 +80,10 @@ impl Storage {
 
         // create necessary volumes
         let root_path = volume_path.join(ROOT_DATA);
-        create_dir(&root_path).await.unwrap();
+        create_dir(&root_path).unwrap();
 
         let spaces_path = root_path.join(SPACES_PATH);
-        create_dir(&root_path).await.unwrap();
+        create_dir(&root_path).unwrap();
 
         Self {
             root_path,
@@ -98,24 +99,21 @@ impl Storage {
 
     async fn save_tmp_file(&self, space_id: &str, mut bytes_stream: ByteStream) -> AppResult<PathBuf> {
         let tmp_dir_path = self.root_path.join(space_id).join("tmp");
-        create_dir(&tmp_dir_path).await?;
+        create_dir(&tmp_dir_path)?;
 
         let id = nanoid!(8);
         let tmp_file_path = tmp_dir_path.join(format!("tmp_f_{id}"));
         {
-            let mut tmp_file = create_file(&tmp_file_path).await?;
+            let mut tmp_file = create_file(&tmp_file_path)?;
 
             while let Some(chunk) = bytes_stream
                 .try_next()
                 .await
                 .map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?
             {
-                tmp_file
-                    .write(&chunk)
-                    .await
-                    .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
+                tmp_file.write(&chunk).map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
             }
-            let _ = tmp_file.flush().await;
+            let _ = tmp_file.flush();
         }
 
         Ok(tmp_file_path)
@@ -133,7 +131,7 @@ impl Storage {
 
     pub async fn validate_user_drive(&self, user_id: &str) -> AppResult<()> {
         let user_dir = self.root_path.join(user_id);
-        create_dir(&user_dir).await
+        create_dir(&user_dir)
     }
 
     /// Creates space folder
@@ -143,7 +141,7 @@ impl Storage {
         self.r2.create_folder(r2_path).await?;
 
         let folder_path = self.spaces_path.join(space_id);
-        create_dir(&folder_path).await
+        create_dir(&folder_path)
     }
 
     /// Creates folder in `space_id`
@@ -157,7 +155,7 @@ impl Storage {
         self.r2.create_folder(r2_path).await?;
 
         let folder_path = self.spaces_path.join(space_id).join(folder_path);
-        create_dir(&folder_path).await
+        create_dir(&folder_path)
     }
 
     /// Generate presigned URL for uploading media
@@ -228,17 +226,13 @@ impl Storage {
                 let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
                 if ext.ends_with("json") {
-                    let mut file = tokio::fs::File::open(&path)
-                        .await
-                        .map_err(|err| ErrType::FsError.err(err, format!("Failed to open file: {:?}", path)))?;
+                    let data: FileMetadata = {
+                        let file = std::fs::File::open(&path)
+                            .map_err(|err| ErrType::FsError.err(err, format!("Failed to open file: {:?}", path)))?;
 
-                    let mut buf = Vec::new();
-                    file.read_to_end(&mut buf)
-                        .await
-                        .map_err(|err| ErrType::FsError.err(err, format!("Failed to read file: {:?}", path)))?;
-
-                    let data: FileMetadata = sonic_rs::from_slice(&buf)
-                        .map_err(|err| ErrType::FsError.err(err, "Failed to deserialize metadata"))?;
+                        sonic_rs::from_reader(file)
+                            .map_err(|err| ErrType::FsError.err(err, "Failed to deserialize metadata"))?
+                    };
 
                     entries.push(FileEntry::File {
                         tag: "file".to_owned(),
@@ -292,6 +286,31 @@ impl Storage {
         Ok(entries)
     }
 
+    /// Get requested file from filesystem
+    pub async fn get_file(&self, space_id: &str, file_path: &str) -> AppResult<(Vec<u8>, String)> {
+        let file_path = self.clean_path(file_path)?;
+        let fs_path = self.spaces_path.join(space_id).join(&file_path);
+        let ext = fs_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+
+        if !fs_path.exists() {
+            return Err(ErrType::NotFound.new(format!("File not found: {file_path}")));
+        }
+        match ext {
+            "jpeg" | "jpg" | "JPEG" | "JPG" => (),
+            "png" | "PNG" => (),
+            "json" => return Err(ErrType::BadRequest.new(format!("Invalid file requested: {file_path}"))),
+            _ => return Err(ErrType::NotFound.new("Not found")),
+        };
+
+        let mut file = std::fs::File::open(&fs_path)
+            .map_err(|err| ErrType::FsError.err(err, format!("Failed to open file: {file_path}")))?;
+
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).map_err(|err| ErrType::FsError.err(err, "Failed to read file"))?;
+
+        Ok((buffer, ext.to_owned()))
+    }
+
     /// Process the uploaded media
     ///
     /// * prepares the directory in mounted volume
@@ -311,7 +330,7 @@ impl Storage {
         // prepare media directory
         let media_path = self.spaces_path.join(space_id).join(file_path);
         if let Some(parent) = media_path.parent() {
-            create_dir(&parent.to_path_buf()).await?;
+            create_dir(&parent.to_path_buf())?;
         }
 
         // get file extension
@@ -350,10 +369,19 @@ impl Storage {
         };
 
         // create thumbnail
-        let was_heic = self.run_thumbnailer(&tmp_path, &thumbnail_path, r2_path, media_type, &metadata).await?;
-        if was_heic {
-            thumbnail_file_name.set_extension("jpeg");
-        }
+        match media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await {
+            Ok(was_heic) => {
+                if was_heic {
+                    thumbnail_file_name.set_extension("jpeg");
+                    self.r2.upload_photo(r2_path, &tmp_path).await?;
+                }
+                let _ = remove_file(&tmp_path);
+            }
+            Err(err) => {
+                let _ = remove_file(&tmp_path);
+                return Err(err);
+            }
+        };
 
         // save metadata
         {
@@ -382,12 +410,11 @@ impl Storage {
                 sonic_rs::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
 
             // save metadata
-            let mut metadata_file = create_file(&metadata_path).await?;
+            let mut metadata_file = create_file(&metadata_path)?;
             metadata_file
                 .write(&metadata_bytes)
-                .await
                 .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
-            let _ = metadata_file.flush().await;
+            let _ = metadata_file.flush();
         }
 
         Ok(())
@@ -421,59 +448,9 @@ impl Storage {
             json_path.set_extension(format!("{ext}.json"));
 
             self.r2.delete_key(r2_path).await?;
-            let _ = tokio::fs::remove_file(&thumbnail_path).await;
-            let _ = tokio::fs::remove_file(&json_path).await;
+            let _ = remove_file(&thumbnail_path);
+            let _ = remove_file(&json_path);
             Ok(())
         }
-    }
-
-    /// Spawn thumbnailer binary
-    async fn run_thumbnailer(
-        &self,
-        src: &PathBuf,
-        dst: &PathBuf,
-        r2_path: &str,
-        media_type: infer::MatcherType,
-        metadata: &sonic_rs::Value,
-    ) -> AppResult<bool> {
-        let mode = match media_type {
-            infer::MatcherType::Image => "image",
-            infer::MatcherType::Video => "video",
-            _ => "",
-        };
-
-        let orientation = metadata.get("Orientation").and_then(|v| v.as_u64());
-        let rotation = metadata.get("Rotation").and_then(|v| v.as_u64()).unwrap_or(0);
-
-        let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
-        let mut command = command.args(&["-m", mode]);
-
-        if let Some(orientation) = orientation {
-            command = command.args(&["-o", &orientation.to_string()]);
-        }
-        let output = command
-            .args(&["-r", &rotation.to_string(), src.to_str().unwrap(), dst.to_str().unwrap()])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .await
-            .map_err(|err| ErrType::MediaError.err(err, "Failed to spawn command"))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let _ = remove_file(src).await;
-            return Err(ErrType::MediaError.new(stderr.into_owned()));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stdout = stdout.into_owned();
-        let result = match stdout.trim() {
-            "true" => self.r2.upload_photo(r2_path, src).await.map(|_| true),
-            _ => Ok(false),
-        };
-
-        let _ = remove_file(src).await;
-
-        result
     }
 }

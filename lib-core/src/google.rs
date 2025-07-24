@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use jsonwebtoken::{decode, decode_header, jwk::JwkSet, DecodingKey, Validation};
 use reqwest::StatusCode;
-use serde::Deserialize;
+use sonic_rs::Deserialize;
 
 use crate::{config::GoogleConfig, AppResult, ErrType};
 
