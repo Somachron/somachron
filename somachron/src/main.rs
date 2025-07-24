@@ -16,7 +16,20 @@ async fn run() {
     dotenv::dotenv().ok();
 
     // serve app
-    server::serve().await;
+    tokio::join!(server::serve(), async {
+        tokio::runtime::Handle::current().spawn(async move {
+            #[cfg(target_os = "linux")]
+            {
+                while true {
+                    tokio::time::sleep(std::time::Duration::from_secs(5));
+
+                    unsafe {
+                        libc::malloc_trim(0);
+                    }
+                }
+            }
+        });
+    });
 
     tracing::info!("Server has stopped.");
 }
