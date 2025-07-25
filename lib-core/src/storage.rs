@@ -228,10 +228,15 @@ impl Storage {
 
                 if ext.ends_with("json") {
                     let data: FileMetadata = {
-                        let file = std::fs::File::open(&path)
+                        let mut file = tokio::fs::File::open(&path)
+                            .await
                             .map_err(|err| ErrType::FsError.err(err, format!("Failed to open file: {:?}", path)))?;
+                        let mut buffer = Vec::new();
+                        file.read_to_end(&mut buffer)
+                            .await
+                            .map_err(|err| ErrType::FsError.err(err, format!("Failed to read file: {:?}", path)))?;
 
-                        sonic_rs::from_reader(file)
+                        sonic_rs::from_slice(&buffer)
                             .map_err(|err| ErrType::FsError.err(err, "Failed to deserialize metadata"))?
                     };
 
