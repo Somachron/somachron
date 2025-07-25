@@ -1,12 +1,9 @@
-use std::{
-    io::Read,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use aws_sdk_s3::primitives::ByteStream;
 use nanoid::nanoid;
 use sonic_rs::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use utoipa::ToSchema;
 
 use super::{config, media, r2::R2Storage, AppResult, ErrType};
@@ -306,11 +303,12 @@ impl Storage {
             _ => return Err(ErrType::NotFound.new("Not found")),
         };
 
-        let mut file = std::fs::File::open(&fs_path)
+        let mut file = tokio::fs::File::open(&fs_path)
+            .await
             .map_err(|err| ErrType::FsError.err(err, format!("Failed to open file: {file_path}")))?;
 
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).map_err(|err| ErrType::FsError.err(err, "Failed to read file"))?;
+        file.read_to_end(&mut buffer).await.map_err(|err| ErrType::FsError.err(err, "Failed to read file"))?;
 
         Ok((buffer, ext.to_owned()))
     }
