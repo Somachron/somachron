@@ -367,67 +367,73 @@ impl Storage {
 
         let bytes_stream = self.r2.download_media(r2_path).await?;
         let tmp_path = self.save_tmp_file(space_id, bytes_stream).await?;
-        let metadata = media::extract_metadata(&tmp_path).await?;
 
-        match media_type {
-            infer::MatcherType::Video => {
-                thumbnail_path.set_extension("jpeg");
-                thumbnail_file_name.set_extension("jpeg");
-            }
-            _ => (),
-        };
+        let tmp_file_path = tmp_path.clone();
 
-        // create thumbnail
-        match media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await {
-            Ok(was_heic) => {
-                if was_heic {
+        let result = async move {
+            let metadata = media::extract_metadata(&tmp_path).await?;
+
+            match media_type {
+                infer::MatcherType::Video => {
+                    thumbnail_path.set_extension("jpeg");
                     thumbnail_file_name.set_extension("jpeg");
-                    self.r2.upload_photo(r2_path, &tmp_path).await?;
                 }
-                let _ = remove_file(&tmp_path);
-            }
-            Err(err) => {
-                let _ = remove_file(&tmp_path);
-                return Err(err);
-            }
-        };
-
-        // save metadata
-        {
-            // prepare path
-            let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
-            metadata_path.set_extension(format!("{ext}.json"));
-
-            // serialize metadata to vec
-            let metadata = FileMetadata {
-                file_name: file_name.to_owned(),
-                r2_path: r2_path.to_string(),
-                thumbnail_path: {
-                    let mut path = PathBuf::from(file_path);
-                    path.set_file_name(thumbnail_file_name);
-                    path.to_str().map(|s| s.to_owned()).unwrap()
-                },
-                metadata,
-                size: file_size,
-                user_id: user_id.to_string(),
-                media_type: match media_type {
-                    infer::MatcherType::Video => MediaType::Video,
-                    _ => MediaType::Image,
-                },
+                _ => (),
             };
-            let metadata_bytes =
-                sonic_rs::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
+
+            // create thumbnail
+            match media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await {
+                Ok(was_heic) => {
+                    if was_heic {
+                        thumbnail_file_name.set_extension("jpeg");
+                        self.r2.upload_photo(r2_path, &tmp_path).await?;
+                    }
+                }
+                Err(err) => return Err(err),
+            };
 
             // save metadata
-            let mut metadata_file = create_file(&metadata_path).await?;
-            metadata_file
-                .write(&metadata_bytes)
-                .await
-                .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
-            let _ = metadata_file.flush();
-        }
+            {
+                // prepare path
+                let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
+                metadata_path.set_extension(format!("{ext}.json"));
 
-        Ok(())
+                // serialize metadata to vec
+                let metadata = FileMetadata {
+                    file_name: file_name.to_owned(),
+                    r2_path: r2_path.to_string(),
+                    thumbnail_path: {
+                        let mut path = PathBuf::from(file_path);
+                        path.set_file_name(thumbnail_file_name);
+                        path.to_str().map(|s| s.to_owned()).unwrap()
+                    },
+                    metadata,
+                    size: file_size,
+                    user_id: user_id.to_string(),
+                    media_type: match media_type {
+                        infer::MatcherType::Video => MediaType::Video,
+                        _ => MediaType::Image,
+                    },
+                };
+                let metadata_bytes = sonic_rs::to_vec(&metadata)
+                    .map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
+
+                // save metadata
+                let mut metadata_file = create_file(&metadata_path).await?;
+                metadata_file
+                    .write(&metadata_bytes)
+                    .await
+                    .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
+                let _ = metadata_file.flush();
+            }
+
+            Ok(())
+        }
+        .await;
+
+        let _ = remove_file(&tmp_file_path);
+
+        result
     }
 
     pub async fn delete_path(&self, space_id: &str, path: &str) -> AppResult<()> {
