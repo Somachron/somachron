@@ -440,7 +440,7 @@ impl Storage {
                 let r2_path = folder
                     .strip_prefix(&self.spaces_path)
                     .map_err(|err| ErrType::FsError.err(err, "Failed to strip prefix"))?;
-                let r2_path = self.r2_spaces.join(space_id).join(r2_path);
+                let r2_path = self.r2_spaces.join(r2_path);
                 let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
 
                 self.r2.delete_folder(r2_path).await?;

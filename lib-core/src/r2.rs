@@ -146,14 +146,15 @@ impl R2Storage {
             .set_objects(Some(delete_objects))
             .build()
             .map_err(|err| ErrType::R2Error.err(err, "Failed to create delete param"))?;
-        self.client
+        let _ = self
+            .client
             .delete_objects()
             .bucket(&self.bucket_name)
             .delete(delete)
             .send()
             .await
-            .map(|_| ())
-            .map_err(|err| ErrType::R2Error.err(err, "Failed to delete folder objects"))
+            .map_err(|err| ErrType::R2Error.err(err.into_service_error(), "Failed to delete folder objects"))?;
+        Ok(())
     }
 
     pub(super) async fn delete_key(&self, path: &str) -> AppResult<()> {
