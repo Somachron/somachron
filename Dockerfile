@@ -7,6 +7,10 @@ RUN apt install -y make curl make pkgconf clang git cmake \
     libimage-exiftool-perl \
     libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev ffmpeg
 
+# Clean up
+RUN apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Build libheif
 WORKDIR /usr/deps
 RUN git clone https://github.com/strukturag/libheif.git
