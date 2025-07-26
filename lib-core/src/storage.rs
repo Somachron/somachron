@@ -331,7 +331,7 @@ impl Storage {
         user_id: &str,
         space_id: &str,
         file_path: &str,
-        file_size: usize,
+        _file_size: usize,
     ) -> AppResult<()> {
         let file_path = self.clean_path(&file_path)?;
         let file_path = file_path.as_str();
@@ -347,10 +347,6 @@ impl Storage {
             .extension()
             .and_then(|s| s.to_str())
             .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
-        let file_name = media_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .ok_or(ErrType::FsError.new("Invalid file path without name"))?;
 
         // prepare r2 path
         let r2_path = self.r2_spaces.join(space_id).join(file_path);
@@ -370,66 +366,39 @@ impl Storage {
 
         let tmp_file_path = tmp_path.clone();
 
-        let result = async move {
-            let metadata = media::extract_metadata(&tmp_path).await?;
-
-            match media_type {
-                infer::MatcherType::Video => {
-                    thumbnail_path.set_extension("jpeg");
-                    thumbnail_file_name.set_extension("jpeg");
-                }
-                _ => (),
-            };
-
-            // create thumbnail
-            match media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await {
-                Ok(was_heic) => {
-                    if was_heic {
-                        thumbnail_file_name.set_extension("jpeg");
-                        self.r2.upload_photo(r2_path, &tmp_path).await?;
-                    }
-                }
-                Err(err) => return Err(err),
-            };
-
-            // save metadata
-            {
-                // prepare path
-                let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
-                metadata_path.set_extension(format!("{ext}.json"));
-
-                // serialize metadata to vec
-                let metadata = FileMetadata {
-                    file_name: file_name.to_owned(),
-                    r2_path: r2_path.to_string(),
-                    thumbnail_path: {
-                        let mut path = PathBuf::from(file_path);
-                        path.set_file_name(thumbnail_file_name);
-                        path.to_str().map(|s| s.to_owned()).unwrap()
-                    },
-                    metadata,
-                    size: file_size,
-                    user_id: user_id.to_string(),
-                    media_type: match media_type {
-                        infer::MatcherType::Video => MediaType::Video,
-                        _ => MediaType::Image,
-                    },
-                };
-                let metadata_bytes = sonic_rs::to_vec(&metadata)
-                    .map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
-
-                // save metadata
-                let mut metadata_file = create_file(&metadata_path).await?;
-                metadata_file
-                    .write(&metadata_bytes)
-                    .await
-                    .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
-                let _ = metadata_file.flush();
+        match media_type {
+            infer::MatcherType::Video => {
+                thumbnail_path.set_extension("jpeg");
+                thumbnail_file_name.set_extension("jpeg");
             }
+            _ => (),
+        };
 
-            Ok(())
-        }
-        .await;
+        // prepare path
+        let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
+        metadata_path.set_extension(format!("{ext}.json"));
+
+        // create thumbnail
+        let result = match media::run_thumbnailer(
+            &tmp_path,
+            &thumbnail_path,
+            media_type,
+            file_path,
+            r2_path,
+            metadata_path,
+            thumbnail_file_name,
+            user_id,
+        )
+        .await
+        {
+            Ok(was_heic) => {
+                if was_heic {
+                    return self.r2.upload_photo(r2_path, &tmp_path).await;
+                }
+                Ok(())
+            }
+            Err(err) => Err(err),
+        };
 
         let _ = remove_file(&tmp_file_path);
 

@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use sonic_rs::{JsonValueMutTrait, JsonValueTrait};
-
 use crate::{AppResult, ErrType};
 
 const THUMBNAIL_EXE: &str = "thumbnailer";
@@ -33,52 +31,54 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 }
 
 /// Extract metadata from image path
-pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<sonic_rs::Value> {
-    let output = tokio::process::Command::new("exiftool")
-        .args(&["-j", tmp_path.to_str().unwrap()])
-        .kill_on_drop(true)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
-        .map_err(|err| ErrType::MediaError.err(err, "Failed to get exif data"))?;
+// pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<sonic_rs::Value> {
+//     let output = tokio::process::Command::new("exiftool")
+//         .args(&["-j", tmp_path.to_str().unwrap()])
+//         .kill_on_drop(true)
+//         .stdout(std::process::Stdio::piped())
+//         .stderr(std::process::Stdio::piped())
+//         .output()
+//         .await
+//         .map_err(|err| ErrType::MediaError.err(err, "Failed to get exif data"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ErrType::MediaError.new(stderr));
-    }
+//     if !output.status.success() {
+//         let stderr = String::from_utf8_lossy(&output.stderr);
+//         return Err(ErrType::MediaError.new(stderr));
+//     }
 
-    // let stdout = String::from_utf8_lossy(&output.stdout);
-    // let data = stdout.into_owned();
+//     let stdout = String::from_utf8_lossy(&output.stdout);
+//     let data = stdout.into_owned();
 
-    Ok(sonic_rs::Value::from_static_str(""))
+//     let result: sonic_rs::Value =
+//         sonic_rs::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
 
-    // let result: sonic_rs::Value =
-    //     sonic_rs::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
+//     let mut data = if result.is_array() {
+//         let arr = result.into_array().unwrap();
+//         arr.into_iter().nth(0).unwrap_or(sonic_rs::Value::default())
+//     } else {
+//         result
+//     };
 
-    // let mut data = if result.is_array() {
-    //     let arr = result.into_array().unwrap();
-    //     arr.into_iter().nth(0).unwrap_or(sonic_rs::Value::default())
-    // } else {
-    //     result
-    // };
+//     if let Some(value) = data.get_mut("SourceFile") {
+//         *value = sonic_rs::Value::from_static_str("");
+//     }
+//     if let Some(value) = data.get_mut("Directory") {
+//         *value = sonic_rs::Value::from_static_str("");
+//     }
 
-    // if let Some(value) = data.get_mut("SourceFile") {
-    //     *value = sonic_rs::Value::from_static_str("");
-    // }
-    // if let Some(value) = data.get_mut("Directory") {
-    //     *value = sonic_rs::Value::from_static_str("");
-    // }
-
-    // Ok(data)
-}
+//     Ok(data)
+// }
 
 /// Spawn thumbnailer binary
 pub(super) async fn run_thumbnailer(
     src: &PathBuf,
     dst: &PathBuf,
     media_type: infer::MatcherType,
-    metadata: &sonic_rs::Value,
+    file_path: &str,
+    r2_path: &str,
+    metadata_path: PathBuf,
+    thumbnail_filename: PathBuf,
+    user_id: &str,
 ) -> AppResult<bool> {
     let mode = match media_type {
         infer::MatcherType::Image => "image",
@@ -86,17 +86,18 @@ pub(super) async fn run_thumbnailer(
         _ => "",
     };
 
-    let orientation = metadata.get("Orientation").and_then(|v| v.as_u64());
-    let rotation = metadata.get("Rotation").and_then(|v| v.as_u64()).unwrap_or(0);
-
     let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
-    let mut command = command.args(&["-m", mode]);
-
-    if let Some(orientation) = orientation {
-        command = command.args(&["-o", &orientation.to_string()]);
-    }
     let output = command
-        .args(&["-r", &rotation.to_string(), src.to_str().unwrap(), dst.to_str().unwrap()])
+        .args(&["-m", mode])
+        .args(&[
+            src.to_str().unwrap(),
+            dst.to_str().unwrap(),
+            file_path,
+            r2_path,
+            metadata_path.to_str().unwrap(),
+            thumbnail_filename.to_str().unwrap(),
+            user_id,
+        ])
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
