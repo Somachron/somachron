@@ -20,7 +20,7 @@ async fn run() {
         tokio::runtime::Handle::current().spawn(async move {
             #[cfg(target_os = "linux")]
             {
-                while true {
+                loop {
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
                     unsafe {
