@@ -378,7 +378,7 @@ impl Storage {
         };
 
         // create thumbnail
-        match media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await {
+        match media::run_thumbnailer(tmp_path.clone(), thumbnail_path, media_type, &metadata).await {
             Ok(was_heic) => {
                 if was_heic {
                     thumbnail_file_name.set_extension("jpeg");
