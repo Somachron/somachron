@@ -167,7 +167,8 @@ fn create_thumbnail(
         _ => img, // No rotation needed for 1 or unknown
     };
 
-    let img = img.resize(THUMBNAIL_DIM, THUMBNAIL_DIM, image::imageops::FilterType::Lanczos3);
+    let thumbnail = img.resize(THUMBNAIL_DIM, THUMBNAIL_DIM, image::imageops::FilterType::Lanczos3);
+    drop(img);
 
     let quality = 80;
     let mut file = std::fs::File::create(dst).map_err(|err| ErrType::FsError.err(err, "Failed to open dest file"))?;
@@ -175,9 +176,9 @@ fn create_thumbnail(
     match format {
         image::ImageFormat::Jpeg => {
             let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, quality);
-            img.write_with_encoder(encoder)
+            thumbnail.write_with_encoder(encoder)
         }
-        _ => img.write_to(&mut file, format),
+        _ => thumbnail.write_to(&mut file, format),
     }
     .map_err(|err| ErrType::FsError.err(err, "Failed to write image to buffer"))
 }
