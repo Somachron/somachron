@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::VecDeque,
+    path::{Path, PathBuf},
+};
 
 use aws_sdk_s3::primitives::ByteStream;
 use nanoid::nanoid;
@@ -431,17 +434,24 @@ impl Storage {
     pub async fn delete_path(&self, space_id: &str, path: &str) -> AppResult<()> {
         let path = self.clean_path(path)?;
 
-        let r2_path = self.r2_spaces.join(space_id).join(&path);
-        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
-
-        let fs_path = self.spaces_path.join(space_id).join(path);
+        let fs_path = self.spaces_path.join(space_id).join(&path);
         if fs_path.is_dir() {
-            self.r2.delete_folder(r2_path).await?;
+            let folders = self.collect_dirs(fs_path.clone()).await?;
+            for folder in folders.into_iter() {
+                let r2_path = folder.strip_prefix(&self.spaces_path).unwrap().strip_prefix("/").unwrap();
+                let r2_path = self.r2_spaces.join(space_id).join(r2_path);
+                let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+
+                self.r2.delete_folder(r2_path).await?;
+            }
 
             tokio::fs::remove_dir_all(&fs_path)
                 .await
                 .map_err(|err| ErrType::FsError.err(err, format!("Failed to delete path: {:?}", fs_path)))
         } else {
+            let r2_path = self.r2_spaces.join(space_id).join(path);
+            let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+
             let file_stem =
                 fs_path.file_stem().and_then(|s| s.to_str()).ok_or(ErrType::FsError.new("Failed to get file_stem"))?;
             let ext = fs_path
@@ -460,5 +470,43 @@ impl Storage {
             let _ = remove_file(&json_path);
             Ok(())
         }
+    }
+
+    async fn collect_dirs(&self, dir_path: PathBuf) -> AppResult<Vec<PathBuf>> {
+        struct DirDepth {
+            path: PathBuf,
+            depth: u32,
+        }
+        let mut folders = Vec::new();
+        folders.push(DirDepth {
+            path: dir_path.clone(),
+            depth: 0,
+        });
+
+        let mut queue = VecDeque::new();
+        queue.push_back((dir_path, 0));
+
+        while let Some((dir, depth)) = queue.pop_front() {
+            let mut rd = tokio::fs::read_dir(&dir)
+                .await
+                .map_err(|err| ErrType::FsError.err(err, format!("Failed to read dir: {:?}", dir)))?;
+
+            while let Some(entry) =
+                rd.next_entry().await.map_err(|err| ErrType::FsError.err(err, "Failed to iter dir"))?
+            {
+                let path = entry.path();
+                if path.is_dir() {
+                    folders.push(DirDepth {
+                        path: path.clone(),
+                        depth: depth + 1,
+                    });
+                    queue.push_back((path, depth + 1));
+                }
+            }
+        }
+
+        folders.sort_by(|a: &DirDepth, b: &DirDepth| b.depth.cmp(&a.depth).then_with(|| a.path.cmp(&b.path)));
+
+        Ok(folders.into_iter().map(|f| f.path).collect())
     }
 }

@@ -8,6 +8,7 @@ use aws_sdk_s3::{
     },
     presigning::PresigningConfig,
     primitives::ByteStream,
+    types::{Delete, ObjectIdentifier},
     Client, Config,
 };
 
@@ -130,16 +131,29 @@ impl R2Storage {
             .await
             .map_err(|err| ErrType::r2_list_err(err, "Failed to list objects"))?;
 
+        let mut delete_objects = Vec::<ObjectIdentifier>::new();
         for obj in objects.contents().into_iter() {
             if let Some(key) = obj.key() {
-                match self.delete_key(key).await {
-                    Ok(_) => (),
-                    Err(err) => tracing::error!("Failed to remove R2 key: {:?}", err),
-                };
+                let id = ObjectIdentifier::builder()
+                    .key(key)
+                    .build()
+                    .map_err(|err| ErrType::R2Error.err(err, "Failed to build object identifier"))?;
+                delete_objects.push(id);
             }
         }
 
-        Ok(())
+        let delete = Delete::builder()
+            .set_objects(Some(delete_objects))
+            .build()
+            .map_err(|err| ErrType::R2Error.err(err, "Failed to create delete param"))?;
+        self.client
+            .delete_objects()
+            .bucket(&self.bucket_name)
+            .delete(delete)
+            .send()
+            .await
+            .map(|_| ())
+            .map_err(|err| ErrType::R2Error.err(err, "Failed to delete folder objects"))
     }
 
     pub(super) async fn delete_key(&self, path: &str) -> AppResult<()> {
