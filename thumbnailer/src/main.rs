@@ -126,7 +126,7 @@ struct FileMetadata {
 fn save_metadata(
     user_id: String,
     src: &PathBuf,
-    mut metadata_path: PathBuf,
+    metadata_path: PathBuf,
     file_path: PathBuf,
     r2_path: String,
     thumbnail_filename: String,
@@ -135,16 +135,8 @@ fn save_metadata(
 ) -> AppResult<()> {
     let fs_meta = src.metadata().map_err(|err| ErrType::FsError.err(err, "Failed to fs metadata"))?;
 
-    // get file extension
-    let ext = file_path
-        .extension()
-        .and_then(|s| s.to_str())
-        .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
     let file_name =
         file_path.file_name().and_then(|s| s.to_str()).ok_or(ErrType::FsError.new("Invalid file path without name"))?;
-
-    // prepare path
-    metadata_path.set_extension(format!("{ext}.json"));
 
     // serialize metadata to vec
     let metadata = FileMetadata {
