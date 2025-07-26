@@ -50,6 +50,7 @@ fn main() {
 
     match save_metadata(
         cli.user_id,
+        &cli.src,
         cli.metadata_path,
         cli.file_path,
         cli.r2_path,
@@ -124,6 +125,7 @@ struct FileMetadata {
 
 fn save_metadata(
     user_id: String,
+    src: &PathBuf,
     mut metadata_path: PathBuf,
     file_path: PathBuf,
     r2_path: String,
@@ -131,7 +133,7 @@ fn save_metadata(
     media_type: MediaType,
     metadata: sonic_rs::Value,
 ) -> AppResult<()> {
-    let fs_meta = file_path.metadata().map_err(|err| ErrType::FsError.err(err, "Failed to fs metadata"))?;
+    let fs_meta = src.metadata().map_err(|err| ErrType::FsError.err(err, "Failed to fs metadata"))?;
 
     // get file extension
     let ext = file_path
