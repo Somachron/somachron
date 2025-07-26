@@ -1,31 +1,39 @@
-FROM rust:1.88.0 AS builder
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV SHELL=/bin/bash
+ENV HOME=/home/shank
 
 # Install build dependencies
 RUN apt update
+RUN apt install -y software-properties-common curl
+RUN add-apt-repository -y ppa:strukturag/libheif
 RUN apt install -y make curl make pkgconf clang git cmake \
     libssl-dev openssl \
     libimage-exiftool-perl \
     libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev ffmpeg
 
+RUN apt-get install -y libheif1 libheif-dev libavutil-dev libavformat-dev libavfilter-dev libavdevice-dev libimage-exiftool-perl
+
 # Clean up
 RUN apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Build libheif
-WORKDIR /usr/deps
-RUN git clone https://github.com/strukturag/libheif.git
+# Create user first
+RUN useradd -m -s /bin/bash shank && \
+    echo "shank ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-WORKDIR /usr/deps/libheif
-RUN git checkout tags/v1.19.8
-RUN mkdir build
-WORKDIR /usr/deps/libheif/build
-RUN cmake --preset=release ..
-RUN make install
+RUN chown -R shank:shank /home/shank
 
-# Remove build
-WORKDIR /usr/src/app
-RUN rm -rf /usr/deps/libheif
-COPY . .
+USER shank
+WORKDIR /home/shank
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    echo 'source $HOME/.cargo/env' >> ~/.bashrc
+
+COPY --chown=shank:shank . .
 
 ARG R2_ACCOUNT_ID
 ARG R2_BUCKET
@@ -39,17 +47,14 @@ ARG GOOGLE_REDIRECT_URI
 ARG DATABASE_URL
 ARG VOLUME_PATH
 
-# Build the application
-RUN cargo install --path somachron
-RUN cargo install --path thumbnailer
+# Build the application (source the cargo environment first)
+RUN /bin/bash -c "source ~/.cargo/env && cargo install --path somachron"
+# RUN /bin/bash -c "source ~/.cargo/env && cargo install --path thumbnailer"
 
-# Remove build
+# Remove build artifacts to reduce image size
 RUN rm -rf target
 
 EXPOSE 8080
-
-ENV JEMALLOC_SYS_WITH_MALLOC_CONF="background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true"
-ENV MALLOC_CONF="background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true"
 
 # Run the binary
 CMD [ "somachron" ]
