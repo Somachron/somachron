@@ -42,7 +42,7 @@ ARG VOLUME_PATH
 
 # Build the application
 RUN cargo install --path somachron
-# RUN cargo install --path thumbnailer
+RUN cargo install --path thumbnailer
 
 # Remove build artifacts to reduce image size
 RUN rm -rf target
