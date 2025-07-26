@@ -30,6 +30,15 @@ RUN apk update && apk add --no-cache \
     dav1d-dev \
     libde265-dev
 
+
+# Create exiftool symlink
+RUN ln -sf /usr/bin/exiftool /usr/local/bin/exiftool || \
+    find /usr -name "exiftool*" -type f -executable -exec ln -sf {} /usr/local/bin/exiftool \; || \
+    (wget https://exiftool.org/Image-ExifTool-13.33.tar.gz && \
+    tar -zxvf Image-ExifTool-13.33.tar.gz && \
+    cd Image-ExifTool-13.33 && \
+    perl Makefile.PL && make install)
+
 RUN git clone https://github.com/strukturag/libheif /dep/libheif
 WORKDIR /dep/libheif
 RUN git checkout tags/v1.19.8
