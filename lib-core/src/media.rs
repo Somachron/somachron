@@ -48,27 +48,29 @@ pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<sonic_rs::
         return Err(ErrType::MediaError.new(stderr));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let data = stdout.into_owned();
+    // let stdout = String::from_utf8_lossy(&output.stdout);
+    // let data = stdout.into_owned();
 
-    let result: sonic_rs::Value =
-        sonic_rs::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
+    Ok(sonic_rs::Value::from_static_str(""))
 
-    let mut data = if result.is_array() {
-        let arr = result.into_array().unwrap();
-        arr.into_iter().nth(0).unwrap_or(sonic_rs::Value::default())
-    } else {
-        result
-    };
+    // let result: sonic_rs::Value =
+    //     sonic_rs::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
 
-    if let Some(value) = data.get_mut("SourceFile") {
-        *value = sonic_rs::Value::from_static_str("");
-    }
-    if let Some(value) = data.get_mut("Directory") {
-        *value = sonic_rs::Value::from_static_str("");
-    }
+    // let mut data = if result.is_array() {
+    //     let arr = result.into_array().unwrap();
+    //     arr.into_iter().nth(0).unwrap_or(sonic_rs::Value::default())
+    // } else {
+    //     result
+    // };
 
-    Ok(data)
+    // if let Some(value) = data.get_mut("SourceFile") {
+    //     *value = sonic_rs::Value::from_static_str("");
+    // }
+    // if let Some(value) = data.get_mut("Directory") {
+    //     *value = sonic_rs::Value::from_static_str("");
+    // }
+
+    // Ok(data)
 }
 
 /// Spawn thumbnailer binary

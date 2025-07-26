@@ -8,7 +8,6 @@ lib-core = { path = "../lib-core" }
 lib-domain = { path = "../lib-domain" }
 
 mimalloc = { version = "*", features = ["secure"] }
-libc = { version = "*" }
 tokio = { workspace = true }
 
 axum = { workspace = true }
