@@ -4,7 +4,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV SHELL=/bin/bash
-ENV HOME=/home/shank
 
 # Install build dependencies
 RUN apt update
@@ -21,19 +20,13 @@ RUN apt-get install -y libheif1 libheif-dev libavutil-dev libavformat-dev libavf
 RUN apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create user first
-RUN useradd -m -s /bin/bash shank && \
-    echo "shank ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+# Install Rust as root
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
-RUN chown -R shank:shank /home/shank
-
-USER shank
-WORKDIR /home/shank
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
-    echo 'source $HOME/.cargo/env' >> ~/.bashrc
-
-COPY --chown=shank:shank . .
+# Set working directory
+WORKDIR /app
+COPY . .
 
 ARG R2_ACCOUNT_ID
 ARG R2_BUCKET
@@ -47,9 +40,9 @@ ARG GOOGLE_REDIRECT_URI
 ARG DATABASE_URL
 ARG VOLUME_PATH
 
-# Build the application (source the cargo environment first)
-RUN /bin/bash -c "source ~/.cargo/env && cargo install --path somachron"
-# RUN /bin/bash -c "source ~/.cargo/env && cargo install --path thumbnailer"
+# Build the application
+RUN cargo install --path somachron
+# RUN cargo install --path thumbnailer
 
 # Remove build artifacts to reduce image size
 RUN rm -rf target
