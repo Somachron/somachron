@@ -36,6 +36,7 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<sonic_rs::Value> {
     let output = tokio::process::Command::new("exiftool")
         .args(&["-j", tmp_path.to_str().unwrap()])
+        .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()
@@ -94,6 +95,7 @@ pub(super) async fn run_thumbnailer(
     }
     let output = command
         .args(&["-r", &rotation.to_string(), src.to_str().unwrap(), dst.to_str().unwrap()])
+        .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()
