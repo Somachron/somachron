@@ -105,19 +105,18 @@ impl Storage {
         let id = nanoid!(8);
         let tmp_file_path = tmp_dir_path.join(format!("tmp_f_{id}"));
         {
-            let mut tmp_file = create_file(&tmp_file_path).await?;
+            let tmp_file = create_file(&tmp_file_path).await?;
+            let mut buf_writer = tokio::io::BufWriter::new(tmp_file);
 
-            while let Some(chunk) = bytes_stream
-                .try_next()
-                .await
-                .map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?
-            {
-                tmp_file
-                    .write(&chunk)
+            while let Some(chunk) = bytes_stream.next().await {
+                let bytes = chunk.map_err(|err| ErrType::R2Error.err(err, "Failed to read next chunk stream"))?;
+
+                buf_writer
+                    .write_all(&bytes)
                     .await
                     .map_err(|err| ErrType::FsError.err(err, "Failed to write tmp media file"))?;
             }
-            let _ = tmp_file.flush().await;
+            let _ = buf_writer.flush().await;
         }
 
         Ok(tmp_file_path)
