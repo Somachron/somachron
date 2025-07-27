@@ -55,13 +55,13 @@ pub struct MediaMetadata {
     #[serde(rename = "ISO")]
     iso: Option<usize>,
     #[serde(rename = "ShutterSpeed")]
-    shutter_speed: Option<String>,
+    shutter_speed: Option<EitherValue<String, f64>>,
     #[serde(rename = "Aperture")]
     aperture: Option<f32>,
     #[serde(rename = "FNumber")]
     f_number: Option<f32>,
     #[serde(rename = "ExposureTime")]
-    exposure_time: Option<EitherValue<String, u32>>,
+    exposure_time: Option<EitherValue<String, f64>>,
 
     latitude: Option<f64>,
     longitude: Option<f64>,

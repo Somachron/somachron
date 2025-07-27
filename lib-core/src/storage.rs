@@ -94,10 +94,6 @@ impl Storage {
         }
     }
 
-    pub fn spaces_path(&self) -> PathBuf {
-        self.spaces_path.clone()
-    }
-
     async fn save_tmp_file(&self, space_id: &str, mut bytes_stream: ByteStream) -> AppResult<PathBuf> {
         let tmp_dir_path = self.root_path.join(space_id).join("tmp");
         create_dir(&tmp_dir_path).await?;
@@ -381,25 +377,9 @@ impl Storage {
         metadata_path.set_extension(format!("{ext}.json"));
 
         // extract media metadata
-        let metadata = {
-            let metadata = media::extract_metadata(&tmp_path).await?;
-
-            // create thumbnail
-            match media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await {
-                Ok(was_heic) => {
-                    if was_heic {
-                        self.r2.upload_photo(r2_path, &tmp_path).await
-                    } else {
-                        Ok(())
-                    }
-                }
-                Err(err) => Err(err),
-            }
-            .map(|_| metadata)
-        };
-
-        let _ = remove_file(&tmp_file_path);
-        let metadata = metadata?;
+        let metadata_result = self.process_media(&tmp_path, &thumbnail_path, r2_path, media_type).await;
+        let _ = remove_file(&tmp_file_path).await;
+        let metadata = metadata_result?;
 
         {
             // serialize metadata to vec
@@ -435,6 +415,23 @@ impl Storage {
         }
 
         Ok(())
+    }
+
+    async fn process_media(
+        &self,
+        tmp_path: &PathBuf,
+        thumbnail_path: &PathBuf,
+        r2_path: &str,
+        media_type: infer::MatcherType,
+    ) -> AppResult<media::MediaMetadata> {
+        let metadata = media::extract_metadata(&tmp_path).await?;
+
+        // create thumbnail
+        let was_heic = media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await?;
+        if was_heic {
+            self.r2.upload_photo(r2_path, &tmp_path).await?;
+        }
+        Ok(metadata)
     }
 
     pub async fn delete_path(&self, space_id: &str, path: &str) -> AppResult<()> {
@@ -474,8 +471,8 @@ impl Storage {
             json_path.set_extension(format!("{ext}.json"));
 
             self.r2.delete_key(r2_path).await?;
-            let _ = remove_file(&thumbnail_path);
-            let _ = remove_file(&json_path);
+            let _ = remove_file(&thumbnail_path).await;
+            let _ = remove_file(&json_path).await;
             Ok(())
         }
     }
