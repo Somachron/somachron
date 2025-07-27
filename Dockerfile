@@ -64,35 +64,6 @@ ARG VOLUME_PATH
 RUN cargo install --path somachron && \
     cargo install --path thumbnailer
 
-# Runtime stage
-FROM debian:bookworm-slim AS runtime
-
-# Install runtime dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libssl3 \
-    libexif12 \
-    libimage-exiftool-perl \
-    libavdevice59 \
-    libjpeg62-turbo \
-    libpng16-16 \
-    zlib1g \
-    libx265-199 \
-    libx264-164 \
-    libdav1d6 \
-    libde265-0 \
-    libaom3 \
-    libsvtav1enc1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy libheif from builder
-COPY --from=builder /usr/local/lib/libheif* /usr/local/lib/
-RUN ldconfig
-
-# Copy binaries from builder
-COPY --from=builder /usr/local/cargo/bin/somachron /usr/local/bin/
-COPY --from=builder /usr/local/cargo/bin/thumbnailer /usr/local/bin/
-
 EXPOSE 8080
 
 # Set memory allocator environment variable for better memory management
