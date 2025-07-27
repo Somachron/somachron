@@ -1,8 +1,9 @@
 use std::{io::Write, path::PathBuf};
 
+use chrono::{DateTime, FixedOffset};
 use clap::{Parser, ValueEnum};
 use err::{AppResult, ErrType};
-use sonic_rs::{Deserialize, JsonValueMutTrait, JsonValueTrait, Serialize};
+use sonic_rs::{Deserialize, JsonValueTrait, Serialize};
 
 mod err;
 mod media;
@@ -45,8 +46,8 @@ fn main() {
         }
     };
 
-    let orientation = metadata.get("Orientation").and_then(|v| v.as_u64());
-    let rotation = metadata.get("Rotation").and_then(|v| v.as_u64()).unwrap_or(0);
+    let orientation = metadata.orientation.as_ref().and_then(|v| Some(v.parse().unwrap_or(0)));
+    let rotation = metadata.rotation.unwrap_or(0);
 
     match save_metadata(
         cli.user_id,
@@ -76,7 +77,7 @@ fn main() {
     }
 }
 
-fn extract_metadata(src: &PathBuf) -> AppResult<sonic_rs::Value> {
+fn extract_metadata(src: &PathBuf) -> AppResult<MediaMetadata> {
     let output = std::process::Command::new("exiftool")
         .args(&["-j", src.to_str().unwrap()])
         .stdout(std::process::Stdio::piped())
@@ -95,21 +96,101 @@ fn extract_metadata(src: &PathBuf) -> AppResult<sonic_rs::Value> {
     let result: sonic_rs::Value =
         sonic_rs::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
 
-    let mut data = if result.is_array() {
+    let data = if result.is_array() {
         let arr = result.into_array().unwrap();
         arr.into_iter().nth(0).unwrap_or(sonic_rs::Value::default())
     } else {
         result
     };
 
-    if let Some(value) = data.get_mut("SourceFile") {
-        *value = sonic_rs::Value::from_static_str("");
-    }
-    if let Some(value) = data.get_mut("Directory") {
-        *value = sonic_rs::Value::from_static_str("");
+    let gps_info = extract_gps_info(&data);
+
+    let mut metadata: MediaMetadata =
+        sonic_rs::from_value(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize media data"))?;
+
+    if let Some((lat, lng)) = gps_info {
+        metadata.latitude = Some(lat);
+        metadata.longitude = Some(lng);
     }
 
-    Ok(data)
+    Ok(metadata)
+}
+
+fn extract_gps_info(data: &sonic_rs::Value) -> Option<(f64, f64)> {
+    let data_coordinates = data.get("GPSCoordinates").or_else(|| data.get("GPSPosition")).and_then(|v| v.as_str());
+
+    let coordinates = data_coordinates.and_then(|v| {
+        let mut tokens = v.split(',');
+        let lat = tokens.next().map(|s| s.trim());
+        let lng = tokens.next().map(|s| s.trim());
+        lat.zip(lng)
+    });
+
+    let coordinates = coordinates.or_else(|| {
+        let lat = data.get("GPSLatitude").and_then(|s| s.as_str());
+        let lng = data.get("GPSLongitude").and_then(|s| s.as_str());
+        lat.zip(lng)
+    });
+
+    coordinates.and_then(|(lat, lng)| Some((parse_dms_decimal(lat), parse_dms_decimal(lng))))
+}
+
+fn parse_dms_decimal(dms: &str) -> f64 {
+    let tokens: Vec<&str> = dms.split(' ').filter(|s| !s.is_empty() && *s != "deg").collect();
+    let degrees: f64 = tokens[0].trim_end_matches('°').parse().unwrap();
+    let minutes: f64 = tokens[1].trim_end_matches('\'').parse().unwrap();
+    let seconds: f64 = tokens[2].trim_end_matches('\"').parse().unwrap();
+
+    let decimal = degrees + (minutes / 60.0) + (seconds / 3600.0);
+
+    if dms.ends_with('S') || dms.ends_with('W') {
+        -decimal
+    } else {
+        decimal
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct MediaMetadata {
+    #[serde(rename = "Make")]
+    make: Option<String>,
+    #[serde(rename = "Model")]
+    model: Option<String>,
+    #[serde(rename = "Software")]
+    software: Option<String>,
+
+    #[serde(rename = "ImageHeight")]
+    image_height: usize,
+    #[serde(rename = "ImageWidth")]
+    image_width: usize,
+
+    #[serde(rename = "Duration")]
+    duration: Option<String>,
+    #[serde(rename = "MediaDuration")]
+    media_duration: Option<String>,
+    #[serde(rename = "VideoFrameRate")]
+    frame_rate: Option<f32>,
+
+    #[serde(rename = "DateTimeOriginal")]
+    date_time: Option<DateTime<FixedOffset>>,
+    #[serde(rename = "Orientation")]
+    orientation: Option<String>,
+    #[serde(rename = "Rotation")]
+    rotation: Option<u64>,
+
+    #[serde(rename = "ISO")]
+    iso: Option<usize>,
+    #[serde(rename = "ShutterSpeed")]
+    shutter_speed: Option<String>,
+    #[serde(rename = "Aperture")]
+    aperture: Option<f32>,
+    #[serde(rename = "FNumber")]
+    f_number: Option<f32>,
+    #[serde(rename = "ExposureTime")]
+    exposure_time: Option<String>,
+
+    latitude: Option<f64>,
+    longitude: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -117,7 +198,7 @@ struct FileMetadata {
     pub file_name: String,
     pub r2_path: String,
     pub thumbnail_path: String,
-    pub metadata: sonic_rs::Value,
+    pub metadata: MediaMetadata,
     pub size: usize,
     pub user_id: String,
     pub media_type: MediaType,
@@ -131,7 +212,7 @@ fn save_metadata(
     r2_path: String,
     thumbnail_filename: String,
     media_type: MediaType,
-    metadata: sonic_rs::Value,
+    metadata: MediaMetadata,
 ) -> AppResult<()> {
     let fs_meta = src.metadata().map_err(|err| ErrType::FsError.err(err, "Failed to fs metadata"))?;
 
@@ -161,6 +242,7 @@ fn save_metadata(
     metadata_file
         .write_all(&metadata_bytes)
         .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
+    drop(metadata_bytes);
     let _ = metadata_file.flush();
 
     Ok(())

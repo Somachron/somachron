@@ -13,6 +13,7 @@ exiftool = "0.2.5"
 
 sonic-rs = { workspace = true }
 serde = { workspace = true }
+chrono = { workspace = true }
 
 ffmpeg-next = { version = "7.1.0" }
 libheif-rs = { version = "2.2.0", features = ["v1_19"] }
