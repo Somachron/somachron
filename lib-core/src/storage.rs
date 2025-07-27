@@ -4,14 +4,10 @@ use std::{
 };
 
 use aws_sdk_s3::primitives::ByteStream;
-use chrono::{DateTime, FixedOffset};
 use nanoid::nanoid;
-use sonic_rs::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use utoipa::{
-    openapi::{schema::SchemaType, KnownFormat, ObjectBuilder, RefOr, Schema, SchemaFormat, Type},
-    PartialSchema, ToSchema,
-};
+use utoipa::ToSchema;
 
 use super::{config, media, r2::R2Storage, AppResult, ErrType};
 
@@ -25,70 +21,12 @@ pub enum MediaType {
     Video,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct Datetime(pub DateTime<FixedOffset>);
-impl ToSchema for Datetime {}
-
-impl PartialSchema for Datetime {
-    fn schema() -> RefOr<Schema> {
-        RefOr::T(Schema::Object(
-            ObjectBuilder::new()
-                .schema_type(SchemaType::Type(Type::String))
-                .format(Some(SchemaFormat::KnownFormat(KnownFormat::DateTime)))
-                .build(),
-        ))
-    }
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct MediaMetadata {
-    #[serde(rename = "Make")]
-    make: Option<String>,
-    #[serde(rename = "Model")]
-    model: Option<String>,
-    #[serde(rename = "Software")]
-    software: Option<String>,
-
-    #[serde(rename = "ImageHeight")]
-    image_height: usize,
-    #[serde(rename = "ImageWidth")]
-    image_width: usize,
-
-    #[serde(rename = "Duration")]
-    duration: Option<String>,
-    #[serde(rename = "MediaDuration")]
-    media_duration: Option<String>,
-    #[serde(rename = "VideoFrameRate")]
-    frame_rate: Option<f32>,
-
-    #[serde(rename = "DateTimeOriginal")]
-    date_time: Option<Datetime>,
-    #[serde(rename = "Orientation")]
-    orientation: Option<String>,
-    #[serde(rename = "Rotation")]
-    rotation: Option<u64>,
-
-    #[serde(rename = "ISO")]
-    iso: Option<usize>,
-    #[serde(rename = "ShutterSpeed")]
-    shutter_speed: Option<String>,
-    #[serde(rename = "Aperture")]
-    aperture: Option<f32>,
-    #[serde(rename = "FNumber")]
-    f_number: Option<f32>,
-    #[serde(rename = "ExposureTime")]
-    exposure_time: Option<String>,
-
-    latitude: Option<f64>,
-    longitude: Option<f64>,
-}
-
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct FileMetadata {
     pub file_name: String,
     pub r2_path: String,
     pub thumbnail_path: String,
-    pub metadata: sonic_rs::Value,
+    pub metadata: media::MediaMetadata,
     pub size: usize,
     pub user_id: String,
     pub media_type: MediaType,
@@ -258,14 +196,14 @@ impl Storage {
 
         let mut rd = tokio::fs::read_dir(&dir_path)
             .await
-            .map_err(|err| ErrType::FsError.err(err, format!("Failed to read dir: {:?}", dir_path)))?;
+            .map_err(|err| ErrType::FsError.err(err, format!("Failed to read dir: {:?}", dir_path.file_name())))?;
 
         let mut entries = Vec::<FileEntry>::new();
 
         while let Some(dir) = rd.next_entry().await.map_err(|err| ErrType::FsError.err(err, "Failed to iter dir"))? {
             let file_name = dir.file_name();
             let file_name =
-                file_name.to_str().ok_or(ErrType::FsError.new(format!("Failed to get file_name: {:?}", dir_path)))?;
+                file_name.to_str().ok_or(ErrType::FsError.new(format!("Failed to get file_name: {:?}", file_name)))?;
 
             match file_name {
                 // skip tmp files
@@ -292,16 +230,17 @@ impl Storage {
 
                 if ext.ends_with("json") {
                     let data: FileMetadata = {
-                        let mut file = tokio::fs::File::open(&path)
-                            .await
-                            .map_err(|err| ErrType::FsError.err(err, format!("Failed to open file: {:?}", path)))?;
+                        let mut file = tokio::fs::File::open(&path).await.map_err(|err| {
+                            ErrType::FsError.err(err, format!("Failed to open file: {:?}", path.file_name()))
+                        })?;
                         let mut buffer = Vec::new();
-                        file.read_to_end(&mut buffer)
-                            .await
-                            .map_err(|err| ErrType::FsError.err(err, format!("Failed to read file: {:?}", path)))?;
+                        file.read_to_end(&mut buffer).await.map_err(|err| {
+                            ErrType::FsError.err(err, format!("Failed to read file: {:?}", path.file_name()))
+                        })?;
 
-                        sonic_rs::from_slice(&buffer)
-                            .map_err(|err| ErrType::FsError.err(err, "Failed to deserialize metadata"))?
+                        serde_json::from_slice(&buffer).map_err(|err| {
+                            ErrType::FsError.err(err, format!("Failed to deserialize metadata: {:?}", path.file_name()))
+                        })?
                     };
 
                     entries.push(FileEntry::File {
@@ -393,7 +332,7 @@ impl Storage {
         user_id: &str,
         space_id: &str,
         file_path: &str,
-        _file_size: usize,
+        file_size: usize,
     ) -> AppResult<()> {
         let file_path = self.clean_path(&file_path)?;
         let file_path = file_path.as_str();
@@ -410,6 +349,8 @@ impl Storage {
             .and_then(|s| s.to_str())
             .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
 
+        let file_name = media_path.file_name().and_then(|s| s.to_str()).ok_or(ErrType::FsError.new("No file name"))?;
+
         // prepare r2 path
         let r2_path = self.r2_spaces.join(space_id).join(file_path);
         let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
@@ -422,12 +363,11 @@ impl Storage {
 
         // process thumbnail and metadata
         let media_type = media::get_media_type(ext);
-
         let bytes_stream = self.r2.download_media(r2_path).await?;
         let tmp_path = self.save_tmp_file(space_id, bytes_stream).await?;
-
         let tmp_file_path = tmp_path.clone();
 
+        // update extension for video
         match media_type {
             infer::MatcherType::Video => {
                 thumbnail_path.set_extension("jpeg");
@@ -436,23 +376,15 @@ impl Storage {
             _ => (),
         };
 
+        // extract media metadata
+        let metadata = media::extract_metadata(&tmp_path).await?;
+
         // prepare path
         let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
         metadata_path.set_extension(format!("{ext}.json"));
 
         // create thumbnail
-        let result = match media::run_thumbnailer(
-            &tmp_path,
-            &thumbnail_path,
-            media_type,
-            file_path,
-            r2_path,
-            metadata_path,
-            thumbnail_file_name,
-            user_id,
-        )
-        .await
-        {
+        let result = match media::run_thumbnailer(tmp_path.clone(), thumbnail_path, media_type, &metadata).await {
             Ok(was_heic) => {
                 if was_heic {
                     return self.r2.upload_photo(r2_path, &tmp_path).await;
@@ -463,8 +395,42 @@ impl Storage {
         };
 
         let _ = remove_file(&tmp_file_path);
+        result?;
 
-        result
+        {
+            // serialize metadata to vec
+            let metadata = FileMetadata {
+                file_name: file_name.to_owned(),
+                r2_path: r2_path.to_owned(),
+                thumbnail_path: {
+                    let mut path = PathBuf::from(file_path);
+                    path.set_file_name(thumbnail_file_name);
+                    path.to_str().map(|s| s.to_owned()).unwrap()
+                },
+                metadata,
+                size: file_size,
+                user_id: user_id.to_owned(),
+                media_type: match media_type {
+                    infer::MatcherType::Video => MediaType::Video,
+                    _ => MediaType::Image,
+                },
+            };
+            let metadata_bytes = serde_json::to_vec(&metadata)
+                .map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
+
+            // save metadata
+            let mut metadata_file = tokio::fs::File::create(metadata_path)
+                .await
+                .map_err(|err| ErrType::FsError.err(err, "Failed to create metadata file"))?;
+            metadata_file
+                .write_all(&metadata_bytes)
+                .await
+                .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
+            drop(metadata_bytes);
+            let _ = metadata_file.flush();
+        }
+
+        Ok(())
     }
 
     pub async fn delete_path(&self, space_id: &str, path: &str) -> AppResult<()> {

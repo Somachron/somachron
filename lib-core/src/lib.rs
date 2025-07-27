@@ -14,7 +14,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use extensions::ReqId;
-use sonic_rs::Serialize;
+use serde::Serialize;
 use utoipa::ToSchema;
 use validator::Validate;
 
@@ -22,7 +22,7 @@ pub mod config;
 pub mod extensions;
 pub mod google;
 pub mod interceptor;
-mod media;
+pub mod media;
 mod r2;
 pub mod storage;
 

@@ -19,7 +19,7 @@ pub mod res {
 }
 
 pub mod req {
-    use sonic_rs::Deserialize;
+    use serde::Deserialize;
     use utoipa::ToSchema;
     use validator::Validate;
 

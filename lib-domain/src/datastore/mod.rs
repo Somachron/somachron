@@ -1,7 +1,7 @@
 use lib_core::{config, extensions::UserRole};
 use nanoid::nanoid;
 use postgres_types::{FromSql, Kind, Oid, ToSql, Type};
-use sonic_rs::Serialize;
+use serde::Serialize;
 use tokio_postgres::{Client, NoTls};
 use utoipa::ToSchema;
 

@@ -1,5 +1,5 @@
 pub mod res {
-    use sonic_rs::Serialize;
+    use serde::Serialize;
     use utoipa::ToSchema;
 
     #[derive(Serialize, ToSchema)]
@@ -9,7 +9,7 @@ pub mod res {
 }
 
 pub mod req {
-    use sonic_rs::Deserialize;
+    use serde::Deserialize;
     use utoipa::ToSchema;
     use validator::Validate;
 
