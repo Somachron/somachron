@@ -1,61 +1,46 @@
-FROM rust:1.88-alpine3.22 AS builder
+FROM rust:1.88-bookworm AS builder
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
 # Install build dependencies
-RUN apk update && apk add --no-cache \
-    make \
-    pkgconfig \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
     clang \
-    clang-dev \
-    clang-static \
     git \
     cmake \
     curl \
-    openssl-dev \
-    openssl-libs-static \
-    perl-image-exiftool \
-    ffmpeg-dev \
-    ffmpeg-libs \
-    musl-dev \
-    gcc \
-    g++ \
-    ninja \
-    libjpeg-turbo-dev \
+    libssl-dev \
+    libexif-dev \
+    libimage-exiftool-perl \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswscale-dev \
+    ninja-build \
+    libjpeg62-turbo-dev \
     libpng-dev \
-    zlib-dev \
-    x265-dev \
-    x264-dev \
-    dav1d-dev \
-    libde265-dev
+    zlib1g-dev \
+    libx265-dev \
+    libx264-dev \
+    libdav1d-dev \
+    libde265-dev \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /dep
-# Create exiftool symlink
-RUN wget https://exiftool.org/Image-ExifTool-13.33.tar.gz && \
-    tar -zxvf Image-ExifTool-13.33.tar.gz && \
-    cd Image-ExifTool-13.33 && \
-    perl Makefile.PL && make install
-
-RUN git clone https://github.com/strukturag/libheif /dep/libheif
-WORKDIR /dep/libheif
-RUN git checkout tags/v1.19.8
-WORKDIR /dep/libheif/build
-RUN cmake --preset=release -DCMAKE_INSTALL_PREFIX=/usr/local ..
-RUN make install -j$(nproc)
-RUN ldconfig /usr/local/lib
+# Build and install libheif
+WORKDIR /tmp/libheif
+RUN git clone https://github.com/strukturag/libheif . && \
+    git checkout tags/v1.19.8 && \
+    mkdir build && cd build && \
+    cmake --preset=release -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
+    make install -j$(nproc) && \
+    ldconfig
 
 # Set working directory
 WORKDIR /app
 COPY . .
-
-# OpenSSL
-# ENV OPENSSL_STATIC=1
-# ENV OPENSSL_DIR=/usr
-# # clang
-# ENV LIBCLANG_PATH=/usr/lib
-# ENV BINDGEN_EXTRA_CLANG_ARGS="-I/usr/include"
-# ENV BINDGEN_STATIC_LIBCLANG=1
 
 ARG R2_ACCOUNT_ID
 ARG R2_BUCKET
@@ -70,12 +55,38 @@ ARG DATABASE_URL
 ARG VOLUME_PATH
 
 # Build the application
-ENV RUSTFLAGS="-C target-feature=-crt-static"
-RUN cargo install --path thumbnailer
-RUN cargo install --path somachron
+RUN cargo install --path somachron && \
+    cargo install --path thumbnailer
 
-# Remove build artifacts to reduce image size
-RUN rm -rf target
+# Runtime stage
+FROM debian:bookworm-slim AS runtime
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    libexif12 \
+    libimage-exiftool-perl \
+    libavcodec59 \
+    libavformat59 \
+    libavutil57 \
+    libswscale6 \
+    libjpeg62-turbo \
+    libpng16-16 \
+    zlib1g \
+    libx265-199 \
+    libx264-164 \
+    libdav1d6 \
+    libde265-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy libheif from builder
+COPY --from=builder /usr/local/lib/libheif* /usr/local/lib/
+RUN ldconfig
+
+# Copy binaries from builder
+COPY --from=builder /usr/local/cargo/bin/somachron /usr/local/bin/
+COPY --from=builder /usr/local/cargo/bin/thumbnailer /usr/local/bin/
 
 EXPOSE 8080
 
