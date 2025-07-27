@@ -23,6 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx264-dev \
     libdav1d-dev \
     libde265-dev \
+    libaom-dev \
+    libsvtav1-dev \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
@@ -31,7 +33,14 @@ WORKDIR /tmp/libheif
 RUN git clone https://github.com/strukturag/libheif . && \
     git checkout tags/v1.19.8 && \
     mkdir build && cd build && \
-    cmake --preset=release -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
+    cmake --preset=release \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DWITH_X265=ON \
+    -DWITH_AOM=ON \
+    -DWITH_DAV1D=ON \
+    -DWITH_LIBDE265=ON \
+    -DWITH_SvtEnc=ON \
+    .. && \
     make install -j$(nproc) && \
     ldconfig
 
@@ -72,6 +81,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx264-164 \
     libdav1d6 \
     libde265-0 \
+    libaom3 \
+    libsvtav1enc1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy libheif from builder
