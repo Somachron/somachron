@@ -14,10 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     libexif-dev \
     libimage-exiftool-perl \
-    libavcodec-dev \
-    libavformat-dev \
-    libavutil-dev \
-    libswscale-dev \
+    libavdevice-dev \
     ninja-build \
     libjpeg62-turbo-dev \
     libpng-dev \
@@ -67,10 +64,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     libexif12 \
     libimage-exiftool-perl \
-    libavcodec59 \
-    libavformat59 \
-    libavutil57 \
-    libswscale6 \
+    libavdevice59 \
     libjpeg62-turbo \
     libpng16-16 \
     zlib1g \
