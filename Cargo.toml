@@ -18,7 +18,7 @@ tracing = "0.1.40"
 utoipa = { version = "5.4.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
-sonic-rs = "0.5.3"
+serde_json = "1.0.141"
 serde = { version = "1.0", features = ["derive"] }
 validator = { version = "0.20.0", features = ["derive"] }
 

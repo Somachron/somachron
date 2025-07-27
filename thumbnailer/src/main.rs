@@ -3,7 +3,7 @@ use std::{io::Write, path::PathBuf};
 use chrono::{DateTime, FixedOffset};
 use clap::{Parser, ValueEnum};
 use err::{AppResult, ErrType};
-use sonic_rs::{Deserialize, JsonValueTrait, Serialize};
+use serde::{Deserialize, Serialize};
 
 mod err;
 mod media;
@@ -47,7 +47,14 @@ fn main() {
     };
 
     let orientation = metadata.orientation.as_ref().and_then(|v| Some(v.parse().unwrap_or(0)));
-    let rotation = metadata.rotation.unwrap_or(0);
+    let rotation = metadata
+        .rotation
+        .as_ref()
+        .map(|r| match r {
+            RotationValue::String(s) => s.parse().unwrap_or(0),
+            RotationValue::Int(i) => *i,
+        })
+        .unwrap_or(0);
 
     match save_metadata(
         cli.user_id,
@@ -93,12 +100,11 @@ fn extract_metadata(src: &PathBuf) -> AppResult<MediaMetadata> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let data = stdout.into_owned();
 
-    let result: sonic_rs::Value =
-        sonic_rs::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
+    let result: serde_json::Value =
+        serde_json::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
 
-    let data = if result.is_array() {
-        let arr = result.into_array().unwrap();
-        arr.into_iter().nth(0).unwrap_or(sonic_rs::Value::default())
+    let data = if let Some(arr) = result.as_array() {
+        arr.into_iter().nth(0).cloned().unwrap_or(serde_json::Value::Null)
     } else {
         result
     };
@@ -106,7 +112,7 @@ fn extract_metadata(src: &PathBuf) -> AppResult<MediaMetadata> {
     let gps_info = extract_gps_info(&data);
 
     let mut metadata: MediaMetadata =
-        sonic_rs::from_value(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize media data"))?;
+        serde_json::from_value(data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize media data"))?;
 
     if let Some((lat, lng)) = gps_info {
         metadata.latitude = Some(lat);
@@ -116,7 +122,7 @@ fn extract_metadata(src: &PathBuf) -> AppResult<MediaMetadata> {
     Ok(metadata)
 }
 
-fn extract_gps_info(data: &sonic_rs::Value) -> Option<(f64, f64)> {
+fn extract_gps_info(data: &serde_json::Value) -> Option<(f64, f64)> {
     let data_coordinates = data.get("GPSCoordinates").or_else(|| data.get("GPSPosition")).and_then(|v| v.as_str());
 
     let coordinates = data_coordinates.and_then(|v| {
@@ -150,6 +156,18 @@ fn parse_dms_decimal(dms: &str) -> f64 {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RotationValue {
+    String(String),
+    Int(u64),
+}
+impl Default for RotationValue {
+    fn default() -> Self {
+        Self::Int(0)
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
 pub struct MediaMetadata {
     #[serde(rename = "Make")]
@@ -176,7 +194,7 @@ pub struct MediaMetadata {
     #[serde(rename = "Orientation")]
     orientation: Option<String>,
     #[serde(rename = "Rotation")]
-    rotation: Option<u64>,
+    rotation: Option<RotationValue>,
 
     #[serde(rename = "ISO")]
     iso: Option<usize>,
@@ -234,7 +252,7 @@ fn save_metadata(
         media_type,
     };
     let metadata_bytes =
-        sonic_rs::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
+        serde_json::to_vec(&metadata).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
 
     // save metadata
     let mut metadata_file = std::fs::File::create(metadata_path)
