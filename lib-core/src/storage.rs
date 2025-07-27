@@ -376,26 +376,30 @@ impl Storage {
             _ => (),
         };
 
-        // extract media metadata
-        let metadata = media::extract_metadata(&tmp_path).await?;
-
         // prepare path
         let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
         metadata_path.set_extension(format!("{ext}.json"));
 
-        // create thumbnail
-        let result = match media::run_thumbnailer(tmp_path.clone(), thumbnail_path, media_type, &metadata).await {
-            Ok(was_heic) => {
-                if was_heic {
-                    return self.r2.upload_photo(r2_path, &tmp_path).await;
+        // extract media metadata
+        let metadata = {
+            let metadata = media::extract_metadata(&tmp_path).await?;
+
+            // create thumbnail
+            match media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await {
+                Ok(was_heic) => {
+                    if was_heic {
+                        self.r2.upload_photo(r2_path, &tmp_path).await
+                    } else {
+                        Ok(())
+                    }
                 }
-                Ok(())
+                Err(err) => Err(err),
             }
-            Err(err) => Err(err),
+            .map(|_| metadata)
         };
 
         let _ = remove_file(&tmp_file_path);
-        result?;
+        let metadata = metadata?;
 
         {
             // serialize metadata to vec
