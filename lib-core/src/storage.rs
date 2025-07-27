@@ -4,10 +4,14 @@ use std::{
 };
 
 use aws_sdk_s3::primitives::ByteStream;
+use chrono::{DateTime, FixedOffset};
 use nanoid::nanoid;
 use sonic_rs::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use utoipa::ToSchema;
+use utoipa::{
+    openapi::{schema::SchemaType, KnownFormat, ObjectBuilder, RefOr, Schema, SchemaFormat, Type},
+    PartialSchema, ToSchema,
+};
 
 use super::{config, media, r2::R2Storage, AppResult, ErrType};
 
@@ -19,6 +23,64 @@ const FS_TAG: &str = "fs::";
 pub enum MediaType {
     Image,
     Video,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Datetime(pub DateTime<FixedOffset>);
+impl ToSchema for Datetime {}
+
+impl PartialSchema for Datetime {
+    fn schema() -> RefOr<Schema> {
+        RefOr::T(Schema::Object(
+            ObjectBuilder::new()
+                .schema_type(SchemaType::Type(Type::String))
+                .format(Some(SchemaFormat::KnownFormat(KnownFormat::DateTime)))
+                .build(),
+        ))
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct MediaMetadata {
+    #[serde(rename = "Make")]
+    make: Option<String>,
+    #[serde(rename = "Model")]
+    model: Option<String>,
+    #[serde(rename = "Software")]
+    software: Option<String>,
+
+    #[serde(rename = "ImageHeight")]
+    image_height: usize,
+    #[serde(rename = "ImageWidth")]
+    image_width: usize,
+
+    #[serde(rename = "Duration")]
+    duration: Option<String>,
+    #[serde(rename = "MediaDuration")]
+    media_duration: Option<String>,
+    #[serde(rename = "VideoFrameRate")]
+    frame_rate: Option<f32>,
+
+    #[serde(rename = "DateTimeOriginal")]
+    date_time: Option<Datetime>,
+    #[serde(rename = "Orientation")]
+    orientation: Option<String>,
+    #[serde(rename = "Rotation")]
+    rotation: Option<u64>,
+
+    #[serde(rename = "ISO")]
+    iso: Option<usize>,
+    #[serde(rename = "ShutterSpeed")]
+    shutter_speed: Option<String>,
+    #[serde(rename = "Aperture")]
+    aperture: Option<f32>,
+    #[serde(rename = "FNumber")]
+    f_number: Option<f32>,
+    #[serde(rename = "ExposureTime")]
+    exposure_time: Option<String>,
+
+    latitude: Option<f64>,
+    longitude: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
