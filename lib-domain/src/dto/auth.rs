@@ -7,10 +7,10 @@ pub mod res {
         #[derive(ToSchema)]
         pub struct AuthTokenResponse<AuthCode> {
             access_token: String = id_token,
-            refresh_token: String = refresh_token => |rt: &Option<String>| -> &str {
-                match rt {
-                    Some(t) => t.as_str(),
-                    None => ""
+            refresh_token: String = refresh_token => |rt: &Option<String>| -> String {
+                match rt.as_ref() {
+                    Some(t) => t.to_owned(),
+                    None => String::from(""),
                 }
             },
             expires_in: u16 = expires_in,

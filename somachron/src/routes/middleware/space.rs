@@ -5,10 +5,8 @@ use axum::{
     response::Response,
     Extension,
 };
-use lib_core::{
-    extensions::{ReqId, SpaceCtx, UserId},
-    ApiError, ErrType,
-};
+use lib_core::{ApiError, ErrType, ReqId};
+use lib_domain::extension::{SpaceCtx, UserId};
 
 use crate::app::AppState;
 
@@ -26,17 +24,18 @@ pub async fn validate_user_space(
         .map(str::trim)
         .ok_or(ApiError(ErrType::BadRequest.new("Missing space ID"), req_id.clone()))?;
 
-    let user_space = app
+    let space_member = app
         .service()
         .ds()
-        .get_user_space(&user_id.0, space_id)
+        .get_user_space(user_id.0, space_id)
         .await
         .map_err(|err| ApiError(err, req_id.clone()))?
         .ok_or(ApiError(ErrType::Unauthorized.new("User not member of space"), req_id))?;
 
     let space_ctx = SpaceCtx {
-        id: user_space.id.into(),
-        role: user_space.role.into(),
+        membership_id: space_member.id,
+        space_id: space_member.out,
+        role: space_member.role,
     };
 
     req.extensions_mut().insert(space_ctx);

@@ -5,10 +5,8 @@ use axum::{
     response::Response,
     Extension,
 };
-use lib_core::{
-    extensions::{ReqId, UserId},
-    ApiError, AppResult, ErrType,
-};
+use lib_core::{ApiError, AppResult, ErrType, ReqId};
+use lib_domain::extension::UserId;
 
 use crate::app::AppState;
 
@@ -44,7 +42,7 @@ pub async fn authenticate(
         return Err(ApiError(ErrType::Unauthorized.new("Not allowed"), req_id));
     }
 
-    let user_id = UserId(user.id.into());
+    let user_id = UserId(user.id);
 
     req.extensions_mut().insert(user_id);
 

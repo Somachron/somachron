@@ -1,10 +1,10 @@
-use lib_core::{
-    extensions::{SpaceCtx, UserId, UserRole},
-    storage::Storage,
-    AppResult, ErrType,
-};
+use lib_core::{storage::Storage, AppResult, ErrType};
 
-use crate::dto::cloud::{req::UploadCompleteRequest, res::SignedUrlResponse};
+use crate::{
+    datastore::user_space::UserRole,
+    dto::cloud::{req::UploadCompleteRequest, res::SignedUrlResponse},
+    extension::{IdStr, SpaceCtx, UserId},
+};
 
 use super::Service;
 
@@ -12,8 +12,9 @@ impl Service {
     pub async fn create_folder(
         &self,
         SpaceCtx {
-            id: space_id,
             role,
+            space_id,
+            ..
         }: SpaceCtx,
         storage: &Storage,
         path: String,
@@ -23,14 +24,17 @@ impl Service {
             _ => (),
         };
 
+        let space_id = space_id.id();
+
         storage.create_folder(&space_id, &path).await
     }
 
     pub async fn generate_upload_signed_url(
         &self,
         SpaceCtx {
-            id: space_id,
             role,
+            space_id,
+            ..
         }: SpaceCtx,
         storage: &Storage,
         path: String,
@@ -40,6 +44,7 @@ impl Service {
             _ => (),
         };
 
+        let space_id = space_id.id();
         let url = storage.generate_upload_signed_url(&space_id, &path).await?;
         Ok(SignedUrlResponse {
             url,
@@ -50,8 +55,9 @@ impl Service {
         &self,
         UserId(user_id): UserId,
         SpaceCtx {
-            id: space_id,
             role,
+            space_id,
+            ..
         }: SpaceCtx,
         storage: &Storage,
         body: UploadCompleteRequest,
@@ -61,14 +67,17 @@ impl Service {
             _ => (),
         };
 
+        let space_id = space_id.id();
+        let user_id = user_id.id();
         storage.process_upload_skeleton_thumbnail(&user_id, &space_id, &body.file_path, body.file_size).await
     }
 
     pub async fn delete_path(
         &self,
         SpaceCtx {
-            id: space_id,
             role,
+            space_id,
+            ..
         }: SpaceCtx,
         storage: &Storage,
         path: String,
@@ -80,6 +89,7 @@ impl Service {
             _ => (),
         };
 
+        let space_id = space_id.id();
         storage.delete_path(&space_id, &path).await
     }
 }

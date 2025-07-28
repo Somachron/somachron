@@ -3,13 +3,13 @@ use axum::{
     routing::{get, post, Router},
     Extension,
 };
-use lib_core::{
-    extensions::{ReqId, UserId},
-    ApiError, ApiResult, Json,
-};
-use lib_domain::dto::space::{
-    req::SpaceCreateRequest,
-    res::{SpaceResponse, UserSpaceResponse, _SpaceResponse, _UserSpaceResponseVec},
+use lib_core::{ApiError, ApiResult, Json, ReqId};
+use lib_domain::{
+    dto::space::{
+        req::SpaceCreateRequest,
+        res::{SpaceResponse, UserSpaceResponse, _SpaceResponse, _UserSpaceResponseVec},
+    },
+    extension::UserId,
 };
 
 use crate::app::AppState;

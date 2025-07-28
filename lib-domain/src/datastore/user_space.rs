@@ -1,110 +1,144 @@
 use chrono::{DateTime, Utc};
 use lib_core::{AppResult, ErrType};
+use serde::{Deserialize, Serialize};
+use surrealdb::RecordId;
+use utoipa::ToSchema;
 
-use super::{create_id, Datastore, SpaceRole};
+use crate::datastore::DbSchema;
 
+use super::Datastore;
+
+#[derive(Debug, ToSchema, Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum UserRole {
+    Owner,
+    Read,
+    Upload,
+    Modify,
+}
+
+/// [`super::space::Space`] info for [`super::user::User`]
+#[derive(Deserialize)]
 pub struct UserSpace {
-    pub id: String,
+    pub id: RecordId,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 
-    pub name: String,
-    pub description: String,
-    pub picture_url: String,
-    pub role: SpaceRole,
-}
-impl From<tokio_postgres::Row> for UserSpace {
-    fn from(value: tokio_postgres::Row) -> Self {
-        Self {
-            id: value.get(0),
-            created_at: value.get(1),
-            updated_at: value.get(2),
-            name: value.get(3),
-            description: value.get(4),
-            picture_url: value.get(5),
-            role: value.get(6),
-        }
-    }
+    pub role: UserRole,
+    pub space: super::space::Space,
 }
 
+/// Member of [`super::space::Space`] with [`super::user::User`] info
+#[derive(Deserialize)]
 pub struct SpaceUser {
-    pub id: String,
+    pub id: RecordId,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 
-    pub given_name: String,
-    pub picture_url: String,
-    pub role: SpaceRole,
+    pub role: UserRole,
+    pub user: super::user::User,
 }
-impl From<tokio_postgres::Row> for SpaceUser {
-    fn from(value: tokio_postgres::Row) -> Self {
-        Self {
-            id: value.get(0),
-            created_at: value.get(1),
-            updated_at: value.get(2),
-            given_name: value.get(3),
-            picture_url: value.get(5),
-            // skipped `allowed` at 6
-            role: value.get(7),
-        }
+
+#[derive(Deserialize)]
+pub struct SpaceMember {
+    pub id: RecordId,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+
+    /// [`super::user::User::id`]
+    pub r#in: RecordId,
+    /// [`super::space::Space::id`]
+    pub out: RecordId,
+    pub role: UserRole,
+}
+impl DbSchema for SpaceMember {
+    fn table_name() -> &'static str {
+        "space_member"
     }
 }
 
 impl Datastore {
-    pub async fn add_user_to_space(&self, user_id: &str, space_id: &str, role: SpaceRole) -> AppResult<String> {
-        let id = create_id();
-        let row = self
-            .client
-            .query_one(&self.user_space_stmts.add_user_to_space, &[&id, &user_id, &space_id, &role])
+    pub async fn add_user_to_space(
+        &self,
+        user_id: RecordId,
+        space_id: RecordId,
+        role: UserRole,
+    ) -> AppResult<SpaceMember> {
+        let mut res = self
+            .db
+            .query("RELATE $u->space_member->$s SET role = $r")
+            .bind(("u", user_id))
+            .bind(("s", space_id))
+            .bind(("r", role))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to add user to space"))?;
 
-        Ok(row.get(0))
+        let space_members: Vec<SpaceMember> =
+            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space member"))?;
+
+        space_members.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to add user to space"))
     }
 
-    pub async fn get_all_spaces_for_user(&self, user_id: &str) -> AppResult<Vec<UserSpace>> {
-        let rows = self
-            .client
-            .query(&self.user_space_stmts.get_spaces_for_user, &[&user_id])
+    pub async fn get_user_space(&self, user_id: RecordId, space_id: &str) -> AppResult<Option<SpaceMember>> {
+        let space_id = super::space::Space::get_id(&space_id);
+
+        let mut res = self
+            .db
+            .query("SELECT * FROM space_member WHERE in = $u AND out = $s")
+            .bind(("u", user_id))
+            .bind(("s", space_id))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get spaces for users"))?;
 
-        Ok(rows.into_iter().map(UserSpace::from).collect())
+        let space_members: Vec<SpaceMember> =
+            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space member"))?;
+
+        Ok(space_members.into_iter().nth(0))
     }
 
-    pub async fn get_user_space(&self, user_id: &str, space_id: &str) -> AppResult<Option<UserSpace>> {
-        let rows = self
-            .client
-            .query(&self.user_space_stmts.get_user_space, &[&user_id, &space_id])
+    pub async fn get_all_spaces_for_user(&self, user_id: RecordId) -> AppResult<Vec<UserSpace>> {
+        let mut res = self
+            .db
+            .query("SELECT id, created_at, updated_at, role, out.* AS space FROM space_member WHERE in = $u")
+            .bind(("u", user_id))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get spaces for users"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get spaces for user"))?;
 
-        Ok(rows.into_iter().nth(0).map(UserSpace::from))
+        res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize spaces for user"))
     }
 
-    pub async fn get_users_from_space(&self, space_id: &str) -> AppResult<Vec<SpaceUser>> {
-        let rows = self
-            .client
-            .query(&self.user_space_stmts.get_users_for_space, &[&space_id])
+    pub async fn get_all_users_for_space(&self, space_id: &str) -> AppResult<Vec<SpaceUser>> {
+        let id = super::space::Space::get_id(space_id);
+        let mut res = self
+            .db
+            .query("SELECT id, created_at, updated_at, role, in.* AS user FROM space_member WHERE out = $s")
+            .bind(("s", id))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get users for space"))?;
 
-        Ok(rows.into_iter().map(SpaceUser::from).collect())
+        res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize users for space"))
     }
 
-    pub async fn update_space_user_role(&self, user_id: &str, space_id: &str, role: SpaceRole) -> AppResult<String> {
-        let row = self
-            .client
-            .query_one(&self.user_space_stmts.update_user_space_role, &[&role, &space_id, &user_id])
+    pub async fn update_space_user_role(&self, space_member_id: &str, role: UserRole) -> AppResult<()> {
+        let id = SpaceMember::get_id(space_member_id);
+
+        let mut res = self
+            .db
+            .query("UPDATE $id SET role = $r")
+            .bind(("id", id))
+            .bind(("r", role))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to update user space role"))?;
 
-        Ok(row.get(0))
+        res.take::<Vec<SpaceMember>>(0)
+            .map(|_| ())
+            .map_err(|err| ErrType::DbError.err(err, "Failed to deseriliaze update user space role"))
     }
 
-    pub async fn remove_user_from_space(&self, user_id: &str, space_id: &str) -> AppResult<()> {
-        self.client
-            .query(&self.user_space_stmts.remove_user_from_space, &[&space_id, &user_id])
+    pub async fn remove_user_from_space(&self, space_member_id: &str) -> AppResult<()> {
+        let id = SpaceMember::get_id(space_member_id);
+        self.db
+            .delete::<Option<SpaceMember>>(id)
             .await
             .map(|_| ())
             .map_err(|err| ErrType::DbError.err(err, "Failed to remove user from space"))

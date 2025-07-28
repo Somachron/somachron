@@ -3,16 +3,19 @@ pub mod res {
     use utoipa::ToSchema;
 
     use crate::{
-        datastore::{space::Space, user_space::UserSpace, SpaceRole},
-        dto::Datetime,
+        datastore::{
+            space::Space,
+            user_space::{UserRole, UserSpace},
+        },
+        dto::{Datetime, _IdRef},
     };
 
     impl_dto!(
         #[derive(ToSchema)]
         pub struct SpaceResponse<Space> {
-            id: String = id,
+            id: String = id => _IdRef,
             created_at: Datetime = created_at,
-            updated_at: Datetime = created_at,
+            updated_at: Datetime = updated_at,
 
             name: String = name,
             description: String = description,
@@ -23,11 +26,12 @@ pub mod res {
     impl_dto!(
         #[derive(ToSchema)]
         pub struct UserSpaceResponse<UserSpace> {
-            id: String = id,
-            name: String = name,
-            description: String = description,
-            picture_url: String = picture_url,
-            role: SpaceRole = role,
+            id: String = id => _IdRef,
+            created_at: Datetime = created_at,
+            updated_at: Datetime = updated_at,
+
+            role: UserRole = role,
+            space: SpaceResponse = space => _SpaceResponseRef,
         }
     );
 }

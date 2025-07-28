@@ -13,18 +13,24 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use extensions::ReqId;
 use serde::Serialize;
 use utoipa::ToSchema;
 use validator::Validate;
 
 pub mod config;
-pub mod extensions;
 pub mod google;
 pub mod interceptor;
 pub mod media;
 mod r2;
 pub mod storage;
+
+#[repr(transparent)]
+pub struct ReqId(pub String);
+impl Clone for ReqId {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 #[derive(Serialize, ToSchema)]
 pub struct EmptyResponse {

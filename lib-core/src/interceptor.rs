@@ -5,7 +5,7 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 
-use super::extensions::ReqId;
+use super::ReqId;
 
 const REQ_ID_HEADER: &str = "x-sc-id";
 

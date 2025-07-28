@@ -62,7 +62,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         lib_core::storage::FileMetadata,
         lib_core::storage::FileEntry,
 
-        lib_domain::datastore::SpaceRole,
+        lib_domain::datastore::user_space::UserRole,
         lib_domain::dto::Datetime,
 
         lib_domain::dto::auth::req::ExchangeCodeRequest,

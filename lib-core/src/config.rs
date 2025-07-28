@@ -3,12 +3,23 @@ pub fn get_host_addr() -> String {
     format!("[::]:{port}")
 }
 
-pub fn get_db_url() -> String {
-    std::env::var("DATABASE_URL").unwrap_or_default()
-}
-
 pub fn get_volume_path() -> String {
     std::env::var("VOLUME_PATH").unwrap_or_default()
+}
+
+pub struct DbConfig {
+    pub url: String,
+    pub username: String,
+    pub password: String,
+}
+impl DbConfig {
+    pub fn new() -> Self {
+        Self {
+            url: std::env::var("DATABASE_URL").unwrap_or_default(),
+            username: std::env::var("DATABASE_USERNAME").unwrap_or_default(),
+            password: std::env::var("DATABASE_PASSWORD").unwrap_or_default(),
+        }
+    }
 }
 
 pub(crate) struct R2Config {

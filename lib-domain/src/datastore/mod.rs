@@ -1,86 +1,43 @@
-use lib_core::{config, extensions::UserRole};
-use nanoid::nanoid;
-use postgres_types::{FromSql, Kind, Oid, ToSql, Type};
-use serde::Serialize;
-use tokio_postgres::{Client, NoTls};
-use utoipa::ToSchema;
+use lib_core::config;
+use surrealdb::{
+    engine::remote::ws::{Client, Ws},
+    opt::auth::Root,
+    RecordId, Surreal,
+};
 
 pub mod space;
-mod statements;
 pub mod user;
 pub mod user_space;
 
 pub struct Datastore {
-    client: Client,
-    user_stmts: statements::UserStatements,
-    space_stmts: statements::SpaceStatements,
-    user_space_stmts: statements::UserSpaceStatements,
+    db: Surreal<Client>,
 }
 
 impl Datastore {
     pub(crate) async fn connect() -> Self {
-        let url = config::get_db_url();
+        let db_config = config::DbConfig::new();
 
-        lib_migrations::migrate_schema(&url).await;
+        let db = Surreal::new::<Ws>(db_config.url).await.expect("Failed to connect to db");
 
-        let (client, connection) = tokio_postgres::connect(&url, NoTls).await.expect("Failed to connect to postgres");
+        db.signin(Root {
+            username: &db_config.username,
+            password: &db_config.password,
+        })
+        .await
+        .expect("Failed to sign into db");
 
-        // spawn connection
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("Connection error: {e}");
-            }
-        });
-
-        // prepared statements
-        let user_stmts = statements::UserStatements::new(&client).await;
-        let space_stmts = statements::SpaceStatements::new(&client).await;
-        let user_space_stmts = statements::UserSpaceStatements::new(&client).await;
+        db.use_ns("somachron").use_db("somachron").await.expect("Failed to select ns and db");
 
         Self {
-            client,
-            user_stmts,
-            space_stmts,
-            user_space_stmts,
+            db,
         }
     }
 }
 
-fn create_id() -> String {
-    nanoid!(8)
-}
+trait DbSchema {
+    fn table_name() -> &'static str;
 
-#[derive(Debug, ToSql, FromSql, ToSchema, Serialize)]
-#[postgres(name = "space_role", rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-pub enum SpaceRole {
-    Owner,
-    Read,
-    Upload,
-    Modify,
-}
-
-impl From<SpaceRole> for UserRole {
-    fn from(value: SpaceRole) -> Self {
-        match value {
-            SpaceRole::Owner => UserRole::Owner,
-            SpaceRole::Read => UserRole::Read,
-            SpaceRole::Upload => UserRole::Upload,
-            SpaceRole::Modify => UserRole::Modify,
-        }
-    }
-}
-
-impl SpaceRole {
-    pub async fn get_type(client: &Client) -> Type {
-        let kind = Kind::Enum(vec!["owner".into(), "read".into(), "upload".into(), "modify".into()]);
-
-        let row = client
-            .query_one("SELECT oid FROM pg_type WHERE typname = 'space_role'", &[])
-            .await
-            .expect("Failed to get oid for space_role");
-        let oid: Oid = row.get(0);
-
-        Type::new("space_role".into(), oid, kind, "public".into())
+    fn get_id(key: &str) -> RecordId {
+        RecordId::from_table_key(Self::table_name(), key)
     }
 }

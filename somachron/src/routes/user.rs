@@ -3,11 +3,11 @@ use axum::{
     routing::{get, Router},
     Extension,
 };
-use lib_core::{
-    extensions::{ReqId, UserId},
-    ApiError, ApiResult, Json,
+use lib_core::{ApiError, ApiResult, Json, ReqId};
+use lib_domain::{
+    dto::user::res::{UserResponse, _UserResponse},
+    extension::UserId,
 };
-use lib_domain::dto::user::res::{UserResponse, _UserResponse};
 
 use crate::app::AppState;
 
