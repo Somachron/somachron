@@ -59,8 +59,6 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
     ),
     components(schemas(
         lib_core::EmptyResponse,
-        lib_core::storage::FileMetadata,
-        lib_core::storage::FileEntry,
 
         lib_domain::datastore::user_space::UserRole,
         lib_domain::dto::Datetime,
@@ -79,6 +77,9 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         lib_domain::dto::cloud::req::SignedUrlRequest,
         lib_domain::dto::cloud::req::UploadCompleteRequest,
         lib_domain::dto::cloud::res::SignedUrlResponse,
+        lib_domain::dto::cloud::res::FileResponse,
+        lib_domain::dto::cloud::res::FileMetadataResponse,
+        lib_domain::dto::cloud::res::FileEntryResponse,
     )),
     servers()
 )]

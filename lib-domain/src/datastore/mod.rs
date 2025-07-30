@@ -6,6 +6,7 @@ use surrealdb::{
 };
 
 pub mod space;
+pub mod storage;
 pub mod user;
 pub mod user_space;
 

@@ -36,7 +36,7 @@ impl Datastore {
             .bind(("n", name.to_owned()))
             .bind(("d", description.to_owned()))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to insert space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query insert space"))?;
 
         let spaces: Vec<Space> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space"))?;
 
@@ -57,7 +57,7 @@ impl Datastore {
             .bind(("n", name))
             .bind(("d", description))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to update space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query update space"))?;
 
         let spaces: Vec<Space> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space"))?;
 

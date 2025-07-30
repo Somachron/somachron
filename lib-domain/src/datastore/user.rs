@@ -31,7 +31,7 @@ impl Datastore {
             .query("SELECT * FROM user WHERE email = $e")
             .bind(("e", email.to_owned()))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to check for user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query check for user"))?;
 
         let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
 
@@ -50,7 +50,7 @@ impl Datastore {
             .bind(("e", email.to_owned()))
             .bind(("p", picture_url.to_owned()))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to insert user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query insert user"))?;
 
         let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
 
@@ -65,7 +65,7 @@ impl Datastore {
             .bind(("n", given_name.to_owned()))
             .bind(("p", picture_url.to_owned()))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to update user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query update user"))?;
 
         let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
 

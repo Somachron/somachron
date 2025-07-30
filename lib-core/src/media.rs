@@ -8,7 +8,7 @@ use super::{AppResult, ErrType};
 
 const THUMBNAIL_EXE: &str = "thumbnailer";
 
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Deserialize)]
 #[serde(untagged)]
 pub enum EitherValue<A, B> {
     Either(A),
@@ -24,47 +24,47 @@ where
     }
 }
 
-#[derive(Default, Serialize, Deserialize, ToSchema)]
+#[derive(Default, Deserialize)]
 pub struct MediaMetadata {
     #[serde(rename = "Make")]
-    make: Option<String>,
+    pub make: Option<String>,
     #[serde(rename = "Model")]
-    model: Option<String>,
+    pub model: Option<String>,
     #[serde(rename = "Software")]
-    software: Option<EitherValue<String, f64>>,
+    pub software: Option<EitherValue<String, f64>>,
 
     #[serde(rename = "ImageHeight")]
-    image_height: usize,
+    pub image_height: usize,
     #[serde(rename = "ImageWidth")]
-    image_width: usize,
+    pub image_width: usize,
 
     #[serde(rename = "Duration")]
-    duration: Option<String>,
+    pub duration: Option<String>,
     #[serde(rename = "MediaDuration")]
-    media_duration: Option<String>,
+    pub media_duration: Option<String>,
     #[serde(rename = "VideoFrameRate")]
-    frame_rate: Option<f32>,
+    pub frame_rate: Option<f64>,
 
     #[serde(rename = "DateTimeOriginal")]
-    date_time: Option<String>,
+    pub date_time: Option<String>,
     #[serde(rename = "Orientation")]
-    orientation: Option<String>,
+    pub orientation: Option<String>,
     #[serde(rename = "Rotation")]
-    rotation: Option<EitherValue<String, u64>>,
+    pub rotation: Option<EitherValue<String, u64>>,
 
     #[serde(rename = "ISO")]
-    iso: Option<usize>,
+    pub iso: Option<usize>,
     #[serde(rename = "ShutterSpeed")]
-    shutter_speed: Option<EitherValue<String, f64>>,
+    pub shutter_speed: Option<EitherValue<String, f64>>,
     #[serde(rename = "Aperture")]
-    aperture: Option<f32>,
+    pub aperture: Option<f64>,
     #[serde(rename = "FNumber")]
-    f_number: Option<f32>,
+    pub f_number: Option<f64>,
     #[serde(rename = "ExposureTime")]
-    exposure_time: Option<EitherValue<String, f64>>,
+    pub exposure_time: Option<EitherValue<String, f64>>,
 
-    latitude: Option<f64>,
-    longitude: Option<f64>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
 }
 
 /// Get media type [`infer::MatcherType::Image`] or [`infer::MatcherType::Video`]

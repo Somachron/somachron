@@ -71,7 +71,7 @@ impl Datastore {
             .bind(("s", space_id))
             .bind(("r", role))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to add user to space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query add user to space"))?;
 
         let space_members: Vec<SpaceMember> =
             res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space member"))?;
@@ -88,7 +88,7 @@ impl Datastore {
             .bind(("u", user_id))
             .bind(("s", space_id))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get spaces for users"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query get spaces for users"))?;
 
         let space_members: Vec<SpaceMember> =
             res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space member"))?;
@@ -102,7 +102,7 @@ impl Datastore {
             .query("SELECT id, created_at, updated_at, role, out.* AS space FROM space_member WHERE in = $u")
             .bind(("u", user_id))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get spaces for user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query get spaces for user"))?;
 
         res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize spaces for user"))
     }
@@ -114,7 +114,7 @@ impl Datastore {
             .query("SELECT id, created_at, updated_at, role, in.* AS user FROM space_member WHERE out = $s")
             .bind(("s", id))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get users for space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query get users for space"))?;
 
         res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize users for space"))
     }
@@ -128,7 +128,7 @@ impl Datastore {
             .bind(("id", id))
             .bind(("r", role))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to update user space role"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query update user space role"))?;
 
         res.take::<Vec<SpaceMember>>(0)
             .map(|_| ())

@@ -20,6 +20,7 @@ utoipa = { workspace = true }
 nanoid = { workspace = true }
 jsonwebtoken = "9.3.0"
 chrono = { workspace = true }
+sha256 = "1.6.0"
 
 # storage
 aws-sdk-s3 = { version = "=1.91.0", features = [

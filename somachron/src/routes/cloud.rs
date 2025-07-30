@@ -6,13 +6,13 @@ use axum::{
     routing::{delete, get, post, Router},
     Extension,
 };
-use lib_core::{storage::FileEntry, ApiError, ApiResult, EmptyResponse, ErrType, Json, ReqId};
+use lib_core::{ApiError, ApiResult, EmptyResponse, ErrType, Json, ReqId};
 use lib_domain::{
     dto::cloud::{
         req::{CreateFolderRequest, SignedUrlRequest, UploadCompleteRequest},
-        res::SignedUrlResponse,
+        res::{FileEntryResponse, SignedUrlResponse},
     },
-    extension::{IdStr, SpaceCtx, UserId},
+    extension::{IdStr, SpaceCtx},
 };
 
 use crate::app::AppState;
@@ -56,7 +56,7 @@ pub async fn delete_path(
 #[utoipa::path(
     get,
     path = "/v1/media/{dir}",
-    responses((status=200, body=Vec<FileEntry>)),
+    responses((status=200, body=Vec<FileEntryResponse>)),
     tag = "Cloud"
 )]
 pub async fn list_directory(
@@ -64,8 +64,8 @@ pub async fn list_directory(
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(dir): Path<String>,
-) -> ApiResult<Vec<FileEntry>> {
-    app.storage().list_dir(&space_ctx.space_id.id(), &dir).await.map(Json).map_err(|err| ApiError(err, req_id))
+) -> ApiResult<Vec<FileEntryResponse>> {
+    app.service().list_dir(space_ctx, app.storage(), dir).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(get, path = "/v1/media/f/{path}", tag = "Cloud")]
@@ -141,12 +141,11 @@ pub async fn generate_download_signed_url(
 pub async fn upload_completion(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
-    Extension(user_id): Extension<UserId>,
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<UploadCompleteRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .process_upload_skeleton_thumbnail(user_id, space_ctx, app.storage(), body)
+        .process_upload_completion(space_ctx, app.storage(), body)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Processing completion")))
         .map_err(|err| ApiError(err, req_id))

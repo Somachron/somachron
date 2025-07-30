@@ -16,33 +16,41 @@ const SPACES_PATH: &str = "spaces";
 const FS_TAG: &str = "fs::";
 
 #[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum MediaType {
     Image,
     Video,
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct FileMetadata {
+/// Wrapper to enforce hash type
+#[repr(transparent)]
+pub struct Hash(String);
+impl Hash {
+    pub fn new(path: &str) -> Self {
+        Self(sha256::digest(path.trim_matches('/')))
+    }
+
+    pub fn get(self) -> String {
+        self.0
+    }
+
+    pub fn get_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+pub struct FileData {
     pub file_name: String,
     pub r2_path: String,
     pub thumbnail_path: String,
     pub metadata: media::MediaMetadata,
     pub size: usize,
-    pub user_id: String,
     pub media_type: MediaType,
-}
 
-#[derive(Serialize, ToSchema)]
-#[serde(untagged)]
-pub enum FileEntry {
-    Dir {
-        tag: String,
-        name: String,
-    },
-    File {
-        tag: String,
-        data: FileMetadata,
-    },
+    /// sha256 hash from r2_path
+    pub file_hash: Hash,
+    /// sha256 hash from r2_path without file_name
+    pub folder_hash: Hash,
 }
 
 /// Manage storage operations
@@ -133,6 +141,21 @@ impl Storage {
         create_dir(&user_dir).await
     }
 
+    /// sha256(R2 based `path`)
+    pub fn get_folder_hash(&self, space_id: &str, path: &str) -> AppResult<Hash> {
+        let path = self.clean_path(path)?;
+        let mut path = self.r2_spaces.join(space_id).join(path);
+
+        // cannot be check using `path.is_dir()` as path is r2_path
+        // if we want folder_hash, but path has extension,
+        if let Some(_) = path.extension() {
+            // then remove file name
+            path.set_file_name("");
+        } // else path without extension could be dir
+
+        Ok(Hash::new(path.to_str().unwrap()))
+    }
+
     /// Creates space folder
     pub async fn create_space_folder(&self, space_id: &str) -> AppResult<()> {
         let r2_path = self.r2_spaces.join(space_id);
@@ -185,16 +208,16 @@ impl Storage {
     /// * Skips `.*` files
     /// * Processes only `*.json` files
     ///
-    /// Returns vec [`FileEntry`]
-    pub async fn list_dir(&self, space_id: &str, dir: &str) -> AppResult<Vec<FileEntry>> {
+    /// Returns vec [`String`]
+    pub async fn list_dir(&self, space_id: &str, dir: &str) -> AppResult<Vec<String>> {
         let dir = self.clean_path(dir)?;
-        let dir_path = self.spaces_path.join(space_id).join(dir);
+        let dir_path = self.spaces_path.join(space_id).join(&dir);
 
         let mut rd = tokio::fs::read_dir(&dir_path)
             .await
             .map_err(|err| ErrType::FsError.err(err, format!("Failed to read dir: {:?}", dir_path.file_name())))?;
 
-        let mut entries = Vec::<FileEntry>::new();
+        let mut entries = Vec::<String>::new();
 
         while let Some(dir) = rd.next_entry().await.map_err(|err| ErrType::FsError.err(err, "Failed to iter dir"))? {
             let file_name = dir.file_name();
@@ -213,85 +236,15 @@ impl Storage {
             let ft = dir.file_type().await.map_err(|err| ErrType::FsError.err(err, "Failed to get file type"))?;
 
             if ft.is_dir() {
-                entries.push(FileEntry::Dir {
-                    tag: "dir".to_owned(),
-                    name: file_name.to_owned(),
-                });
-                continue;
-            }
-
-            if ft.is_file() {
-                let path = dir.path();
-                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-
-                if ext.ends_with("json") {
-                    let data: FileMetadata = {
-                        let mut file = tokio::fs::File::open(&path).await.map_err(|err| {
-                            ErrType::FsError.err(err, format!("Failed to open file: {:?}", path.file_name()))
-                        })?;
-                        let mut buffer = Vec::new();
-                        file.read_to_end(&mut buffer).await.map_err(|err| {
-                            ErrType::FsError.err(err, format!("Failed to read file: {:?}", path.file_name()))
-                        })?;
-
-                        serde_json::from_slice(&buffer).map_err(|err| {
-                            ErrType::FsError.err(err, format!("Failed to deserialize metadata: {:?}", path.file_name()))
-                        })?
-                    };
-
-                    entries.push(FileEntry::File {
-                        tag: "file".to_owned(),
-                        data,
-                    });
-                }
-
-                continue;
+                entries.push(file_name.to_owned());
             }
         }
 
-        entries.sort_by(|a: &FileEntry, b: &FileEntry| match (a, b) {
-            (
-                FileEntry::Dir {
-                    name,
-                    ..
-                },
-                FileEntry::Dir {
-                    name: b_name,
-                    ..
-                },
-            ) => name.cmp(b_name),
-            (
-                FileEntry::Dir {
-                    ..
-                },
-                FileEntry::File {
-                    ..
-                },
-            ) => std::cmp::Ordering::Less,
-            (
-                FileEntry::File {
-                    ..
-                },
-                FileEntry::Dir {
-                    ..
-                },
-            ) => std::cmp::Ordering::Greater,
-            (
-                FileEntry::File {
-                    data,
-                    ..
-                },
-                FileEntry::File {
-                    data: b_data,
-                    ..
-                },
-            ) => data.file_name.cmp(&b_data.file_name),
-        });
-
+        entries.sort();
         Ok(entries)
     }
 
-    /// Get requested file from filesystem
+    /// Get requested file from filesystem with extension
     pub async fn get_file(&self, space_id: &str, file_path: &str) -> AppResult<(Vec<u8>, String)> {
         let file_path = self.clean_path(file_path)?;
         let fs_path = self.spaces_path.join(space_id).join(&file_path);
@@ -322,14 +275,13 @@ impl Storage {
     /// * prepares the directory in mounted volume
     /// * download the media from R2
     /// * create and save thumbnail
-    /// * extract and save exif data
-    pub async fn process_upload_skeleton_thumbnail(
+    /// * extract metadata
+    pub async fn process_upload_completion(
         &self,
-        user_id: &str,
         space_id: &str,
         file_path: &str,
         file_size: usize,
-    ) -> AppResult<()> {
+    ) -> AppResult<FileData> {
         let file_path = self.clean_path(&file_path)?;
         let file_path = file_path.as_str();
 
@@ -349,7 +301,10 @@ impl Storage {
 
         // prepare r2 path
         let r2_path = self.r2_spaces.join(space_id).join(file_path);
+        let mut r2_folder = r2_path.clone();
+        r2_folder.set_file_name("");
         let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
+        let r2_folder = r2_folder.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
 
         // prepare path
         let mut thumbnail_path = self.spaces_path.join(space_id).join(file_path);
@@ -372,55 +327,41 @@ impl Storage {
             _ => (),
         };
 
-        // prepare path
-        let mut metadata_path = self.spaces_path.join(space_id).join(file_path);
-        metadata_path.set_extension(format!("{ext}.json"));
-
         // extract media metadata
-        let metadata_result = self.process_media(&tmp_path, &thumbnail_path, r2_path, media_type).await;
+        let metadata_result =
+            self.process_media(&tmp_path, &thumbnail_path, &mut thumbnail_file_name, r2_path, media_type).await;
         let _ = remove_file(&tmp_file_path).await;
         let metadata = metadata_result?;
 
-        {
-            // serialize metadata to vec
-            let metadata = FileMetadata {
-                file_name: file_name.to_owned(),
-                r2_path: r2_path.to_owned(),
-                thumbnail_path: {
-                    let mut path = PathBuf::from(file_path);
-                    path.set_file_name(thumbnail_file_name);
-                    path.to_str().map(|s| s.to_owned()).unwrap()
-                },
-                metadata,
-                size: file_size,
-                user_id: user_id.to_owned(),
-                media_type: match media_type {
-                    infer::MatcherType::Video => MediaType::Video,
-                    _ => MediaType::Image,
-                },
-            };
-            let metadata_bytes = serde_json::to_vec(&metadata)
-                .map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))?;
+        // hash from r2_path (not file content)
+        let file_hash = Hash::new(r2_path);
+        let folder_hash = Hash::new(r2_folder);
 
-            // save metadata
-            let mut metadata_file = tokio::fs::File::create(metadata_path)
-                .await
-                .map_err(|err| ErrType::FsError.err(err, "Failed to create metadata file"))?;
-            metadata_file
-                .write_all(&metadata_bytes)
-                .await
-                .map_err(|err| ErrType::FsError.err(err, "Failed to write metadata bytes"))?;
-            drop(metadata_bytes);
-            let _ = metadata_file.flush();
-        }
-
-        Ok(())
+        let metadata = FileData {
+            file_name: file_name.to_owned(),
+            r2_path: r2_path.to_owned(),
+            thumbnail_path: {
+                let mut path = PathBuf::from(file_path);
+                path.set_file_name(thumbnail_file_name);
+                path.to_str().map(|s| s.to_owned()).unwrap()
+            },
+            metadata,
+            size: file_size,
+            media_type: match media_type {
+                infer::MatcherType::Video => MediaType::Video,
+                _ => MediaType::Image,
+            },
+            file_hash,
+            folder_hash,
+        };
+        Ok(metadata)
     }
 
     async fn process_media(
         &self,
         tmp_path: &PathBuf,
         thumbnail_path: &PathBuf,
+        thumbnail_file_name: &mut PathBuf,
         r2_path: &str,
         media_type: infer::MatcherType,
     ) -> AppResult<media::MediaMetadata> {
@@ -430,51 +371,81 @@ impl Storage {
         let was_heic = media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await?;
         if was_heic {
             self.r2.upload_photo(r2_path, &tmp_path).await?;
+            thumbnail_file_name.set_extension("jpeg");
         }
         Ok(metadata)
     }
 
-    pub async fn delete_path(&self, space_id: &str, path: &str) -> AppResult<()> {
+    /// Matches over spaces path
+    ///
+    /// Returns `is_dir`
+    pub fn delete_path_type(&self, space_id: &str, path: &str) -> AppResult<bool> {
+        let path = self.clean_path(path)?;
+        let fs_path = self.spaces_path.join(space_id).join(path);
+        Ok(fs_path.is_dir())
+    }
+
+    pub async fn delete_folder(&self, space_id: &str, dir_path: &str) -> AppResult<Vec<Hash>> {
+        let path = self.clean_path(dir_path)?;
+
+        let fs_path = self.spaces_path.join(space_id).join(path);
+
+        let folders = self.collect_dirs(fs_path.clone()).await?;
+        let mut folder_hashes = Vec::with_capacity(folders.len());
+
+        for folder in folders.into_iter() {
+            let abs_path = folder
+                .strip_prefix(&self.spaces_path)
+                .map_err(|err| ErrType::FsError.err(err, "Failed to strip prefix"))?;
+            let mut r2_path = self.r2_spaces.join(abs_path);
+            if let Some(_) = r2_path.extension() {
+                r2_path.set_file_name("");
+            }
+            let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+
+            self.r2.delete_folder(r2_path).await?;
+
+            folder_hashes.push(Hash::new(r2_path));
+        }
+
+        tokio::fs::remove_dir_all(&fs_path)
+            .await
+            .map_err(|err| ErrType::FsError.err(err, format!("Failed to delete path: {:?}", fs_path)))?;
+
+        Ok(folder_hashes)
+    }
+
+    pub async fn delete_file(&self, space_id: &str, path: &str) -> AppResult<(Hash, Hash)> {
         let path = self.clean_path(path)?;
 
         let fs_path = self.spaces_path.join(space_id).join(&path);
-        if fs_path.is_dir() {
-            let folders = self.collect_dirs(fs_path.clone()).await?;
-            for folder in folders.into_iter() {
-                let r2_path = folder
-                    .strip_prefix(&self.spaces_path)
-                    .map_err(|err| ErrType::FsError.err(err, "Failed to strip prefix"))?;
-                let r2_path = self.r2_spaces.join(r2_path);
-                let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+        let r2_path = self.r2_spaces.join(space_id).join(path);
+        let mut r2_folder = r2_path.clone();
+        r2_folder.set_file_name("");
+        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+        let r2_folder = r2_folder.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
 
-                self.r2.delete_folder(r2_path).await?;
-            }
+        let file_stem =
+            fs_path.file_stem().and_then(|s| s.to_str()).ok_or(ErrType::FsError.new("Failed to get file_stem"))?;
 
-            tokio::fs::remove_dir_all(&fs_path)
-                .await
-                .map_err(|err| ErrType::FsError.err(err, format!("Failed to delete path: {:?}", fs_path)))
-        } else {
-            let r2_path = self.r2_spaces.join(space_id).join(path);
-            let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+        let ext = fs_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
+        let ext = match ext {
+            "heic" | "HEIC" => "jpeg",
+            _ => ext,
+        };
 
-            let file_stem =
-                fs_path.file_stem().and_then(|s| s.to_str()).ok_or(ErrType::FsError.new("Failed to get file_stem"))?;
-            let ext = fs_path
-                .extension()
-                .and_then(|s| s.to_str())
-                .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
+        let mut thumbnail_path = fs_path.clone();
+        thumbnail_path.set_file_name(format!("{file_stem}_thumbnail.{ext}"));
 
-            let mut thumbnail_path = fs_path.clone();
-            thumbnail_path.set_file_name(format!("{file_stem}_thumbnail.{ext}"));
+        self.r2.delete_key(r2_path).await?;
+        let _ = remove_file(&thumbnail_path).await;
 
-            let mut json_path = fs_path.clone();
-            json_path.set_extension(format!("{ext}.json"));
-
-            self.r2.delete_key(r2_path).await?;
-            let _ = remove_file(&thumbnail_path).await;
-            let _ = remove_file(&json_path).await;
-            Ok(())
-        }
+        let file_hash = Hash::new(r2_path);
+        let folder_hash = Hash::new(r2_folder);
+        Ok((file_hash, folder_hash))
     }
 
     async fn collect_dirs(&self, dir_path: PathBuf) -> AppResult<Vec<PathBuf>> {
