@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::str::FromStr;
 
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -21,6 +23,24 @@ where
 {
     fn default() -> Self {
         Self::Or(B::default())
+    }
+}
+
+pub struct MediaDatetime(pub DateTime<Utc>);
+impl<'de> Deserialize<'de> for MediaDatetime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        DateTime::<Utc>::from_str(&s)
+            .or_else(|_| {
+                let naive_dt =
+                    NaiveDateTime::parse_from_str(&s, "%Y:%m:%d %H:%M:%S").map_err(serde::de::Error::custom)?;
+                Ok::<_, D::Error>(DateTime::from_naive_utc_and_offset(naive_dt, Utc))
+            })
+            .map(MediaDatetime)
     }
 }
 
@@ -46,7 +66,7 @@ pub struct MediaMetadata {
     pub frame_rate: Option<f64>,
 
     #[serde(rename = "DateTimeOriginal")]
-    pub date_time: Option<String>,
+    pub date_time: Option<MediaDatetime>,
     #[serde(rename = "Orientation")]
     pub orientation: Option<String>,
     #[serde(rename = "Rotation")]

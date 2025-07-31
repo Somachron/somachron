@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use chrono::{DateTime, Utc};
 use lib_core::{
     media::MediaMetadata,
@@ -24,7 +22,7 @@ pub struct Metadata {
     pub media_duration: Option<String>,
     pub frame_rate: Option<f64>,
 
-    pub date_time: Option<DateTime<Utc>>,
+    pub date_time: Option<surrealdb::Datetime>,
     pub iso: Option<u64>,
     pub shutter_speed: Option<String>,
     pub aperture: Option<f64>,
@@ -48,7 +46,7 @@ impl From<MediaMetadata> for Metadata {
             duration: metadata.duration,
             media_duration: metadata.media_duration,
             frame_rate: metadata.frame_rate,
-            date_time: metadata.date_time.map(|s| DateTime::from_str(&s).unwrap()),
+            date_time: metadata.date_time.map(|dt| surrealdb::Datetime::from(dt.0)),
             iso: metadata.iso.map(|u| u as u64),
             shutter_speed: metadata.shutter_speed.map(|v| match v {
                 lib_core::media::EitherValue::Either(s) => s,
