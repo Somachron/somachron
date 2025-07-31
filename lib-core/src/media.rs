@@ -10,7 +10,7 @@ use super::{AppResult, ErrType};
 
 const THUMBNAIL_EXE: &str = "thumbnailer";
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum EitherValue<A, B> {
     Either(A),
@@ -152,6 +152,9 @@ pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<MediaMetad
         metadata.longitude = Some(lng);
     }
 
+    dbg!(&metadata.orientation);
+    dbg!(&metadata.rotation);
+
     Ok(metadata)
 }
 
@@ -211,6 +214,9 @@ pub(super) async fn run_thumbnailer(
             EitherValue::Or(i) => *i,
         })
         .unwrap_or(0);
+
+    dbg!(&orientation);
+    dbg!(&rotation);
 
     let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
     let mut command = command.args(&["-m", mode]);
