@@ -6,6 +6,9 @@ ENV LC_ALL=C.UTF-8
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    perl \
+    make \
+    tar \
     pkg-config \
     clang \
     git \
@@ -13,7 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libssl-dev \
     libexif-dev \
-    libimage-exiftool-perl \
     libavdevice-dev \
     ninja-build \
     libjpeg62-turbo-dev \
@@ -27,6 +29,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsvtav1-dev \
     wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Install exiftool
+WORKDIR /tmp/exiftool
+RUN git clone https://github.com/exiftool/exiftool.git . && \
+    git checkout tags/13.33 && \
+    perl Makefile.PL && \
+    make install
 
 # Build and install libheif
 WORKDIR /tmp/libheif
