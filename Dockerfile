@@ -53,7 +53,6 @@ RUN git clone https://github.com/strukturag/libheif . && \
     make install -j$(nproc) && \
     ldconfig
 
-# Set working directory
 WORKDIR /app
 COPY . .
 
@@ -69,14 +68,11 @@ ARG GOOGLE_REDIRECT_URI
 ARG DATABASE_URL
 ARG VOLUME_PATH
 
-# Build the application
 RUN cargo install --path somachron && \
     cargo install --path thumbnailer
 
 EXPOSE 8080
 
-# Set memory allocator environment variable for better memory management
 ENV MALLOC_MMAP_THRESHOLD_=65536
 
-# Run the binary
 CMD [ "somachron" ]
