@@ -38,11 +38,16 @@ fn main() {
 
     let result = match cli.media {
         MediaType::Image => media::handle_image(cli.src, cli.dst, cli.orientation, cli.rotation),
-        MediaType::Video => media::handle_video(cli.src, cli.dst, cli.rotation).map(|_| false),
+        MediaType::Video => media::handle_video(cli.src, cli.dst, cli.rotation).map(|_| None),
     };
 
     match result {
-        Ok(has_heic) => println!("{has_heic}"),
+        Ok(heif_paths) => {
+            let value = serde_json::json!({
+                "heif_paths": heif_paths,
+            });
+            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+        }
         Err(err) => err.exit(),
-    }
+    };
 }

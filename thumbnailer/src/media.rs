@@ -7,7 +7,7 @@ const THUMBNAIL_DIM: u32 = 256;
 
 enum ImageFormat {
     General(image::ImageFormat),
-    Heic,
+    Heif,
 }
 
 enum ThumbnailType {
@@ -20,23 +20,36 @@ pub fn handle_image(
     mut dst: PathBuf,
     orientation: Option<u64>,
     rotation: Option<u64>,
-) -> AppResult<bool> {
-    let mut has_heic = false;
-    let image_format = match infer_to_image_format(&src)? {
-        ImageFormat::General(image_format) => image_format,
-        ImageFormat::Heic => {
-            has_heic = true;
-
-            convert_heif_to_jpeg(&src)?;
-            dst.set_extension("jpeg");
-
-            image::ImageFormat::Jpeg
+) -> AppResult<Option<Vec<String>>> {
+    match infer_to_image_format(&src)? {
+        ImageFormat::General(image_format) => {
+            create_thumbnail(ThumbnailType::Path(src), image_format, dst, orientation, rotation)?;
+            Ok(None)
         }
-    };
+        ImageFormat::Heif => {
+            let paths = convert_heif_to_jpeg(&src)?;
 
-    create_thumbnail(ThumbnailType::Path(src), image_format, dst, orientation, rotation)?;
+            dst.set_extension("jpeg");
+            let file_name = dst
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or(ErrType::FsError.new(format!("Failed to get file name for {:?}", dst)))?;
 
-    Ok(has_heic)
+            let mut heif_paths = Vec::with_capacity(paths.len());
+            for (i, src) in paths.into_iter().enumerate() {
+                let mut dst = dst.clone();
+                if i > 0 {
+                    dst.set_file_name(format!("{file_name}_{i}.jpeg"));
+                }
+
+                heif_paths.push(src.to_str().unwrap().to_owned());
+
+                create_thumbnail(ThumbnailType::Path(src), image::ImageFormat::Jpeg, dst, orientation, rotation)?;
+            }
+
+            Ok(Some(heif_paths))
+        }
+    }
 }
 
 pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppResult<()> {
@@ -205,37 +218,57 @@ fn infer_to_image_format(path: &PathBuf) -> AppResult<ImageFormat> {
         "image/tiff" => Ok(ImageFormat::General(image::ImageFormat::Tiff)),
         "image/avif" => Ok(ImageFormat::General(image::ImageFormat::Avif)),
         "image/x-icon" => Ok(ImageFormat::General(image::ImageFormat::Ico)),
-        "image/heif" => Ok(ImageFormat::Heic),
+        "image/heif" => Ok(ImageFormat::Heif),
         mime => Err(ErrType::MediaError.new(format!("{} ({})", mime, kind.extension()))),
     }
 }
 
-fn convert_heif_to_jpeg(path: &PathBuf) -> AppResult<()> {
+fn convert_heif_to_jpeg(path: &PathBuf) -> AppResult<Vec<PathBuf>> {
     let heif =
         libheif_rs::LibHeif::new_checked().map_err(|err| ErrType::MediaError.err(err, "Failed to init libheif"))?;
 
     let ctx = libheif_rs::HeifContext::read_from_file(path.to_str().unwrap())
         .map_err(|err| ErrType::MediaError.err(err, "Failed to create HeifContext"))?;
-    let handle =
-        ctx.primary_image_handle().map_err(|err| ErrType::MediaError.err(err, "Failed to get heif primary handle"))?;
 
-    let image = heif
-        .decode(&handle, libheif_rs::ColorSpace::Rgb(libheif_rs::RgbChroma::Rgb), None)
-        .map_err(|err| ErrType::MediaError.err(err, "Failed to decode from heif handle"))?;
-    let planes = image.planes();
-    let interleaved =
-        planes.interleaved.ok_or(ErrType::MediaError.new("Interleaved planes not found in heif image"))?;
+    // heif contains multiple images
+    let image_handles = ctx.top_level_image_handles();
 
-    let img_buffer: image::RgbImage =
-        image::ImageBuffer::from_raw(interleaved.width, interleaved.height, interleaved.data.to_vec()).unwrap();
+    // each image handle will have it's own new path now
+    let mut updated_paths = Vec::with_capacity(image_handles.len());
 
-    let img = image::DynamicImage::ImageRgb8(img_buffer);
+    for (i, handle) in image_handles.into_iter().enumerate() {
+        // prepare different path for image
+        let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap();
+        let path = path.with_file_name(format!("{file_name}_{i}"));
 
-    let file =
-        std::fs::File::create(path).map_err(|err| ErrType::FsError.err(err, "Failed to create heif convert file"))?;
+        // get image
+        let image = heif
+            .decode(&handle, libheif_rs::ColorSpace::Rgb(libheif_rs::RgbChroma::Rgb), None)
+            .map_err(|err| ErrType::MediaError.err(err, "Failed to decode from heif handle"))?;
+        let planes = image.planes();
+        let interleaved =
+            planes.interleaved.ok_or(ErrType::MediaError.new("Interleaved planes not found in heif image"))?;
 
-    let encoder = image::codecs::jpeg::JpegEncoder::new(file);
-    img.write_with_encoder(encoder).map_err(|err| ErrType::MediaError.err(err, "Failed to encode heif to jpeg"))?;
+        // get buffer
+        let img_buffer: image::RgbImage =
+            image::ImageBuffer::from_raw(interleaved.width, interleaved.height, interleaved.data.to_vec()).unwrap();
 
-    Ok(())
+        // create dynamic image
+        let img = image::DynamicImage::ImageRgb8(img_buffer);
+
+        // write to file
+        let file = std::fs::File::create(&path)
+            .map_err(|err| ErrType::FsError.err(err, "Failed to create heif convert file"))?;
+
+        let encoder = image::codecs::jpeg::JpegEncoder::new(file);
+        img.write_with_encoder(encoder).map_err(|err| ErrType::MediaError.err(err, "Failed to encode heif to jpeg"))?;
+
+        // insert new path
+        updated_paths.push(path);
+    }
+
+    // remove original path
+    let _ = std::fs::remove_file(path);
+
+    Ok(updated_paths)
 }
