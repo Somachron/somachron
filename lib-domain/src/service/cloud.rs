@@ -73,7 +73,9 @@ impl Service {
 
         let space_id_str = space_id.id();
         let file_data = storage.process_upload_completion(&space_id_str, &file_path, file_size).await?;
-        let _ = self.ds.upsert_file(membership_id, file_data).await?;
+        for data in file_data.into_iter() {
+            let _ = self.ds.upsert_file(membership_id.clone(), data).await?;
+        }
 
         Ok(())
     }

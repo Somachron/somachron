@@ -23,6 +23,7 @@ pub enum MediaType {
 }
 
 /// Wrapper to enforce hash type
+#[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct Hash(String);
 impl Hash {
@@ -281,7 +282,7 @@ impl Storage {
         space_id: &str,
         file_path: &str,
         file_size: usize,
-    ) -> AppResult<FileData> {
+    ) -> AppResult<Vec<FileData>> {
         let file_path = self.clean_path(&file_path)?;
         let file_path = file_path.as_str();
 
@@ -328,52 +329,84 @@ impl Storage {
         };
 
         // extract media metadata
-        let metadata_result =
-            self.process_media(&tmp_path, &thumbnail_path, &mut thumbnail_file_name, r2_path, media_type).await;
+        let metadata_result = self.process_media(space_id, file_path, ext, &tmp_path, thumbnail_path, media_type).await;
         let _ = remove_file(&tmp_file_path).await;
-        let metadata = metadata_result?;
+        let (metadata, paths) = metadata_result?;
 
-        // hash from r2_path (not file content)
-        let file_hash = Hash::new(r2_path);
+        let thumbnail_file_name = thumbnail_file_name.to_str().map(|s| s.to_owned()).unwrap();
         let folder_hash = Hash::new(r2_folder);
 
-        let metadata = FileData {
-            file_name: file_name.to_owned(),
-            r2_path: r2_path.to_owned(),
-            thumbnail_path: {
-                let mut path = PathBuf::from(file_path);
-                path.set_file_name(thumbnail_file_name);
-                path.to_str().map(|s| s.to_owned()).unwrap()
-            },
-            metadata,
-            size: file_size,
-            media_type: match media_type {
-                infer::MatcherType::Video => MediaType::Video,
-                _ => MediaType::Image,
-            },
-            file_hash,
-            folder_hash,
-        };
-        Ok(metadata)
+        let all_metadata = paths
+            .into_iter()
+            .map(|(r2_path, processed_file_name, processed_thumbnail_file_name)| {
+                let file_hash = Hash::new(&r2_path);
+                FileData {
+                    file_name: processed_file_name.unwrap_or(file_name.to_owned()),
+                    r2_path: r2_path.to_owned(),
+                    thumbnail_path: {
+                        let mut path = PathBuf::from(file_path);
+                        path.set_file_name(processed_thumbnail_file_name.unwrap_or(thumbnail_file_name.clone()));
+                        path.to_str().map(|s| s.to_owned()).unwrap()
+                    },
+                    metadata: metadata.clone(),
+                    size: file_size,
+                    media_type: match media_type {
+                        infer::MatcherType::Video => MediaType::Video,
+                        _ => MediaType::Image,
+                    },
+                    file_hash,
+                    folder_hash: folder_hash.clone(),
+                }
+            })
+            .collect();
+
+        Ok(all_metadata)
     }
 
     async fn process_media(
         &self,
+        space_id: &str,
+        file_path: &str,
+        ext: &str,
         tmp_path: &PathBuf,
-        thumbnail_path: &PathBuf,
-        thumbnail_file_name: &mut PathBuf,
-        r2_path: &str,
+        thumbnail_path: PathBuf,
         media_type: infer::MatcherType,
-    ) -> AppResult<media::MediaMetadata> {
+    ) -> AppResult<(media::MediaMetadata, Vec<(String, Option<String>, Option<String>)>)> {
         let metadata = media::extract_metadata(&tmp_path).await?;
 
+        let path = PathBuf::from(file_path);
+        let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap();
+        let thumbnail_file_name = thumbnail_path.file_stem().and_then(|s| s.to_str()).unwrap();
+        let r2_path = self.r2_spaces.join(space_id).join(file_path);
+
+        let mut media_data = Vec::new();
+
         // create thumbnail
-        let was_heic = media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await?;
-        if was_heic {
-            self.r2.upload_photo(r2_path, &tmp_path).await?;
-            thumbnail_file_name.set_extension("jpeg");
-        }
-        Ok(metadata)
+        let heif_paths = media::run_thumbnailer(&tmp_path, &thumbnail_path, media_type, &metadata).await?;
+        match heif_paths {
+            Some(paths) => {
+                for (i, tmp_path) in paths.into_iter().enumerate() {
+                    let (file_name, thumbnail_file_name) = if i > 0 {
+                        (format!("{file_name}_{i}.{ext}"), format!("{thumbnail_file_name}_{i}.jpeg"))
+                    } else {
+                        (format!("{file_name}.{ext}"), format!("{thumbnail_file_name}.jpeg"))
+                    };
+
+                    let mut r2_path = r2_path.clone();
+                    r2_path.set_file_name(&file_name);
+                    let r2_path = r2_path.to_str().unwrap();
+
+                    self.r2.upload_photo(r2_path, PathBuf::from(tmp_path)).await?;
+
+                    media_data.push((r2_path.to_owned(), Some(file_name), Some(thumbnail_file_name)));
+                }
+            }
+            None => {
+                media_data.push((r2_path.to_str().unwrap().to_owned(), None, None));
+            }
+        };
+
+        Ok((metadata, media_data))
     }
 
     /// Matches over spaces path

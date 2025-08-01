@@ -10,7 +10,7 @@ use super::{AppResult, ErrType};
 
 const THUMBNAIL_EXE: &str = "thumbnailer";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum EitherValue<A, B> {
     Either(A),
@@ -26,6 +26,7 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct MediaDatetime(pub DateTime<Utc>);
 impl<'de> Deserialize<'de> for MediaDatetime {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -44,7 +45,7 @@ impl<'de> Deserialize<'de> for MediaDatetime {
     }
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, Clone)]
 pub struct MediaMetadata {
     #[serde(rename = "Make")]
     pub make: Option<String>,
@@ -85,6 +86,17 @@ pub struct MediaMetadata {
 
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct HeifPath {
+    pub tmp_path: String,
+    pub thumbnail_path: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct ThumbnailOut {
+    heif_paths: Option<Vec<String>>,
 }
 
 /// Get media type [`infer::MatcherType::Image`] or [`infer::MatcherType::Video`]
@@ -195,7 +207,7 @@ pub(super) async fn run_thumbnailer(
     dst: &PathBuf,
     media_type: infer::MatcherType,
     metadata: &MediaMetadata,
-) -> AppResult<bool> {
+) -> AppResult<Option<Vec<String>>> {
     let mode = match media_type {
         infer::MatcherType::Image => "image",
         infer::MatcherType::Video => "video",
@@ -234,8 +246,9 @@ pub(super) async fn run_thumbnailer(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stdout = stdout.into_owned();
-    match stdout.trim() {
-        "true" => Ok(true),
-        _ => Ok(false),
-    }
+
+    let value: ThumbnailOut = serde_json::from_str(&stdout)
+        .map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize heif paths"))?;
+
+    Ok(value.heif_paths)
 }
