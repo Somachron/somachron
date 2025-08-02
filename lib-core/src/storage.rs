@@ -196,11 +196,11 @@ impl Storage {
     /// Generate presigned URL for steaming media
     ///
     /// To be used by frontend
-    pub async fn generate_download_signed_url(&self, space_id: &str, path: &str) -> AppResult<String> {
+    pub async fn generate_download_signed_url(&self, path: &str) -> AppResult<String> {
         let path = self.clean_path(path)?;
-        let r2_path = self.r2_spaces.join(space_id).join(path);
-        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
-        self.r2.generate_download_signed_url(r2_path).await
+        // let r2_path = self.r2_spaces.join(space_id).join(path);
+        // let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
+        self.r2.generate_download_signed_url(&path).await
     }
 
     /// List items in the `dir` path

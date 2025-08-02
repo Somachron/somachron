@@ -5,7 +5,7 @@ pub mod res {
     use utoipa::{PartialSchema, ToSchema};
 
     use crate::{
-        datastore::storage::{File, Metadata},
+        datastore::storage::{File, FileMeta, Metadata},
         dto::{Datetime, _IdOptionRef, _IdRef},
     };
 
@@ -58,6 +58,17 @@ pub mod res {
         }
     );
 
+    impl_dto!(
+        #[derive(ToSchema)]
+        pub struct FileMetaResponse<FileMeta> {
+            id: String = id => _IdRef,
+
+            file_name: String = file_name,
+            media_type: MediaType = media_type,
+            user: Option<String> = user => _IdOptionRef,
+        }
+    );
+
     #[derive(Serialize)]
     #[serde(untagged)]
     pub enum FileEntryResponse {
@@ -67,7 +78,7 @@ pub mod res {
         },
         File {
             tag: &'static str,
-            file: _FileResponse,
+            file: _FileMetaResponse,
         },
     }
     impl FileEntryResponse {
@@ -77,7 +88,7 @@ pub mod res {
                 name: dir,
             }
         }
-        pub fn file(file: _FileResponse) -> Self {
+        pub fn file(file: _FileMetaResponse) -> Self {
             Self::File {
                 tag: "file",
                 file,
@@ -119,7 +130,7 @@ pub mod res {
                             .property(
                                 "file",
                                 utoipa::openapi::schema::RefBuilder::new()
-                                    .ref_location_from_schema_name(FileResponse::name()),
+                                    .ref_location_from_schema_name(FileMetaResponse::name()),
                             )
                             .required("file"),
                     )

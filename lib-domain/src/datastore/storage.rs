@@ -9,6 +9,8 @@ use surrealdb::RecordId;
 
 use crate::datastore::Datastore;
 
+use super::DbSchema;
+
 #[derive(Serialize, Deserialize)]
 pub struct Metadata {
     pub make: Option<String>,
@@ -78,6 +80,19 @@ pub struct File {
     pub user: Option<RecordId>,
     pub space: RecordId,
     pub metadata: Metadata,
+}
+impl DbSchema for File {
+    fn table_name() -> &'static str {
+        "file"
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FileMeta {
+    pub id: RecordId,
+    pub file_name: String,
+    pub media_type: MediaType,
+    pub user: Option<RecordId>,
 }
 
 impl Datastore {
@@ -177,16 +192,47 @@ impl Datastore {
         files.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to get created file"))
     }
 
-    pub async fn get_files(&self, space_id: RecordId, folder_hash: Hash) -> AppResult<Vec<File>> {
+    pub async fn get_files(&self, space_id: RecordId, folder_hash: Hash) -> AppResult<Vec<FileMeta>> {
         let mut res = self
             .db
-            .query("SELECT * FROM file WHERE space = $s AND folder_hash = $h")
+            .query("SELECT id, file_name, media_type, user FROM file WHERE space = $s AND folder_hash = $h")
             .bind(("s", space_id))
             .bind(("h", folder_hash.get()))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to query list of files"))?;
 
         res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize files"))
+    }
+
+    pub async fn get_file_thumbnail(&self, file_id: &str) -> AppResult<Option<String>> {
+        let file_id = File::get_id(file_id);
+
+        let mut res = self
+            .db
+            .query("SELECT VALUE thumbnail_path FROM $id")
+            .bind(("id", file_id))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query file thumbnail path"))?;
+
+        let paths: Vec<String> =
+            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to get file thumbnail path"))?;
+
+        Ok(paths.into_iter().nth(0))
+    }
+
+    pub async fn get_file_r2(&self, file_id: &str) -> AppResult<Option<String>> {
+        let file_id = File::get_id(file_id);
+
+        let mut res = self
+            .db
+            .query("SELECT VALUE r2_path FROM $id")
+            .bind(("id", file_id))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query file r2 path"))?;
+
+        let paths: Vec<String> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to get file r2 path"))?;
+
+        Ok(paths.into_iter().nth(0))
     }
 
     pub async fn delete_folder(&self, space_id: RecordId, folder_hash: Hash) -> AppResult<()> {

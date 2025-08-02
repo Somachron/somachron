@@ -12,7 +12,7 @@ use lib_domain::{
         req::{CreateFolderRequest, SignedUrlRequest, UploadCompleteRequest},
         res::{FileEntryResponse, SignedUrlResponse},
     },
-    extension::{IdStr, SpaceCtx, UserId},
+    extension::{SpaceCtx, UserId},
 };
 
 use crate::app::AppState;
@@ -21,11 +21,11 @@ use super::middleware;
 
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
-        .route("/{*dir}", get(list_directory))
-        .route("/{*dir}", delete(delete_path))
-        .route("/f/{*path}", get(get_file))
+        .route("/l/{*dir}", get(list_directory))
+        .route("/p/{*dir}", delete(delete_path))
+        .route("/f/{id}", get(get_file))
         .route("/d", post(create_folder))
-        .route("/stream", post(generate_download_signed_url))
+        .route("/stream/{id}", get(generate_download_signed_url))
         .route("/upload", post(generate_upload_signed_url))
         .route("/upload/complete", post(upload_completion))
         .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
@@ -36,7 +36,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 
 #[utoipa::path(
     delete,
-    path = "/v1/media/{dir}",
+    path = "/v1/media/p/{dir}",
     responses((status=200, body=EmptyResponse)),
     tag = "Cloud"
 )]
@@ -55,7 +55,7 @@ pub async fn delete_path(
 
 #[utoipa::path(
     get,
-    path = "/v1/media/{dir}",
+    path = "/v1/media/l/{dir}",
     responses((status=200, body=Vec<FileEntryResponse>)),
     tag = "Cloud"
 )]
@@ -68,15 +68,15 @@ pub async fn list_directory(
     app.service().list_dir(space_ctx, app.storage(), dir).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
-#[utoipa::path(get, path = "/v1/media/f/{path}", tag = "Cloud")]
+#[utoipa::path(get, path = "/v1/media/f/{id}", tag = "Cloud")]
 pub async fn get_file(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(path): Path<String>,
+    Path(id): Path<String>,
 ) -> axum::response::Result<impl IntoResponse, ApiError> {
     let (buffer, ext) =
-        app.storage().get_file(&space_ctx.space_id.id(), &path).await.map_err(|err| ApiError(err, req_id.clone()))?;
+        app.service().get_file(space_ctx, app.storage(), id).await.map_err(|err| ApiError(err, req_id.clone()))?;
 
     let size = buffer.len();
     let body = Body::from(buffer);
@@ -110,19 +110,18 @@ pub async fn generate_upload_signed_url(
 }
 
 #[utoipa::path(
-    post,
-    path = "/v1/media/stream",
+    get,
+    path = "/v1/media/stream/{id}",
     responses((status=200, body=SignedUrlResponse)),
     tag = "Cloud"
 )]
 pub async fn generate_download_signed_url(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
-    Extension(space_ctx): Extension<SpaceCtx>,
-    Json(body): Json<SignedUrlRequest>,
+    Path(file_id): Path<String>,
 ) -> ApiResult<SignedUrlResponse> {
-    app.storage()
-        .generate_download_signed_url(&space_ctx.space_id.id(), &body.file_path)
+    app.service()
+        .generate_download_signed_url(app.storage(), file_id)
         .await
         .map(|url| {
             Json(SignedUrlResponse {

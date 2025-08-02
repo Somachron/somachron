@@ -4,7 +4,7 @@ use crate::{
     datastore::user_space::SpaceRole,
     dto::cloud::{
         req::UploadCompleteRequest,
-        res::{FileEntryResponse, SignedUrlResponse, _FileResponse},
+        res::{FileEntryResponse, SignedUrlResponse, _FileMetaResponse},
     },
     extension::{IdStr, SpaceCtx, UserId},
 };
@@ -100,10 +100,34 @@ impl Service {
             response.push(FileEntryResponse::dir(folder));
         }
         for file in files.into_iter() {
-            response.push(FileEntryResponse::file(_FileResponse(file)));
+            response.push(FileEntryResponse::file(_FileMetaResponse(file)));
         }
 
         Ok(response)
+    }
+
+    pub async fn get_file(
+        &self,
+        SpaceCtx {
+            space_id,
+            ..
+        }: SpaceCtx,
+        storage: &Storage,
+        file_id: String,
+    ) -> AppResult<(Vec<u8>, String)> {
+        let thumbnail_path = self.ds.get_file_thumbnail(&file_id).await?;
+        match thumbnail_path {
+            Some(path) => storage.get_file(&space_id.id(), &path).await,
+            None => return Err(ErrType::NotFound.new("Requested file not found")),
+        }
+    }
+
+    pub async fn generate_download_signed_url(&self, storage: &Storage, file_id: String) -> AppResult<String> {
+        let r2_path = self.ds.get_file_r2(&file_id).await?;
+        match r2_path {
+            Some(path) => storage.generate_download_signed_url(&path).await,
+            None => return Err(ErrType::NotFound.new("Requested file not found")),
+        }
     }
 
     pub async fn delete_path(
