@@ -45,6 +45,39 @@ impl<'de> Deserialize<'de> for MediaDatetime {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum MediaOrientation {
+    None,
+    R90CW,
+    R180,
+    R270CW,
+}
+impl MediaOrientation {
+    pub fn get_value(&self) -> u64 {
+        match self {
+            MediaOrientation::None => 0,
+            MediaOrientation::R90CW => 90,
+            MediaOrientation::R180 => 180,
+            MediaOrientation::R270CW => 270,
+        }
+    }
+}
+impl<'de> Deserialize<'de> for MediaOrientation {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().trim() {
+            "none" | "0" | "rotate 0" => Ok(MediaOrientation::None),
+            "rotate 90 cw" | "90 cw" | "90" | "rotate90cw" => Ok(MediaOrientation::R90CW),
+            "rotate 180" | "180" | "rotate180" => Ok(MediaOrientation::R180),
+            "rotate 270 cw" | "rotate 90 ccw" | "270 cw" | "90 ccw" | "270" => Ok(MediaOrientation::R270CW),
+            _ => Err(serde::de::Error::custom(format!("Invalid rotation value: {}", s))),
+        }
+    }
+}
+
 #[derive(Default, Deserialize, Clone)]
 pub struct MediaMetadata {
     #[serde(rename = "Make")]
@@ -69,9 +102,9 @@ pub struct MediaMetadata {
     #[serde(rename = "DateTimeOriginal")]
     pub date_time: Option<MediaDatetime>,
     #[serde(rename = "Orientation")]
-    pub orientation: Option<String>,
+    pub orientation: Option<MediaOrientation>,
     #[serde(rename = "Rotation")]
-    pub rotation: Option<EitherValue<String, u64>>,
+    pub rotation: Option<EitherValue<MediaOrientation, u64>>,
 
     #[serde(rename = "ISO")]
     pub iso: Option<usize>,
@@ -214,23 +247,20 @@ pub(super) async fn run_thumbnailer(
         _ => "",
     };
 
-    let orientation = metadata.orientation.as_ref().and_then(|v| Some(v.parse().unwrap_or(0)));
     let rotation = metadata
-        .rotation
-        .as_ref()
-        .map(|v| match v {
-            EitherValue::Either(s) => s.parse().unwrap_or(0),
-            EitherValue::Or(i) => *i,
+        .orientation
+        .map(|o| o.get_value())
+        .or_else(|| {
+            metadata.rotation.as_ref().map(|v| match v {
+                EitherValue::Either(s) => s.get_value(),
+                EitherValue::Or(i) => *i,
+            })
         })
         .unwrap_or(0);
 
     let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
-    let mut command = command.args(&["-m", mode]);
-
-    if let Some(orientation) = orientation {
-        command = command.args(&["-o", &orientation.to_string()]);
-    }
     let output = command
+        .args(&["-m", mode])
         .args(&["-r", &rotation.to_string(), src.to_str().unwrap(), dst.to_str().unwrap()])
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
