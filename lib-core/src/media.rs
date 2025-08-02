@@ -47,18 +47,26 @@ impl<'de> Deserialize<'de> for MediaDatetime {
 
 #[derive(Debug, Clone, Copy)]
 pub enum MediaOrientation {
-    None,
-    R90CW,
-    R180,
-    R270CW,
+    None,       // 1: Normal
+    FlipH,      // 2: Mirror horizontal
+    R180,       // 3: Rotate 180°
+    FlipV,      // 4: Mirror vertical (flip vertical)
+    Transpose,  // 5: Mirror horizontal + Rotate 270° CW
+    R90,        // 6: Rotate 90° CW
+    Transverse, // 7: Mirror horizontal + Rotate 90° CW
+    R270,       // 8: Rotate 270° CW (90° CCW)
 }
 impl MediaOrientation {
     pub fn get_value(&self) -> u64 {
         match self {
-            MediaOrientation::None => 0,
-            MediaOrientation::R90CW => 90,
-            MediaOrientation::R180 => 180,
-            MediaOrientation::R270CW => 270,
+            MediaOrientation::None => 1,
+            MediaOrientation::FlipH => 2,
+            MediaOrientation::R180 => 3,
+            MediaOrientation::FlipV => 4,
+            MediaOrientation::Transpose => 5,
+            MediaOrientation::R90 => 6,
+            MediaOrientation::Transverse => 7,
+            MediaOrientation::R270 => 8,
         }
     }
 }
@@ -69,10 +77,22 @@ impl<'de> Deserialize<'de> for MediaOrientation {
     {
         let s = String::deserialize(deserializer)?;
         match s.to_lowercase().trim() {
+            // Standard rotation formats
             "none" | "0" | "rotate 0" => Ok(MediaOrientation::None),
-            "rotate 90 cw" | "90 cw" | "90" | "rotate90cw" => Ok(MediaOrientation::R90CW),
+            "rotate 90 cw" | "90 cw" | "90" | "rotate90cw" => Ok(MediaOrientation::R90),
             "rotate 180" | "180" | "rotate180" => Ok(MediaOrientation::R180),
-            "rotate 270 cw" | "rotate 90 ccw" | "270 cw" | "90 ccw" | "270" => Ok(MediaOrientation::R270CW),
+            "rotate 270 cw" | "rotate 90 ccw" | "270 cw" | "90 ccw" | "270" => Ok(MediaOrientation::R270),
+
+            // EXIF orientation formats
+            "horizontal (normal)" | "normal" | "1" => Ok(MediaOrientation::None),
+            "mirror horizontal" | "flip horizontal" | "2" => Ok(MediaOrientation::FlipH),
+            "3" => Ok(MediaOrientation::R180),
+            "mirror vertical" | "flip vertical" | "4" => Ok(MediaOrientation::FlipV),
+            "mirror horizontal and rotate 270 cw" | "transpose" | "5" => Ok(MediaOrientation::Transpose),
+            "6" => Ok(MediaOrientation::R90),
+            "mirror horizontal and rotate 90 cw" | "transverse" | "7" => Ok(MediaOrientation::Transverse),
+            "8" => Ok(MediaOrientation::R270),
+
             _ => Err(serde::de::Error::custom(format!("Invalid rotation value: {}", s))),
         }
     }

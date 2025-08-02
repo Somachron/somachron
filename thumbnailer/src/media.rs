@@ -151,9 +151,13 @@ fn create_thumbnail(
     };
 
     let img = match rotation {
-        90 => img.rotate90(),
-        180 => img.rotate180(),
-        270 => img.rotate270(),
+        2 => img.fliph(),
+        3 => img.rotate180(),
+        4 => img.flipv(),
+        5 => img.fliph().rotate270(),
+        6 => img.rotate90(),
+        8 => img.rotate270(),
+        7 => img.fliph().rotate90(),
         _ => img, // No rotation needed
     };
 
