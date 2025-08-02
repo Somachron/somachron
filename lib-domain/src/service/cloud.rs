@@ -93,12 +93,14 @@ impl Service {
         let space_id_str = space_id.id();
         let folder_hash = storage.get_folder_hash(&space_id_str, &path)?;
         let folders = storage.list_dir(&space_id_str, &path).await?;
-        let files = self.ds.get_files(space_id, folder_hash).await?;
+        let mut files = self.ds.get_files(space_id, folder_hash).await?;
 
         let mut response = Vec::with_capacity(folders.len() + files.len());
         for folder in folders.into_iter() {
             response.push(FileEntryResponse::dir(folder));
         }
+
+        files.sort_by(|a, b| a.file_name.cmp(&b.file_name));
         for file in files.into_iter() {
             response.push(FileEntryResponse::file(_FileMetaResponse(file)));
         }
