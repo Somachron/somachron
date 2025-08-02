@@ -47,27 +47,18 @@ impl<'de> Deserialize<'de> for MediaDatetime {
 
 #[derive(Debug, Clone, Copy)]
 pub enum MediaOrientation {
-    None,       // 1: Normal
-    FlipH,      // 2: Mirror horizontal
-    R180,       // 3: Rotate 180°
-    FlipV,      // 4: Mirror vertical (flip vertical)
-    Transpose,  // 5: Mirror horizontal + Rotate 270° CW
-    R90,        // 6: Rotate 90° CW
-    Transverse, // 7: Mirror horizontal + Rotate 90° CW
-    R270,       // 8: Rotate 270° CW (90° CCW)
+    None = 1,       // Normal
+    R90CW = 2,      // Rotate 90° CW
+    R180 = 3,       // Rotate 180°
+    R270CW = 4,     // Rotate 270° CW (90° CCW)
+    FlipH = 5,      // Mirror horizontal
+    FlipV = 6,      // Mirror vertical (flip vertical)
+    Transpose = 7,  // Mirror horizontal + Rotate 270° CW
+    Transverse = 8, // Mirror horizontal + Rotate 90° CW
 }
 impl MediaOrientation {
-    pub fn get_value(&self) -> u64 {
-        match self {
-            MediaOrientation::None => 1,
-            MediaOrientation::FlipH => 2,
-            MediaOrientation::R180 => 3,
-            MediaOrientation::FlipV => 4,
-            MediaOrientation::Transpose => 5,
-            MediaOrientation::R90 => 6,
-            MediaOrientation::Transverse => 7,
-            MediaOrientation::R270 => 8,
-        }
+    pub fn get_value(self) -> u64 {
+        self as u64
     }
 }
 impl<'de> Deserialize<'de> for MediaOrientation {
@@ -79,9 +70,9 @@ impl<'de> Deserialize<'de> for MediaOrientation {
         match s.to_lowercase().trim() {
             // Standard rotation formats
             "none" | "0" | "rotate 0" => Ok(MediaOrientation::None),
-            "rotate 90 cw" | "90 cw" | "90" | "rotate90cw" => Ok(MediaOrientation::R90),
+            "rotate 90 cw" | "90 cw" | "90" | "rotate90cw" => Ok(MediaOrientation::R90CW),
             "rotate 180" | "180" | "rotate180" => Ok(MediaOrientation::R180),
-            "rotate 270 cw" | "rotate 90 ccw" | "270 cw" | "90 ccw" | "270" => Ok(MediaOrientation::R270),
+            "rotate 270 cw" | "rotate 90 ccw" | "270 cw" | "90 ccw" | "270" => Ok(MediaOrientation::R270CW),
 
             // EXIF orientation formats
             "horizontal (normal)" | "normal" | "1" => Ok(MediaOrientation::None),
@@ -89,9 +80,9 @@ impl<'de> Deserialize<'de> for MediaOrientation {
             "3" => Ok(MediaOrientation::R180),
             "mirror vertical" | "flip vertical" | "4" => Ok(MediaOrientation::FlipV),
             "mirror horizontal and rotate 270 cw" | "transpose" | "5" => Ok(MediaOrientation::Transpose),
-            "6" => Ok(MediaOrientation::R90),
+            "6" => Ok(MediaOrientation::R90CW),
             "mirror horizontal and rotate 90 cw" | "transverse" | "7" => Ok(MediaOrientation::Transverse),
-            "8" => Ok(MediaOrientation::R270),
+            "8" => Ok(MediaOrientation::R270CW),
 
             _ => Err(serde::de::Error::custom(format!("Invalid rotation value: {}", s))),
         }
@@ -124,7 +115,7 @@ pub struct MediaMetadata {
     #[serde(rename = "Orientation")]
     pub orientation: Option<MediaOrientation>,
     #[serde(rename = "Rotation")]
-    pub rotation: Option<EitherValue<MediaOrientation, u64>>,
+    pub rotation: Option<MediaOrientation>,
 
     #[serde(rename = "ISO")]
     pub iso: Option<usize>,
@@ -270,12 +261,7 @@ pub(super) async fn run_thumbnailer(
     let rotation = metadata
         .orientation
         .map(|o| o.get_value())
-        .or_else(|| {
-            metadata.rotation.as_ref().map(|v| match v {
-                EitherValue::Either(s) => s.get_value(),
-                EitherValue::Or(i) => *i,
-            })
-        })
+        .or_else(|| metadata.rotation.as_ref().map(|v| v.get_value()))
         .unwrap_or(0);
 
     let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
