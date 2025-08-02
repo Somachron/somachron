@@ -386,6 +386,7 @@ impl Storage {
         match heif_paths {
             Some(paths) => {
                 for (i, tmp_path) in paths.into_iter().enumerate() {
+                    let tmp_path = PathBuf::from(tmp_path);
                     let (file_name, thumbnail_file_name) = if i > 0 {
                         (format!("{file_name}_{i}.{ext}"), format!("{thumbnail_file_name}_{i}.jpeg"))
                     } else {
@@ -396,7 +397,8 @@ impl Storage {
                     r2_path.set_file_name(&file_name);
                     let r2_path = r2_path.to_str().unwrap();
 
-                    self.r2.upload_photo(r2_path, PathBuf::from(tmp_path)).await?;
+                    self.r2.upload_photo(r2_path, &tmp_path).await?;
+                    let _ = remove_file(&tmp_path).await;
 
                     media_data.push((r2_path.to_owned(), Some(file_name), Some(thumbnail_file_name)));
                 }

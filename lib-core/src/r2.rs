@@ -101,7 +101,7 @@ impl R2Storage {
         Ok(request.uri().to_string())
     }
 
-    pub(super) async fn upload_photo(&self, path: &str, from_path: PathBuf) -> AppResult<()> {
+    pub(super) async fn upload_photo(&self, path: &str, from_path: &PathBuf) -> AppResult<()> {
         let stream = ByteStream::read_from()
             .path(from_path)
             .buffer_size(4096)
