@@ -15,15 +15,10 @@ enum ThumbnailType {
     Path(PathBuf),
 }
 
-pub fn handle_image(
-    src: PathBuf,
-    mut dst: PathBuf,
-    orientation: Option<u64>,
-    rotation: Option<u64>,
-) -> AppResult<Option<Vec<String>>> {
+pub fn handle_image(src: PathBuf, mut dst: PathBuf, rotation: Option<u64>) -> AppResult<Option<Vec<String>>> {
     match infer_to_image_format(&src)? {
         ImageFormat::General(image_format) => {
-            create_thumbnail(ThumbnailType::Path(src), image_format, dst, orientation, rotation)?;
+            create_thumbnail(ThumbnailType::Path(src), image_format, dst, rotation)?;
             Ok(None)
         }
         ImageFormat::Heif => {
@@ -44,7 +39,7 @@ pub fn handle_image(
 
                 heif_paths.push(src.to_str().unwrap().to_owned());
 
-                create_thumbnail(ThumbnailType::Path(src), image::ImageFormat::Jpeg, dst, orientation, rotation)?;
+                create_thumbnail(ThumbnailType::Path(src), image::ImageFormat::Jpeg, dst, rotation)?;
             }
 
             Ok(Some(heif_paths))
@@ -127,13 +122,7 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
                     thumbnail.extend_from_slice(data);
                 }
 
-                return create_thumbnail(
-                    ThumbnailType::Bytes(thumbnail),
-                    image::ImageFormat::Jpeg,
-                    dst,
-                    None,
-                    rotation,
-                );
+                return create_thumbnail(ThumbnailType::Bytes(thumbnail), image::ImageFormat::Jpeg, dst, rotation);
             }
         }
     }
@@ -145,7 +134,6 @@ fn create_thumbnail(
     data: ThumbnailType,
     format: image::ImageFormat,
     dst: PathBuf,
-    orientation: Option<u64>,
     rotation: Option<u64>,
 ) -> AppResult<()> {
     let rotation = rotation.unwrap_or(0);
@@ -162,22 +150,11 @@ fn create_thumbnail(
         }
     };
 
-    let img = match orientation {
-        Some(2) => img.fliph(),
-        Some(3) => img.rotate180(),
-        Some(4) => img.flipv(),
-        Some(5) => img.rotate90().fliph(),
-        Some(6) => img.rotate90(),
-        Some(7) => img.rotate270().fliph(),
-        Some(8) => img.rotate270(),
-        _ => img, // No rotation needed for 1 or unknown
-    };
-
     let img = match rotation {
         90 => img.rotate90(),
         180 => img.rotate180(),
         270 => img.rotate270(),
-        _ => img, // No rotation needed for 1 or unknown
+        _ => img, // No rotation needed
     };
 
     let thumbnail = img.resize(THUMBNAIL_DIM, THUMBNAIL_DIM, image::imageops::FilterType::Lanczos3);
