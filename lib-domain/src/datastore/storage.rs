@@ -75,16 +75,17 @@ pub struct File {
     pub media_type: MediaType,
     pub thumbnail_path: String,
     pub r2_path: String,
-    pub member: RecordId,
+    pub user: Option<RecordId>,
+    pub space: RecordId,
     pub metadata: Metadata,
 }
 
 impl Datastore {
-    pub async fn upsert_file(&self, member_id: RecordId, file_data: FileData) -> AppResult<File> {
+    pub async fn upsert_file(&self, user_id: RecordId, space_id: RecordId, file_data: FileData) -> AppResult<File> {
         let mut res = self
             .db
-            .query("SELECT * FROM file WHERE member = $m AND folder_hash = $h AND file_name = $n")
-            .bind(("m", member_id.clone()))
+            .query("SELECT * FROM file WHERE space = $s AND folder_hash = $h AND file_name = $n")
+            .bind(("s", space_id.clone()))
             .bind(("h", file_data.folder_hash.get_ref().to_owned()))
             .bind(("n", file_data.file_name.clone()))
             .await
@@ -94,7 +95,7 @@ impl Datastore {
 
         let file = match files.into_iter().nth(0) {
             Some(file) => self.update_file(file.id, file_data).await,
-            None => self.create_file(member_id, file_data).await,
+            None => self.create_file(user_id, space_id, file_data).await,
         }?;
 
         Ok(file)
@@ -139,7 +140,8 @@ impl Datastore {
 
     async fn create_file(
         &self,
-        member_id: RecordId,
+        user_id: RecordId,
+        space_id: RecordId,
         FileData {
             file_name,
             r2_path,
@@ -155,7 +157,7 @@ impl Datastore {
 
         let mut res = self
             .db
-            .query("CREATE file SET folder_hash = $f, file_hash = $fh, file_name = $n, file_size = $s, media_type = $t, thumbnail_path = $th, r2_path = $r, member = $m, metadata = $mt")
+            .query("CREATE file SET folder_hash = $f, file_hash = $fh, file_name = $n, file_size = $s, media_type = $t, thumbnail_path = $th, r2_path = $r, user = $u, space = $sp, metadata = $mt")
             .bind(("f", folder_hash.get()))
             .bind(("fh", file_hash.get()))
             .bind(("n", file_name))
@@ -163,7 +165,8 @@ impl Datastore {
             .bind(("t", media_type))
             .bind(("th", thumbnail_path))
             .bind(("r", r2_path))
-            .bind(("m", member_id))
+            .bind(("u", user_id))
+            .bind(("sp", space_id))
             .bind(("mt", metadata))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to query create file"))?;
@@ -177,7 +180,7 @@ impl Datastore {
     pub async fn get_files(&self, space_id: RecordId, folder_hash: Hash) -> AppResult<Vec<File>> {
         let mut res = self
             .db
-            .query("SELECT * FROM file WHERE member.out = $s AND folder_hash = $h")
+            .query("SELECT * FROM file WHERE space = $s AND folder_hash = $h")
             .bind(("s", space_id))
             .bind(("h", folder_hash.get()))
             .await
@@ -189,7 +192,7 @@ impl Datastore {
     pub async fn delete_folder(&self, space_id: RecordId, folder_hash: Hash) -> AppResult<()> {
         let res = self
             .db
-            .query("DELETE file WHERE member.out = $s AND folder_hash = $h")
+            .query("DELETE file WHERE space = $s AND folder_hash = $h")
             .bind(("s", space_id))
             .bind(("h", folder_hash.get()))
             .await
@@ -201,7 +204,7 @@ impl Datastore {
     pub async fn delete_file(&self, space_id: RecordId, file_hash: Hash, folder_hash: Hash) -> AppResult<()> {
         let res = self
             .db
-            .query("DELETE file WHERE member.out = $s AND folder_hash = $h AND file_hash = $fh")
+            .query("DELETE file WHERE space = $s AND folder_hash = $h AND file_hash = $fh")
             .bind(("s", space_id))
             .bind(("h", folder_hash.get()))
             .bind(("fh", file_hash.get()))

@@ -1,12 +1,12 @@
 use lib_core::{storage::Storage, AppResult, ErrType};
 
 use crate::{
-    datastore::user_space::UserRole,
+    datastore::user_space::SpaceRole,
     dto::cloud::{
         req::UploadCompleteRequest,
         res::{FileEntryResponse, SignedUrlResponse, _FileResponse},
     },
-    extension::{IdStr, SpaceCtx},
+    extension::{IdStr, SpaceCtx, UserId},
 };
 
 use super::Service;
@@ -23,7 +23,7 @@ impl Service {
         path: String,
     ) -> AppResult<()> {
         match role {
-            UserRole::Read => return Err(ErrType::Unauthorized.new("Cannot create folder: Unauthorized read role")),
+            SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot create folder: Unauthorized read role")),
             _ => (),
         };
 
@@ -42,7 +42,7 @@ impl Service {
         path: String,
     ) -> AppResult<SignedUrlResponse> {
         match role {
-            UserRole::Read => return Err(ErrType::Unauthorized.new("Cannot upload: Unauthorized read role")),
+            SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot upload: Unauthorized read role")),
             _ => (),
         };
 
@@ -55,10 +55,11 @@ impl Service {
 
     pub async fn process_upload_completion(
         &self,
+        UserId(user_id): UserId,
         SpaceCtx {
-            membership_id,
             space_id,
             role,
+            ..
         }: SpaceCtx,
         storage: &Storage,
         UploadCompleteRequest {
@@ -67,14 +68,14 @@ impl Service {
         }: UploadCompleteRequest,
     ) -> AppResult<()> {
         match role {
-            UserRole::Read => return Err(ErrType::Unauthorized.new("Cannot complete upload: Unauthorized read role")),
+            SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot complete upload: Unauthorized read role")),
             _ => (),
         };
 
         let space_id_str = space_id.id();
         let file_data = storage.process_upload_completion(&space_id_str, &file_path, file_size).await?;
         for data in file_data.into_iter() {
-            let _ = self.ds.upsert_file(membership_id.clone(), data).await?;
+            let _ = self.ds.upsert_file(user_id.clone(), space_id.clone(), data).await?;
         }
 
         Ok(())
@@ -116,7 +117,7 @@ impl Service {
         path: String,
     ) -> AppResult<()> {
         match role {
-            UserRole::Read | UserRole::Upload => {
+            SpaceRole::Read | SpaceRole::Upload => {
                 return Err(ErrType::Unauthorized.new("Cannot delete: Unauthorized read|upload role"))
             }
             _ => (),

@@ -60,7 +60,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
     components(schemas(
         lib_core::EmptyResponse,
 
-        lib_domain::datastore::user_space::UserRole,
+        lib_domain::datastore::user_space::SpaceRole,
         lib_domain::dto::Datetime,
 
         lib_domain::dto::auth::req::ExchangeCodeRequest,

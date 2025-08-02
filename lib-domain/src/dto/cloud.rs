@@ -6,7 +6,7 @@ pub mod res {
 
     use crate::{
         datastore::storage::{File, Metadata},
-        dto::{Datetime, _IdRef},
+        dto::{Datetime, _IdOptionRef, _IdRef},
     };
 
     #[derive(Serialize, ToSchema)]
@@ -52,7 +52,8 @@ pub mod res {
             media_type: MediaType = media_type,
             thumbnail_path: String = thumbnail_path,
             r2_path: String = r2_path,
-            member: String = member => _IdRef,
+            user: String = user => _IdOptionRef,
+            space: String = space => _IdRef,
             metadata: FileMetadataResponse = metadata => _FileMetadataResponseRef,
         }
     );

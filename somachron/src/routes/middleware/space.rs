@@ -6,7 +6,7 @@ use axum::{
     Extension,
 };
 use lib_core::{ApiError, ErrType, ReqId};
-use lib_domain::extension::{SpaceCtx, UserId};
+use lib_domain::extension::{IdStr, SpaceCtx, UserId};
 
 use crate::app::AppState;
 
@@ -27,7 +27,7 @@ pub async fn validate_user_space(
     let space_member = app
         .service()
         .ds()
-        .get_user_space(user_id.0, space_id)
+        .get_user_space(&user_id.0.id(), space_id)
         .await
         .map_err(|err| ApiError(err, req_id.clone()))?
         .ok_or(ApiError(ErrType::Unauthorized.new("User not member of space"), req_id))?;

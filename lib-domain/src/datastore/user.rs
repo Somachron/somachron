@@ -42,6 +42,16 @@ impl Datastore {
         self.db.select(id).await.map_err(|err| ErrType::DbError.err(err, "Failed to query user by email"))
     }
 
+    pub async fn get_platform_users(&self) -> AppResult<Vec<User>> {
+        let mut res = self
+            .db
+            .query("SELECT * FROM user WHERE allowed = true")
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get platform users"))?;
+
+        res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize platform users"))
+    }
+
     pub async fn insert_user(&self, given_name: &str, email: &str, picture_url: &str) -> AppResult<User> {
         let mut res = self
             .db

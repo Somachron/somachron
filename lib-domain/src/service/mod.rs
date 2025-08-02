@@ -4,6 +4,7 @@ mod auth;
 mod cloud;
 mod space;
 mod user;
+mod user_space;
 
 pub struct Service {
     ds: Datastore,

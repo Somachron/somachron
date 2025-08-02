@@ -18,4 +18,14 @@ pub mod res {
             picture_url: String = picture_url,
         }
     );
+
+    impl_dto!(
+        #[derive(ToSchema)]
+        pub struct PlatformUserResponse<User> {
+            id: String = id => _IdRef,
+            created_at: Datetime = created_at,
+            given_name: String = given_name,
+            picture_url: String = picture_url,
+        }
+    );
 }

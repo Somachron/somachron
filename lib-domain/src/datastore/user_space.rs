@@ -10,7 +10,7 @@ use super::Datastore;
 
 #[derive(Debug, ToSchema, Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
-pub enum UserRole {
+pub enum SpaceRole {
     Owner,
     Read,
     Upload,
@@ -24,7 +24,7 @@ pub struct UserSpace {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 
-    pub role: UserRole,
+    pub role: SpaceRole,
     pub space: super::space::Space,
 }
 
@@ -35,7 +35,7 @@ pub struct SpaceUser {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 
-    pub role: UserRole,
+    pub role: SpaceRole,
     pub user: super::user::User,
 }
 
@@ -49,7 +49,7 @@ pub struct SpaceMember {
     pub r#in: RecordId,
     /// [`super::space::Space::id`]
     pub out: RecordId,
-    pub role: UserRole,
+    pub role: SpaceRole,
 }
 impl DbSchema for SpaceMember {
     fn table_name() -> &'static str {
@@ -60,10 +60,12 @@ impl DbSchema for SpaceMember {
 impl Datastore {
     pub async fn add_user_to_space(
         &self,
-        user_id: RecordId,
+        user_id: &str,
         space_id: RecordId,
-        role: UserRole,
+        role: SpaceRole,
     ) -> AppResult<SpaceMember> {
+        let user_id = super::user::User::get_id(user_id);
+
         let mut res = self
             .db
             .query("RELATE $u->space_member->$s SET role = $r")
@@ -79,7 +81,8 @@ impl Datastore {
         space_members.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to add user to space"))
     }
 
-    pub async fn get_user_space(&self, user_id: RecordId, space_id: &str) -> AppResult<Option<SpaceMember>> {
+    pub async fn get_user_space(&self, user_id: &str, space_id: &str) -> AppResult<Option<SpaceMember>> {
+        let user_id = super::user::User::get_id(user_id);
         let space_id = super::space::Space::get_id(&space_id);
 
         let mut res = self
@@ -119,13 +122,11 @@ impl Datastore {
         res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize users for space"))
     }
 
-    pub async fn update_space_user_role(&self, space_member_id: &str, role: UserRole) -> AppResult<()> {
-        let id = SpaceMember::get_id(space_member_id);
-
+    pub async fn update_space_user_role(&self, space_member_id: RecordId, role: SpaceRole) -> AppResult<()> {
         let mut res = self
             .db
             .query("UPDATE $id SET role = $r")
-            .bind(("id", id))
+            .bind(("id", space_member_id))
             .bind(("r", role))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to query update user space role"))?;
@@ -135,10 +136,9 @@ impl Datastore {
             .map_err(|err| ErrType::DbError.err(err, "Failed to deseriliaze update user space role"))
     }
 
-    pub async fn remove_user_from_space(&self, space_member_id: &str) -> AppResult<()> {
-        let id = SpaceMember::get_id(space_member_id);
+    pub async fn remove_user_from_space(&self, space_member_id: RecordId) -> AppResult<()> {
         self.db
-            .delete::<Option<SpaceMember>>(id)
+            .delete::<Option<SpaceMember>>(space_member_id)
             .await
             .map(|_| ())
             .map_err(|err| ErrType::DbError.err(err, "Failed to remove user from space"))

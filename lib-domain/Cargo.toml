@@ -10,7 +10,7 @@ tokio = { workspace = true }
 
 serde = { workspace = true }
 validator = { workspace = true }
-ser_mapper = "0.3.0"
+ser_mapper = "0.3.1"
 
 utoipa = { workspace = true }
 

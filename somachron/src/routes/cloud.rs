@@ -12,7 +12,7 @@ use lib_domain::{
         req::{CreateFolderRequest, SignedUrlRequest, UploadCompleteRequest},
         res::{FileEntryResponse, SignedUrlResponse},
     },
-    extension::{IdStr, SpaceCtx},
+    extension::{IdStr, SpaceCtx, UserId},
 };
 
 use crate::app::AppState;
@@ -141,11 +141,12 @@ pub async fn generate_download_signed_url(
 pub async fn upload_completion(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
+    Extension(user_id): Extension<UserId>,
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<UploadCompleteRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .process_upload_completion(space_ctx, app.storage(), body)
+        .process_upload_completion(user_id, space_ctx, app.storage(), body)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Processing completion")))
         .map_err(|err| ApiError(err, req_id))

@@ -1,6 +1,6 @@
 use surrealdb::RecordId;
 
-use crate::datastore::user_space::UserRole;
+use crate::datastore::user_space::SpaceRole;
 
 #[repr(transparent)]
 pub struct UserId(pub RecordId);
@@ -13,7 +13,7 @@ impl Clone for UserId {
 pub struct SpaceCtx {
     pub membership_id: RecordId,
     pub space_id: RecordId,
-    pub role: UserRole,
+    pub role: SpaceRole,
 }
 impl Clone for SpaceCtx {
     fn clone(&self) -> Self {

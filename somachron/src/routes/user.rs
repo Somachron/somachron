@@ -5,7 +5,7 @@ use axum::{
 };
 use lib_core::{ApiError, ApiResult, Json, ReqId};
 use lib_domain::{
-    dto::user::res::{UserResponse, _UserResponse},
+    dto::user::res::{PlatformUserResponse, UserResponse, _PlatformUserResponseVec, _UserResponse},
     extension::UserId,
 };
 
@@ -16,6 +16,7 @@ use super::middleware;
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
         .route("/", get(get_user))
+        .route("/all", get(get_platform_users))
         .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate));
 
     router.nest("/user", routes)
@@ -34,4 +35,18 @@ pub async fn get_user(
     Extension(user_id): Extension<UserId>,
 ) -> ApiResult<_UserResponse> {
     app.service().get_user(user_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/user/all",
+    responses((status=200, body=Vec<PlatformUserResponse>)),
+    tag = "User",
+    security(("api_key" = []))
+)]
+pub async fn get_platform_users(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+) -> ApiResult<_PlatformUserResponseVec> {
+    app.service().get_platform_users().await.map(Json).map_err(|err| ApiError(err, req_id))
 }
