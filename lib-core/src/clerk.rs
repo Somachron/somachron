@@ -9,7 +9,7 @@ pub struct TokenClaims {
     pub email: String,
     pub name: String,
     pub picture: String,
-    pub updated_at: i64,
+    pub updated_at: f64,
 }
 
 pub struct ClerkAuth {
