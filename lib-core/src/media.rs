@@ -60,6 +60,14 @@ impl MediaOrientation {
     pub fn get_value(self) -> u64 {
         self as u64
     }
+    pub fn from_rotation(rotation: u64) -> Self {
+        match rotation {
+            90 => Self::R90CW,
+            180 => Self::R180,
+            270 => Self::R270CW,
+            _ => Self::None,
+        }
+    }
 }
 impl<'de> Deserialize<'de> for MediaOrientation {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -115,7 +123,7 @@ pub struct MediaMetadata {
     #[serde(rename = "Orientation")]
     pub orientation: Option<MediaOrientation>,
     #[serde(rename = "Rotation")]
-    pub rotation: Option<MediaOrientation>,
+    pub rotation: Option<EitherValue<MediaOrientation, u64>>,
 
     #[serde(rename = "ISO")]
     pub iso: Option<usize>,
@@ -261,7 +269,12 @@ pub(super) async fn run_thumbnailer(
     let rotation = metadata
         .orientation
         .map(|o| o.get_value())
-        .or_else(|| metadata.rotation.as_ref().map(|v| v.get_value()))
+        .or_else(|| {
+            metadata.rotation.as_ref().map(|v| match v {
+                EitherValue::Either(m) => m.get_value(),
+                EitherValue::Or(i) => MediaOrientation::from_rotation(*i).get_value(),
+            })
+        })
         .unwrap_or(0);
 
     let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
