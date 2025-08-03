@@ -40,18 +40,16 @@ impl R2Config {
     }
 }
 
-pub(crate) struct GoogleConfig {
-    pub client_id: String,
-    pub client_secret: String,
-    pub redirect_uri: String,
+pub(crate) struct ClerkConfig {
+    pub aud: String,
+    pub pem: String,
 }
 
-impl GoogleConfig {
+impl ClerkConfig {
     pub(crate) fn new() -> Self {
         Self {
-            client_id: std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
-            client_secret: std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
-            redirect_uri: std::env::var("GOOGLE_REDIRECT_URI").unwrap_or_default(),
+            aud: std::env::var("CLERK_AUD").unwrap_or_default(),
+            pem: std::env::var("CLERK_PEM").unwrap_or_default(),
         }
     }
 }

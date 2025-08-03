@@ -5,69 +5,34 @@ use axum::{
     Extension,
 };
 use lib_core::{ApiError, ApiResult, EmptyResponse, Json, ReqId};
-use lib_domain::dto::auth::{
-    req::{ExchangeCodeRequest, RefreshTokenRequest, RevokeTokenRequest},
-    res::{AuthTokenResponse, _AuthTokenResponse},
-};
+use lib_domain::extension::Claims;
 
 use crate::app::AppState;
 
-pub fn bind_routes(router: Router<AppState>) -> Router<AppState> {
+use super::middleware;
+
+pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
-        .route("/exchange-code", post(exchange_code))
-        .route("/refresh-token", post(refresh_token))
-        .route("/revoke-token", post(revoke_token));
+        .route("/sync", post(sync))
+        .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate_sync));
 
     router.nest("/auth", routes)
 }
 
 #[utoipa::path(
     post,
-    path = "/v1/auth/exchange-code",
-    responses((status=200, body=AuthTokenResponse)),
-    tag = "Auth"
-)]
-pub async fn exchange_code(
-    State(app): State<AppState>,
-    Extension(req_id): Extension<ReqId>,
-    Json(body): Json<ExchangeCodeRequest>,
-) -> ApiResult<_AuthTokenResponse> {
-    let auth_code = app.auth().exchange_code(body.code).await.map_err(|err| ApiError(err, req_id.clone()))?;
-    let claims =
-        app.auth().validate_token_for_claims(&auth_code.id_token).map_err(|err| ApiError(err, req_id.clone()))?;
-
-    let user_id = app.service().exchange_code_routine(claims).await.map_err(|err| ApiError(err, req_id.clone()))?;
-    app.storage().validate_user_drive(&user_id).await.map_err(|err| ApiError(err, req_id))?;
-
-    Ok(Json(_AuthTokenResponse(auth_code)))
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/auth/refresh-token",
-    responses((status=200, body=AuthTokenResponse)),
-    tag = "Auth"
-)]
-pub async fn refresh_token(
-    State(app): State<AppState>,
-    Extension(req_id): Extension<ReqId>,
-    Json(body): Json<RefreshTokenRequest>,
-) -> ApiResult<_AuthTokenResponse> {
-    let auth_code = app.auth().refresh_token(body.refresh_token).await.map_err(|err| ApiError(err, req_id.clone()))?;
-    Ok(Json(_AuthTokenResponse(auth_code)))
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/auth/revoke-token",
+    path = "/v1/auth/sync",
     responses((status=200, body=EmptyResponse)),
     tag = "Auth"
 )]
-pub async fn revoke_token(
+pub async fn sync(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
-    Json(body): Json<RevokeTokenRequest>,
+    Extension(claims): Extension<Claims>,
 ) -> ApiResult<EmptyResponse> {
-    app.auth().revoke_token(&body.token).await.map_err(|err| ApiError(err, req_id.clone()))?;
-    Ok(Json(EmptyResponse::new(StatusCode::OK, "Token revoked")))
+    app.service()
+        .exchange_code_routine(claims.0)
+        .await
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Synced")))
+        .map_err(|err| ApiError(err, req_id))
 }

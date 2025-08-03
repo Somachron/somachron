@@ -21,7 +21,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
     let health = health::bind_routes();
 
     // api level routes
-    let r = auth::bind_routes(Router::new());
+    let r = auth::bind_routes(app.clone(), Router::new());
     let r = user::bind_routes(app.clone(), r);
     let r = space::bind_routes(app.clone(), r);
     let r = cloud::bind_routes(app, r);
@@ -41,9 +41,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
     paths(
         health::health,
 
-        auth::exchange_code,
-        auth::refresh_token,
-        auth::revoke_token,
+        auth::sync,
 
         user::get_user,
 
@@ -62,11 +60,6 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 
         lib_domain::datastore::user_space::SpaceRole,
         lib_domain::dto::Datetime,
-
-        lib_domain::dto::auth::req::ExchangeCodeRequest,
-        lib_domain::dto::auth::req::RefreshTokenRequest,
-        lib_domain::dto::auth::req::RevokeTokenRequest,
-        lib_domain::dto::auth::res::AuthTokenResponse,
 
         lib_domain::dto::user::res::UserResponse,
 

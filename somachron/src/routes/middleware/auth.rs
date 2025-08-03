@@ -6,7 +6,7 @@ use axum::{
     Extension,
 };
 use lib_core::{ApiError, AppResult, ErrType, ReqId};
-use lib_domain::extension::UserId;
+use lib_domain::extension::{Claims, UserId};
 
 use crate::app::AppState;
 
@@ -33,7 +33,7 @@ pub async fn authenticate(
     let user = app
         .service()
         .ds()
-        .get_user_by_email(&claims.email)
+        .get_user_by_clerk_id(&claims.sub)
         .await
         .map(|id| id.ok_or(ApiError(ErrType::Unauthorized.new("User not found"), req_id.clone())))
         .map_err(|err| ApiError(err, req_id.clone()))??;
@@ -45,6 +45,21 @@ pub async fn authenticate(
     let user_id = UserId(user.id);
 
     req.extensions_mut().insert(user_id);
+
+    Ok(next.run(req).await)
+}
+
+pub async fn authenticate_sync(
+    headers: HeaderMap,
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    let token = extract_bearer(&headers).map_err(|err| ApiError(err, req_id.clone()))?;
+
+    let claims = app.auth().validate_token_for_claims(token).map_err(|err| ApiError(err, req_id.clone()))?;
+    req.extensions_mut().insert(Claims(claims));
 
     Ok(next.run(req).await)
 }

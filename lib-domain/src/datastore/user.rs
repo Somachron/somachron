@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use lib_core::{AppResult, ErrType};
+use lib_core::{clerk::TokenClaims, AppResult, ErrType};
 use serde::Deserialize;
 use surrealdb::RecordId;
 
@@ -25,13 +25,13 @@ impl DbSchema for User {
 }
 
 impl Datastore {
-    pub async fn get_user_by_email(&self, email: &str) -> AppResult<Option<User>> {
+    pub async fn get_user_by_clerk_id(&self, clerk_id: &str) -> AppResult<Option<User>> {
         let mut res = self
             .db
-            .query("SELECT * FROM user WHERE email = $e")
-            .bind(("e", email.to_owned()))
+            .query("SELECT * FROM user WHERE clerk_id = $e")
+            .bind(("e", clerk_id.to_owned()))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query check for user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query check for user using clerk id"))?;
 
         let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
 
@@ -52,13 +52,14 @@ impl Datastore {
         res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize platform users"))
     }
 
-    pub async fn insert_user(&self, given_name: &str, email: &str, picture_url: &str) -> AppResult<User> {
+    pub async fn insert_user(&self, claims: TokenClaims) -> AppResult<User> {
         let mut res = self
             .db
-            .query("CREATE user SET given_name = $n, email = $e, picture_url = $p, allowed = false")
-            .bind(("n", given_name.to_owned()))
-            .bind(("e", email.to_owned()))
-            .bind(("p", picture_url.to_owned()))
+            .query("CREATE user SET given_name = $n, clerk_id = $c, email = $e, picture_url = $p, allowed = false")
+            .bind(("n", claims.name))
+            .bind(("c", claims.sub))
+            .bind(("e", claims.email))
+            .bind(("p", claims.picture))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to query insert user"))?;
 

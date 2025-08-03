@@ -1,6 +1,11 @@
+use lib_core::clerk::TokenClaims;
 use surrealdb::RecordId;
 
 use crate::datastore::user_space::SpaceRole;
+
+#[repr(transparent)]
+#[derive(Clone)]
+pub struct Claims(pub TokenClaims);
 
 #[repr(transparent)]
 pub struct UserId(pub RecordId);

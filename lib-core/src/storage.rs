@@ -137,11 +137,6 @@ impl Storage {
         Ok(path.trim_start_matches(FS_TAG).replace("..", "").trim_matches('/').to_owned())
     }
 
-    pub async fn validate_user_drive(&self, user_id: &str) -> AppResult<()> {
-        let user_dir = self.root_path.join(user_id);
-        create_dir(&user_dir).await
-    }
-
     /// sha256(R2 based `path`)
     pub fn get_folder_hash(&self, space_id: &str, path: &str) -> AppResult<Hash> {
         let path = self.clean_path(path)?;
