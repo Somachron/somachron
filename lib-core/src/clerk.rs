@@ -39,3 +39,38 @@ impl ClerkAuth {
             .map_err(|err| ErrType::Unauthorized.err(err, "Invalid token"))
     }
 }
+
+pub mod webhook {
+    use serde::Deserialize;
+    use utoipa::ToSchema;
+    use validator::Validate;
+
+    #[derive(Deserialize, Validate, ToSchema)]
+    pub struct EventUpdateData {
+        id: String,
+        image_url: Option<String>,
+        first_name: String,
+        last_name: String,
+    }
+
+    #[derive(Deserialize, Validate, ToSchema)]
+    pub struct UserUpdateEvent {
+        data: EventUpdateData,
+    }
+
+    impl UserUpdateEvent {
+        pub fn get_data_update(self) -> UserUpdate {
+            UserUpdate {
+                id: self.data.id,
+                name: format!("{} {}", self.data.first_name, self.data.last_name),
+                picture_url: self.data.image_url.unwrap_or_default(),
+            }
+        }
+    }
+
+    pub struct UserUpdate {
+        pub id: String,
+        pub name: String,
+        pub picture_url: String,
+    }
+}

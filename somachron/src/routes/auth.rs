@@ -4,7 +4,7 @@ use axum::{
     routing::{post, Router},
     Extension,
 };
-use lib_core::{ApiError, ApiResult, EmptyResponse, Json, ReqId};
+use lib_core::{clerk::webhook::UserUpdateEvent, ApiError, ApiResult, EmptyResponse, Json, ReqId};
 use lib_domain::extension::Claims;
 
 use crate::app::AppState;
@@ -14,7 +14,8 @@ use super::middleware;
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
         .route("/sync", post(sync))
-        .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate_sync));
+        .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate_sync))
+        .route("/hook", post(webhook));
 
     router.nest("/auth", routes)
 }
@@ -32,6 +33,24 @@ pub async fn sync(
 ) -> ApiResult<EmptyResponse> {
     app.service()
         .exchange_code_routine(claims.0)
+        .await
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Synced")))
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/auth/hook",
+    responses((status=200, body=EmptyResponse)),
+    tag = "Auth"
+)]
+pub async fn webhook(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Json(data): Json<UserUpdateEvent>,
+) -> ApiResult<EmptyResponse> {
+    app.service()
+        .webhook_update_user(data)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Synced")))
         .map_err(|err| ApiError(err, req_id))
