@@ -40,7 +40,7 @@ RUN git clone https://github.com/exiftool/exiftool.git . && \
 # Build and install libheif
 WORKDIR /tmp/libheif
 RUN git clone https://github.com/strukturag/libheif . && \
-    git checkout tags/v1.19.8 && \
+    git checkout tags/v1.20.2 && \
     mkdir build && cd build && \
     cmake --preset=release \
     -DCMAKE_INSTALL_PREFIX=/usr/local \

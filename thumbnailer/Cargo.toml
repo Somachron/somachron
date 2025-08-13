@@ -13,7 +13,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 
 ffmpeg-next = { version = "7.1.0" }
-libheif-rs = { version = "2.2.0", features = ["v1_19"] }
+libheif-rs = { version = "2.3.0", features = ["v1_20"] }
 
 [profile.release]
 codegen-units = 1
