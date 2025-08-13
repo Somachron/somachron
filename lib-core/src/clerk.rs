@@ -50,7 +50,6 @@ pub mod webhook {
         id: String,
         image_url: Option<String>,
         first_name: String,
-        last_name: String,
     }
 
     #[derive(Deserialize, Validate, ToSchema)]
@@ -62,7 +61,7 @@ pub mod webhook {
         pub fn get_data_update(self) -> UserUpdate {
             UserUpdate {
                 id: self.data.id,
-                name: format!("{} {}", self.data.first_name, self.data.last_name),
+                name: self.data.first_name,
                 picture_url: self.data.image_url.unwrap_or_default(),
             }
         }
