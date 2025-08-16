@@ -95,7 +95,43 @@ pub struct FileMeta {
     pub user: Option<RecordId>,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct MigrationFileData {
+    pub id: RecordId,
+    pub file_name: String,
+    pub thumbnail_path: String,
+    pub r2_path: String,
+    pub space: RecordId,
+}
+
 impl Datastore {
+    // ---------------------- MIGRATION
+
+    pub async fn migrate_schema(&self) -> AppResult<()> {
+        self.db
+            .query("DEFINE FIELD path ON TABLE file TYPE string")
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to migrate schema"))?;
+        Ok(())
+    }
+
+    pub async fn get_all_files(&self) -> AppResult<Vec<MigrationFileData>> {
+        self.db.select(File::table_name()).await.map_err(|err| ErrType::DbError.err(err, "Failed to get all files"))
+    }
+
+    pub async fn set_file_path(&self, file_id: RecordId, path: String) -> AppResult<()> {
+        self.db
+            .query("UPDATE $f SET path = $p;")
+            .bind(("f", file_id.clone()))
+            .bind(("p", path))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, format!("Failed to set path for file: {}", file_id)))?;
+
+        Ok(())
+    }
+
+    // ---------------------- MIGRATION
+
     pub async fn upsert_file(&self, user_id: RecordId, space_id: RecordId, file_data: FileData) -> AppResult<File> {
         let mut res = self
             .db

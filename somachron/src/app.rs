@@ -21,6 +21,15 @@ impl App {
         Arc::new(app)
     }
 
+    pub async fn bootstrap(&self) {
+        tracing::info!("Bootstraping...");
+
+        let storage = Storage::new().await;
+        let storage = Arc::new(storage);
+
+        self.service.migrate_thumbnails(storage).await;
+    }
+
     pub fn auth(&self) -> &ClerkAuth {
         &self.auth
     }

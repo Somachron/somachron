@@ -101,7 +101,7 @@ impl R2Storage {
         Ok(request.uri().to_string())
     }
 
-    pub(super) async fn upload_photo(&self, path: &str, from_path: &PathBuf) -> AppResult<()> {
+    pub(super) async fn upload_photo(&self, path_key: &str, from_path: &PathBuf) -> AppResult<()> {
         let stream = ByteStream::read_from()
             .path(from_path)
             .buffer_size(4096)
@@ -109,7 +109,7 @@ impl R2Storage {
             .await
             .map_err(|err| ErrType::FsError.err(err, "Failed from create byte stream from path"))?;
         let builder = self.client.put_object().bucket(&self.bucket_name);
-        let result = builder.key(path).body(stream).send().await;
+        let result = builder.key(path_key).body(stream).send().await;
         result.map_err(|err| ErrType::r2_put(err, "Failed to upload photo"))?;
         Ok(())
     }

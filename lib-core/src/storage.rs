@@ -193,8 +193,6 @@ impl Storage {
     /// To be used by frontend
     pub async fn generate_download_signed_url(&self, path: &str) -> AppResult<String> {
         let path = self.clean_path(path)?;
-        // let r2_path = self.r2_spaces.join(space_id).join(path);
-        // let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
         self.r2.generate_download_signed_url(&path).await
     }
 
@@ -264,6 +262,14 @@ impl Storage {
         file.read_to_end(&mut buffer).await.map_err(|err| ErrType::FsError.err(err, "Failed to read file"))?;
 
         Ok((buffer, ext.to_owned()))
+    }
+
+    pub async fn upload_thumbnail(&self, space_id: &str, file_name: &str, thumbnail_path: &str) -> AppResult<()> {
+        let mut folders = PathBuf::from(thumbnail_path);
+        folders.set_file_name("");
+
+        let path_key = self.r2_spaces.join(space_id).join(folders).join(format!("thumbnail_{file_name}"));
+        self.r2.upload_photo(path_key.to_str().unwrap(), &PathBuf::from(thumbnail_path)).await
     }
 
     /// Process the uploaded media
