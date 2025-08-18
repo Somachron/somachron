@@ -2,7 +2,7 @@ pub mod res {
     use lib_core::storage::MediaType;
     use ser_mapper::impl_dto;
     use serde::Serialize;
-    use utoipa::{PartialSchema, ToSchema};
+    use utoipa::ToSchema;
 
     use crate::{
         datastore::storage::{File, FileMeta, Metadata},
@@ -50,8 +50,8 @@ pub mod res {
             file_name: String = file_name,
             file_size: u64 = file_size,
             media_type: MediaType = media_type,
-            thumbnail_path: String = thumbnail_path,
-            r2_path: String = r2_path,
+            thumbnail_file_name: String = thumbnail_file_name,
+            path: String = path,
             user: String = user => _IdOptionRef,
             space: String = space => _IdRef,
             metadata: FileMetadataResponse = metadata => _FileMetadataResponseRef,
@@ -68,76 +68,6 @@ pub mod res {
             user: Option<String> = user => _IdOptionRef,
         }
     );
-
-    #[derive(Serialize)]
-    #[serde(untagged)]
-    pub enum FileEntryResponse {
-        Dir {
-            tag: &'static str,
-            name: String,
-        },
-        File {
-            tag: &'static str,
-            file: _FileMetaResponse,
-        },
-    }
-    impl FileEntryResponse {
-        pub fn dir(dir: String) -> Self {
-            Self::Dir {
-                tag: "dir",
-                name: dir,
-            }
-        }
-        pub fn file(file: _FileMetaResponse) -> Self {
-            Self::File {
-                tag: "file",
-                file,
-            }
-        }
-    }
-
-    impl ToSchema for FileEntryResponse {}
-    impl PartialSchema for FileEntryResponse {
-        fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
-            utoipa::openapi::RefOr::T(utoipa::openapi::Schema::OneOf(
-                utoipa::openapi::OneOfBuilder::new()
-                    .item(
-                        utoipa::openapi::ObjectBuilder::new()
-                            .property(
-                                "tag",
-                                utoipa::openapi::ObjectBuilder::new().schema_type(
-                                    utoipa::openapi::schema::SchemaType::new(utoipa::openapi::schema::Type::String),
-                                ),
-                            )
-                            .required("tag")
-                            .property(
-                                "name",
-                                utoipa::openapi::ObjectBuilder::new().schema_type(
-                                    utoipa::openapi::schema::SchemaType::new(utoipa::openapi::schema::Type::String),
-                                ),
-                            )
-                            .required("name"),
-                    )
-                    .item(
-                        utoipa::openapi::ObjectBuilder::new()
-                            .property(
-                                "tag",
-                                utoipa::openapi::ObjectBuilder::new().schema_type(
-                                    utoipa::openapi::schema::SchemaType::new(utoipa::openapi::schema::Type::String),
-                                ),
-                            )
-                            .required("tag")
-                            .property(
-                                "file",
-                                utoipa::openapi::schema::RefBuilder::new()
-                                    .ref_location_from_schema_name(FileMetaResponse::name()),
-                            )
-                            .required("file"),
-                    )
-                    .build(),
-            ))
-        }
-    }
 }
 
 pub mod req {

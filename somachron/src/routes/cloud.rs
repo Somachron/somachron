@@ -1,16 +1,15 @@
 use axum::{
-    body::Body,
     extract::{Path, State},
-    http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    http::StatusCode,
     routing::{delete, get, post, Router},
     Extension,
 };
-use lib_core::{ApiError, ApiResult, EmptyResponse, ErrType, Json, ReqId};
+use lib_core::{ApiError, ApiResult, EmptyResponse, Json, ReqId};
 use lib_domain::{
+    datastore::space::Folder,
     dto::cloud::{
         req::{CreateFolderRequest, SignedUrlRequest, UploadCompleteRequest},
-        res::{FileEntryResponse, SignedUrlResponse},
+        res::{FileMetaResponse, SignedUrlResponse, _FileMetaResponseVec},
     },
     extension::{SpaceCtx, UserId},
 };
@@ -21,11 +20,13 @@ use super::middleware;
 
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
-        .route("/l/{*dir}", get(list_directory))
-        .route("/p/{*dir}", delete(delete_path))
-        .route("/f/{id}", get(get_file))
+        .route("/l/{hash}", get(list_files))
+        .route("/ld", get(list_folders))
+        .route("/p/{hash}", delete(delete_folder))
+        .route("/f/{id}", delete(delete_file))
         .route("/d", post(create_folder))
         .route("/stream/{id}", get(generate_download_signed_url))
+        .route("/stream/th/{id}", get(generate_thumbnail_download_signed_url))
         .route("/upload", post(generate_upload_signed_url))
         .route("/upload/complete", post(upload_completion))
         .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
@@ -40,54 +41,65 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
     responses((status=200, body=EmptyResponse)),
     tag = "Cloud"
 )]
-pub async fn delete_path(
+pub async fn delete_folder(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(dir): Path<String>,
+    Path(folder_hash): Path<String>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .delete_path(space_ctx, app.storage(), dir)
+        .delete_folder(space_ctx, app.storage(), folder_hash)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Path deleted")))
         .map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
-    get,
-    path = "/v1/media/l/{dir}",
-    responses((status=200, body=Vec<FileEntryResponse>)),
+    delete,
+    path = "/v1/media/f/{id}",
+    responses((status=200, body=EmptyResponse)),
     tag = "Cloud"
 )]
-pub async fn list_directory(
+pub async fn delete_file(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(dir): Path<String>,
-) -> ApiResult<Vec<FileEntryResponse>> {
-    app.service().list_dir(space_ctx, app.storage(), dir).await.map(Json).map_err(|err| ApiError(err, req_id))
+    Path(file_id): Path<String>,
+) -> ApiResult<EmptyResponse> {
+    app.service()
+        .delete_file(space_ctx, app.storage(), file_id)
+        .await
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "File deleted")))
+        .map_err(|err| ApiError(err, req_id))
 }
 
-#[utoipa::path(get, path = "/v1/media/f/{id}", tag = "Cloud")]
-pub async fn get_file(
+#[utoipa::path(
+    get,
+    path = "/v1/media/l/{hash}",
+    responses((status=200, body=Vec<FileMetaResponse>)),
+    tag = "Cloud"
+)]
+pub async fn list_files(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(id): Path<String>,
-) -> axum::response::Result<impl IntoResponse, ApiError> {
-    let (buffer, ext) =
-        app.service().get_file(space_ctx, app.storage(), id).await.map_err(|err| ApiError(err, req_id.clone()))?;
+    Path(folder_hash): Path<String>,
+) -> ApiResult<_FileMetaResponseVec> {
+    app.service().list_files(space_ctx, folder_hash).await.map(Json).map_err(|err| ApiError(err, req_id))
+}
 
-    let size = buffer.len();
-    let body = Body::from(buffer);
-
-    let response = Response::builder()
-        .header(header::CONTENT_TYPE, format!("image/{ext}"))
-        .header(header::CONTENT_LENGTH, size)
-        .body(body)
-        .map_err(|err| ApiError(ErrType::ServerError.err(err, "Failed to create response body"), req_id))?;
-
-    Ok(response)
+#[utoipa::path(
+    get,
+    path = "/v1/media/ld",
+    responses((status=200, body=Vec<FileMetaResponse>)),
+    tag = "Cloud"
+)]
+pub async fn list_folders(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+) -> ApiResult<Folder> {
+    app.service().list_folders(space_ctx).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -121,7 +133,29 @@ pub async fn generate_download_signed_url(
     Path(file_id): Path<String>,
 ) -> ApiResult<SignedUrlResponse> {
     app.service()
-        .generate_download_signed_url(app.storage(), file_id)
+        .generate_download_signed_url(app.storage(), file_id, false)
+        .await
+        .map(|url| {
+            Json(SignedUrlResponse {
+                url,
+            })
+        })
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/media/stream/th/{id}",
+    responses((status=200, body=SignedUrlResponse)),
+    tag = "Cloud"
+)]
+pub async fn generate_thumbnail_download_signed_url(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Path(file_id): Path<String>,
+) -> ApiResult<SignedUrlResponse> {
+    app.service()
+        .generate_download_signed_url(app.storage(), file_id, true)
         .await
         .map(|url| {
             Json(SignedUrlResponse {

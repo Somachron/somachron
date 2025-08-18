@@ -1,10 +1,10 @@
 use lib_core::{storage::Storage, AppResult, ErrType};
 
 use crate::{
-    datastore::user_space::SpaceRole,
+    datastore::{space::Folder, user_space::SpaceRole},
     dto::cloud::{
         req::UploadCompleteRequest,
-        res::{FileEntryResponse, SignedUrlResponse, _FileMetaResponse},
+        res::{SignedUrlResponse, _FileMetaResponseVec},
     },
     extension::{IdStr, SpaceCtx, UserId},
 };
@@ -27,8 +27,9 @@ impl Service {
             _ => (),
         };
 
-        let space_id = space_id.id();
-        storage.create_folder(&space_id, &path).await
+        let path = storage.clean_path(&path)?;
+        let path_prefix = storage.get_spaces_path(&space_id.id());
+        self.ds.migration_create_folder(space_id, &path_prefix, &path).await
     }
 
     pub async fn generate_upload_signed_url(
@@ -81,60 +82,43 @@ impl Service {
         Ok(())
     }
 
-    pub async fn list_dir(
+    pub async fn list_files(
         &self,
         SpaceCtx {
             space_id,
             ..
         }: SpaceCtx,
-        storage: &Storage,
-        path: String,
-    ) -> AppResult<Vec<FileEntryResponse>> {
-        let space_id_str = space_id.id();
-        let folder_hash = storage.get_folder_hash(&space_id_str, &path)?;
-        let mut folders = storage.list_dir(&space_id_str, &path).await?;
+        folder_hash: String,
+    ) -> AppResult<_FileMetaResponseVec> {
         let mut files = self.ds.get_files(space_id, folder_hash).await?;
-
-        let mut response = Vec::with_capacity(folders.len() + files.len());
-
-        folders.sort();
-        for folder in folders.into_iter() {
-            response.push(FileEntryResponse::dir(folder));
-        }
-
         files.sort_by(|a, b| a.file_name.cmp(&b.file_name));
-        for file in files.into_iter() {
-            response.push(FileEntryResponse::file(_FileMetaResponse(file)));
-        }
-
-        Ok(response)
+        Ok(_FileMetaResponseVec(files))
     }
 
-    pub async fn get_file(
+    pub async fn list_folders(
         &self,
         SpaceCtx {
             space_id,
             ..
         }: SpaceCtx,
+    ) -> AppResult<Folder> {
+        self.ds.get_dir_tree(space_id).await
+    }
+
+    pub async fn generate_download_signed_url(
+        &self,
         storage: &Storage,
         file_id: String,
-    ) -> AppResult<(Vec<u8>, String)> {
-        let thumbnail_path = self.ds.get_file_thumbnail(&file_id).await?;
-        match thumbnail_path {
-            Some(path) => storage.get_file(&space_id.id(), &path).await,
-            None => return Err(ErrType::NotFound.new("Requested file not found")),
-        }
-    }
-
-    pub async fn generate_download_signed_url(&self, storage: &Storage, file_id: String) -> AppResult<String> {
-        let r2_path = self.ds.get_file_r2(&file_id).await?;
+        is_thumbnail: bool,
+    ) -> AppResult<String> {
+        let r2_path = self.ds.get_file_path(&file_id, is_thumbnail).await?;
         match r2_path {
             Some(path) => storage.generate_download_signed_url(&path).await,
             None => return Err(ErrType::NotFound.new("Requested file not found")),
         }
     }
 
-    pub async fn delete_path(
+    pub async fn delete_folder(
         &self,
         SpaceCtx {
             role,
@@ -142,7 +126,7 @@ impl Service {
             ..
         }: SpaceCtx,
         storage: &Storage,
-        path: String,
+        folder_hash: String,
     ) -> AppResult<()> {
         match role {
             SpaceRole::Read | SpaceRole::Upload => {
@@ -153,17 +137,41 @@ impl Service {
 
         let space_id_str = space_id.id();
 
-        let is_dir = storage.delete_path_type(&space_id_str, &path)?;
-        if is_dir {
-            let folder_hashes = storage.delete_folder(&space_id_str, &path).await?;
-            for hash in folder_hashes.into_iter() {
-                self.ds.delete_folder(space_id.clone(), hash).await?;
-            }
-        } else {
-            let (file_hash, folder_hash) = storage.delete_file(&space_id_str, &path).await?;
-            self.ds.delete_file(space_id, file_hash, folder_hash).await?;
+        let folders = self.ds.get_inner_dirs(space_id.clone(), folder_hash).await?;
+        for (folder_path, hash) in folders.into_iter() {
+            storage.delete_folder(&space_id_str, &folder_path).await?;
+            self.ds.delete_folder(space_id.clone(), &folder_path, hash).await?;
         }
 
+        Ok(())
+    }
+
+    pub async fn delete_file(
+        &self,
+        SpaceCtx {
+            role,
+            space_id,
+            ..
+        }: SpaceCtx,
+        storage: &Storage,
+        file_id: String,
+    ) -> AppResult<()> {
+        match role {
+            SpaceRole::Read | SpaceRole::Upload => {
+                return Err(ErrType::Unauthorized.new("Cannot delete: Unauthorized read|upload role"))
+            }
+            _ => (),
+        };
+
+        if let Some(file) = self.ds.get_file(space_id, &file_id).await? {
+            storage
+                .delete_file(
+                    format!("{}/{}", file.path, file.file_name),
+                    format!("{}/{}", file.path, file.thumbnail_file_name),
+                )
+                .await?;
+            self.ds.delete_file(file.id).await?;
+        }
         Ok(())
     }
 }

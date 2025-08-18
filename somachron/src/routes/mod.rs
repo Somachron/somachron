@@ -51,9 +51,9 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         cloud::generate_upload_signed_url,
         cloud::generate_download_signed_url,
         cloud::upload_completion,
-        cloud::list_directory,
+        cloud::list_files,
         cloud::create_folder,
-        cloud::delete_path,
+        cloud::delete_folder,
     ),
     components(schemas(
         lib_core::EmptyResponse,
@@ -72,7 +72,6 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         lib_domain::dto::cloud::res::SignedUrlResponse,
         lib_domain::dto::cloud::res::FileResponse,
         lib_domain::dto::cloud::res::FileMetadataResponse,
-        lib_domain::dto::cloud::res::FileEntryResponse,
     )),
     servers()
 )]

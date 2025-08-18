@@ -256,7 +256,6 @@ fn parse_dms_decimal(dms: &str) -> f64 {
 /// Spawn thumbnailer binary
 pub(super) async fn run_thumbnailer(
     src: &PathBuf,
-    dst: &PathBuf,
     media_type: infer::MatcherType,
     metadata: &MediaMetadata,
 ) -> AppResult<Option<Vec<String>>> {
@@ -280,7 +279,7 @@ pub(super) async fn run_thumbnailer(
     let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
     let output = command
         .args(&["-m", mode])
-        .args(&["-r", &rotation.to_string(), src.to_str().unwrap(), dst.to_str().unwrap()])
+        .args(&["-r", &rotation.to_string(), src.to_str().unwrap()])
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

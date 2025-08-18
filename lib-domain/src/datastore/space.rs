@@ -1,11 +1,19 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use lib_core::{AppResult, ErrType};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use surrealdb::RecordId;
 
 use crate::datastore::DbSchema;
 
 use super::Datastore;
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct Folder {
+    pub hash: String,
+    pub dirs: BTreeMap<String, Folder>,
+}
 
 #[derive(Deserialize)]
 pub struct Space {
@@ -16,6 +24,9 @@ pub struct Space {
     pub name: String,
     pub description: String,
     pub picture_url: String,
+
+    #[serde(default)]
+    pub dir_tree: Folder,
 }
 impl DbSchema for Space {
     fn table_name() -> &'static str {
@@ -24,6 +35,14 @@ impl DbSchema for Space {
 }
 
 impl Datastore {
+    // ---------------------- MIGRATION
+
+    pub async fn get_all_spaces(&self) -> AppResult<Vec<Space>> {
+        self.db.select(Space::table_name()).await.map_err(|err| ErrType::DbError.err(err, "Failed to get all spaces"))
+    }
+
+    // ---------------------- MIGRATION
+
     pub async fn get_space_by_id(&self, id: &str) -> AppResult<Option<Space>> {
         let id = Space::get_id(id);
         self.db.select(id).await.map_err(|err| ErrType::DbError.err(err, "Failed to query space by id"))

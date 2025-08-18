@@ -26,12 +26,21 @@ impl Service {
     }
 
     pub async fn migrate_thumbnails(&self, storage: Arc<Storage>) {
+        if storage.migration_exists().await {
+            dbg!("Migration exists");
+            return;
+        }
+        if let Err(err) = storage.migration_lock().await {
+            dbg!(err);
+            return;
+        }
+
         // upload all thumbnails
         let files = self.ds.get_all_files().await.unwrap();
         let mut done = 0;
         let total = files.len();
-        for files_chunk in files.chunks(8).into_iter() {
-            let mut handles = Vec::new();
+        for files_chunk in files.chunks(16).into_iter() {
+            let mut handles = Vec::with_capacity(16);
 
             for file in files_chunk.into_iter() {
                 let file = file.clone();
@@ -43,13 +52,15 @@ impl Service {
                     {
                         dbg!(err);
                     }
+                    file
                 }));
             }
 
             for handle in handles.into_iter() {
-                handle.await.unwrap();
+                let file = handle.await.unwrap();
                 done += 1;
-                dbg!(done, total);
+                let progress = format!("{done}/{total}: {}", file.thumbnail_path);
+                dbg!(progress);
             }
         }
 
@@ -58,12 +69,50 @@ impl Service {
             dbg!(err);
         }
 
-        // recalculate and update folder hashes
+        // migrate folders
+        let spaces = self.ds.get_all_spaces().await.expect("No spaces ?");
+        for space in spaces.into_iter() {
+            match storage.list_dir(&space.id.id()).await {
+                Ok((path_prefix, dirs)) => {
+                    for dir_path in dirs.into_iter() {
+                        if let Err(err) = self
+                            .ds
+                            .migration_create_folder(
+                                space.id.clone(),
+                                path_prefix.to_str().unwrap(),
+                                dir_path.to_str().unwrap(),
+                            )
+                            .await
+                        {
+                            dbg!(err);
+                        }
+                    }
+                }
+                Err(err) => {
+                    dbg!(err);
+                }
+            };
+        }
+
+        // update folder path
         for file in files.into_iter() {
             let mut path = std::path::PathBuf::from(&file.r2_path);
-            path.set_file_name("");
+            let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap().to_owned();
+            if let Some(_) = path.extension() {
+                path.set_file_name("");
+            }
 
-            if let Err(err) = self.ds.set_file_path(file.id, path.to_str().unwrap().trim_matches('/').to_owned()).await
+            let thumbnail_path = std::path::PathBuf::from(&file.thumbnail_path);
+            let thumbnail_ext = thumbnail_path.extension().and_then(|s| s.to_str()).unwrap().to_owned();
+
+            if let Err(err) = self
+                .ds
+                .migrate_file_data(
+                    file.id,
+                    path.to_str().unwrap().trim_matches('/').to_owned(),
+                    format!("thumbnail_{file_stem}.{thumbnail_ext}"),
+                )
+                .await
             {
                 dbg!(err);
             }
