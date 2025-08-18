@@ -15,24 +15,23 @@ enum ThumbnailType {
     Path(PathBuf),
 }
 
-pub fn handle_image(src: PathBuf, mut dst: PathBuf, rotation: Option<u64>) -> AppResult<Option<Vec<String>>> {
+pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<Option<Vec<String>>> {
     match infer_to_image_format(&src)? {
         ImageFormat::General(image_format) => {
-            create_thumbnail(ThumbnailType::Path(src), image_format, dst, rotation)?;
+            create_thumbnail(ThumbnailType::Path(src.clone()), image_format, src, rotation)?;
             Ok(None)
         }
         ImageFormat::Heif => {
             let paths = convert_heif_to_jpeg(&src)?;
 
-            dst.set_extension("jpeg");
-            let file_name = dst
+            let file_name = src
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .ok_or(ErrType::FsError.new(format!("Failed to get file name for {:?}", dst)))?;
+                .ok_or(ErrType::FsError.new(format!("Failed to get file name for {:?}", src)))?;
 
             let mut heif_paths = Vec::with_capacity(paths.len());
             for (i, src) in paths.into_iter().enumerate() {
-                let mut dst = dst.clone();
+                let mut dst = src.clone();
                 if i > 0 {
                     dst.set_file_name(format!("{file_name}_{i}.jpeg"));
                 }

@@ -23,7 +23,6 @@ struct Cli {
     rotation: Option<u64>,
 
     src: PathBuf,
-    dst: PathBuf,
 }
 
 fn main() {
@@ -35,8 +34,8 @@ fn main() {
     }
 
     let result = match cli.media {
-        MediaType::Image => media::handle_image(cli.src, cli.dst, cli.rotation),
-        MediaType::Video => media::handle_video(cli.src, cli.dst, cli.rotation).map(|_| None),
+        MediaType::Image => media::handle_image(cli.src, cli.rotation),
+        MediaType::Video => media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|_| None),
     };
 
     match result {
