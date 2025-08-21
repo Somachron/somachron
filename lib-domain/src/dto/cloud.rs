@@ -91,7 +91,10 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct CreateFolderRequest {
+        #[validate(length(equal = 64))]
+        pub parent_folder_hash: String,
+
         #[validate(length(min = 3))]
-        pub folder_path: String,
+        pub folder_name: String,
     }
 }

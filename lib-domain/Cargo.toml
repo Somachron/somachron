@@ -9,6 +9,7 @@ lib-core = { path = "../lib-core" }
 tokio = { workspace = true }
 
 serde = { workspace = true }
+serde_json = { workspace = true }
 validator = { workspace = true }
 ser_mapper = "0.3.1"
 

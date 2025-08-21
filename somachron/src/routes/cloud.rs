@@ -198,7 +198,7 @@ pub async fn create_folder(
     Json(body): Json<CreateFolderRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .create_folder(space_ctx, app.storage(), body.folder_path)
+        .create_folder(space_ctx, app.storage(), body.parent_folder_hash, body.folder_name)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))
         .map_err(|err| ApiError(err, req_id))

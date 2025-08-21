@@ -20,16 +20,16 @@ impl Service {
             ..
         }: SpaceCtx,
         storage: &Storage,
-        path: String,
+        parent_folder_hash: String,
+        folder_name: String,
     ) -> AppResult<()> {
         match role {
             SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot create folder: Unauthorized read role")),
             _ => (),
         };
 
-        let path = storage.clean_path(&path)?;
         let path_prefix = storage.get_spaces_path(&space_id.id());
-        self.ds.migration_create_folder(space_id, &path_prefix, &path).await
+        self.ds.create_folder(space_id, &path_prefix, parent_folder_hash, folder_name).await
     }
 
     pub async fn generate_upload_signed_url(
@@ -138,10 +138,12 @@ impl Service {
         let space_id_str = space_id.id();
 
         let folders = self.ds.get_inner_dirs(space_id.clone(), folder_hash).await?;
-        for (folder_path, hash) in folders.into_iter() {
+        for (folder_path, hash) in folders.iter() {
             storage.delete_folder(&space_id_str, &folder_path).await?;
-            self.ds.delete_folder(space_id.clone(), &folder_path, hash).await?;
+            self.ds.delete_files(space_id.clone(), hash.clone()).await?;
         }
+        let (folder_path, _) = folders.into_iter().last().expect("Whoa.. empty list ?");
+        self.ds.delete_folder(space_id.clone(), &folder_path).await?;
 
         Ok(())
     }

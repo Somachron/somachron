@@ -293,43 +293,53 @@ impl Datastore {
         Ok(())
     }
 
-    // pub async fn create_folder(
-    //     &self,
-    //     space_id: RecordId,
-    //     path_prefix: &str,
-    //     parent_folder_hash: String,
-    //     folder_name: String,
-    // ) -> AppResult<()> {
-    //     let path_prefix = path_prefix.trim_matches('/');
-    //     let dir_tree = self.get_dir_tree(space_id.clone()).await?;
+    pub async fn create_folder(
+        &self,
+        space_id: RecordId,
+        path_prefix: &str,
+        parent_folder_hash: String,
+        folder_name: String,
+    ) -> AppResult<()> {
+        let path_prefix = path_prefix.trim_matches('/');
+        let dir_tree = self.get_dir_tree(space_id.clone()).await?;
 
-    //     fn path_to_hash(dir_tree: super::space::Folder, parent_folder_hash: &str) -> Option<Vec<String>> {
-    //         let mut queue = VecDeque::new();
-    //         queue.push_back((dir_tree, vec![]));
+        let Some(path) = dir_tree.trace_path_to_parent(&parent_folder_hash) else {
+            return Err(ErrType::BadRequest.new("Parent folder not found"));
+        };
 
-    //         while let Some((folder, path)) = queue.pop_front() {
-    //             if folder.hash == parent_folder_hash {
-    //                 return Some(path);
-    //             }
+        let path = std::path::PathBuf::from(path.trim_matches('/'));
+        let tree = path.components().into_iter().rev().fold(
+            serde_json::json!({
+                folder_name.as_str(): super::space::Folder {
+                    hash: Hash::new(&format!("{path_prefix}/{folder_name}")).get(),
+                    dirs: BTreeMap::new(),
+                }
+            }),
+            |acc, comp| match comp {
+                std::path::Component::Normal(os_str) => {
+                    let path_str = os_str.to_str().unwrap();
+                    serde_json::json!({
+                        path_str: {
+                            "dirs": acc,
+                        }
+                    })
+                }
+                _ => acc,
+            },
+        );
 
-    //             for (name, subfolder) in folder.dirs.into_iter() {
-    //                 let mut next_path = path.clone();
-    //                 next_path.push(name);
-    //                 queue.push_back((subfolder, next_path));
-    //             }
-    //         }
+        let res = self
+            .db
+            .query("UPDATE $id MERGE { dir_tree: $f }")
+            .bind(("id", space_id))
+            .bind(("f", tree))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query create folder"))?;
 
-    //         None
-    //     }
+        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
 
-    //     let Some(path_comps) = path_to_hash(dir_tree, &parent_folder_hash) else {
-    //         return Err(ErrType::BadRequest.new("Parent folder not found"));
-    //     };
-
-    //     // TODO:
-
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     pub async fn get_file(&self, space_id: RecordId, file_id: &str) -> AppResult<Option<File>> {
         let file_id = File::get_id(file_id);
@@ -412,16 +422,7 @@ impl Datastore {
         Ok(results.into_iter().map(|(p, h, _)| (p, h)).collect())
     }
 
-    pub async fn delete_folder(&self, space_id: RecordId, path: &str, folder_hash: String) -> AppResult<()> {
-        let res = self
-            .db
-            .query("DELETE file WHERE space = $s AND folder_hash = $h")
-            .bind(("s", space_id.clone()))
-            .bind(("h", folder_hash))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query delete files"))?;
-        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to delete files for folder"))?;
-
+    pub async fn delete_folder(&self, space_id: RecordId, path: &str) -> AppResult<()> {
         if !path.trim().trim_matches('/').is_empty() {
             let mut query = String::from("UPDATE $id SET dir_tree");
             self.get_query_for_path(&mut query, path);
@@ -435,6 +436,19 @@ impl Datastore {
                 .map_err(|err| ErrType::DbError.err(err, "Failed to query delete folder"))?;
             res.check().map_err(|err| ErrType::DbError.err(err, "Failed to delete files for folder"))?;
         }
+
+        Ok(())
+    }
+
+    pub async fn delete_files(&self, space_id: RecordId, folder_hash: String) -> AppResult<()> {
+        let res = self
+            .db
+            .query("DELETE file WHERE space = $s AND folder_hash = $h")
+            .bind(("s", space_id.clone()))
+            .bind(("h", folder_hash))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query delete files"))?;
+        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to delete files for folder"))?;
 
         Ok(())
     }
