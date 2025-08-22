@@ -115,7 +115,7 @@ pub async fn generate_upload_signed_url(
     Json(body): Json<SignedUrlRequest>,
 ) -> ApiResult<SignedUrlResponse> {
     app.service()
-        .generate_upload_signed_url(space_ctx, app.storage(), body.file_path)
+        .generate_upload_signed_url(space_ctx, app.storage(), body.folder_hash, body.file_name)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))

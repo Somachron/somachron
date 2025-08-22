@@ -171,7 +171,7 @@ impl Storage {
     /// Get path prefix
     pub fn get_spaces_path(&self, space_id: &str) -> String {
         let path = self.r2_spaces.join(space_id);
-        path.to_str().map(|s| s.to_owned()).unwrap_or_default()
+        path.to_str().map(|s| s.trim_matches('/').to_owned()).unwrap_or_default()
     }
 
     /// Creates space folder

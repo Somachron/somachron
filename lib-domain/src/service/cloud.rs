@@ -40,15 +40,22 @@ impl Service {
             ..
         }: SpaceCtx,
         storage: &Storage,
-        path: String,
+        folder_hash: String,
+        file_name: String,
     ) -> AppResult<SignedUrlResponse> {
         match role {
             SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot upload: Unauthorized read role")),
             _ => (),
         };
 
-        let space_id = space_id.id();
-        let url = storage.generate_upload_signed_url(&space_id, &path).await?;
+        let Some(folder_path) = self.ds.get_dir_tree(space_id.clone()).await?.trace_path_to_parent(&folder_hash) else {
+            return Err(ErrType::BadRequest.new("Folder not found"));
+        };
+
+        let file = self.ds.get_file_from_fields(space_id.clone(), file_name.clone(), folder_hash).await?;
+        let file_name = file.map(|f| format!("copy_{}", f.file_name)).unwrap_or(file_name);
+
+        let url = storage.generate_upload_signed_url(&space_id.id(), &format!("{}/{}", folder_path, file_name)).await?;
         Ok(SignedUrlResponse {
             url,
         })

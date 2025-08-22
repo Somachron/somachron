@@ -147,21 +147,69 @@ impl Datastore {
         Ok(())
     }
 
+    pub async fn migration_create_folder(&self, space_id: RecordId, path_prefix: &str, path: &str) -> AppResult<()> {
+        let path_prefix = path_prefix.trim_matches('/');
+        let mut depth = Vec::new();
+        let mut trail = String::from(path_prefix);
+
+        let path = std::path::PathBuf::from(path.trim_matches('/'));
+        for comp in path.components().into_iter() {
+            match comp {
+                std::path::Component::Normal(os_str) => {
+                    let path_str = os_str.to_str().unwrap();
+
+                    trail.push('/');
+                    trail.push_str(path_str);
+                    let hash = Hash::new(&trail);
+
+                    depth.push((
+                        path_str.to_owned(),
+                        super::space::Folder {
+                            hash: hash.get(),
+                            dirs: BTreeMap::new(),
+                        },
+                    ));
+                }
+                _ => (),
+            };
+        }
+
+        let tree = super::space::Folder {
+            hash: Hash::new(path_prefix).get(),
+            dirs: depth.into_iter().rev().fold(BTreeMap::new(), |acc, (path, folder)| {
+                BTreeMap::from([(
+                    path,
+                    super::space::Folder {
+                        hash: folder.hash,
+                        dirs: acc,
+                    },
+                )])
+            }),
+        };
+
+        let res = self
+            .db
+            .query("UPDATE $id MERGE { dir_tree: $f }")
+            .bind(("id", space_id))
+            .bind(("f", tree))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query create folder"))?;
+        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
+
+        Ok(())
+    }
+
     // ---------------------- MIGRATION
 
     pub async fn upsert_file(&self, user_id: RecordId, space_id: RecordId, file_data: FileData) -> AppResult<File> {
-        let mut res = self
-            .db
-            .query("SELECT * FROM file WHERE space = $s AND folder_hash = $h AND file_name = $n")
-            .bind(("s", space_id.clone()))
-            .bind(("h", file_data.folder_hash.get_ref().to_owned()))
-            .bind(("n", file_data.file_name.clone()))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query for file"))?;
-
-        let files: Vec<File> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize file"))?;
-
-        let file = match files.into_iter().nth(0) {
+        let file = match self
+            .get_file_from_fields(
+                space_id.clone(),
+                file_data.file_name.clone(),
+                file_data.folder_hash.get_ref().to_owned(),
+            )
+            .await?
+        {
             Some(file) => self.update_file(file.id, file_data).await,
             None => self.create_file(user_id, space_id, file_data).await,
         }?;
@@ -241,104 +289,24 @@ impl Datastore {
         files.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to get created file"))
     }
 
-    pub async fn migration_create_folder(&self, space_id: RecordId, path_prefix: &str, path: &str) -> AppResult<()> {
-        let path_prefix = path_prefix.trim_matches('/');
-        let mut depth = Vec::new();
-        let mut trail = String::from(path_prefix);
-
-        let path = std::path::PathBuf::from(path.trim_matches('/'));
-        for comp in path.components().into_iter() {
-            match comp {
-                std::path::Component::Normal(os_str) => {
-                    let path_str = os_str.to_str().unwrap();
-
-                    trail.push('/');
-                    trail.push_str(path_str);
-                    let hash = Hash::new(&trail);
-
-                    depth.push((
-                        path_str.to_owned(),
-                        super::space::Folder {
-                            hash: hash.get(),
-                            dirs: BTreeMap::new(),
-                        },
-                    ));
-                }
-                _ => (),
-            };
-        }
-
-        let tree = super::space::Folder {
-            hash: Hash::new(path_prefix).get(),
-            dirs: depth.into_iter().rev().fold(BTreeMap::new(), |acc, (path, folder)| {
-                BTreeMap::from([(
-                    path,
-                    super::space::Folder {
-                        hash: folder.hash,
-                        dirs: acc,
-                    },
-                )])
-            }),
-        };
-
-        let res = self
-            .db
-            .query("UPDATE $id MERGE { dir_tree: $f }")
-            .bind(("id", space_id))
-            .bind(("f", tree))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query create folder"))?;
-        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
-
-        Ok(())
-    }
-
-    pub async fn create_folder(
+    pub async fn get_file_from_fields(
         &self,
         space_id: RecordId,
-        path_prefix: &str,
-        parent_folder_hash: String,
-        folder_name: String,
-    ) -> AppResult<()> {
-        let path_prefix = path_prefix.trim_matches('/');
-        let dir_tree = self.get_dir_tree(space_id.clone()).await?;
-
-        let Some(path) = dir_tree.trace_path_to_parent(&parent_folder_hash) else {
-            return Err(ErrType::BadRequest.new("Parent folder not found"));
-        };
-
-        let path = std::path::PathBuf::from(path.trim_matches('/'));
-        let tree = path.components().into_iter().rev().fold(
-            serde_json::json!({
-                folder_name.as_str(): super::space::Folder {
-                    hash: Hash::new(&format!("{path_prefix}/{folder_name}")).get(),
-                    dirs: BTreeMap::new(),
-                }
-            }),
-            |acc, comp| match comp {
-                std::path::Component::Normal(os_str) => {
-                    let path_str = os_str.to_str().unwrap();
-                    serde_json::json!({
-                        path_str: {
-                            "dirs": acc,
-                        }
-                    })
-                }
-                _ => acc,
-            },
-        );
-
-        let res = self
+        file_name: String,
+        folder_hash: String,
+    ) -> AppResult<Option<File>> {
+        let mut res = self
             .db
-            .query("UPDATE $id MERGE { dir_tree: $f }")
-            .bind(("id", space_id))
-            .bind(("f", tree))
+            .query("SELECT * FROM file WHERE space = $s AND folder_hash = $h AND file_name = $n")
+            .bind(("s", space_id.clone()))
+            .bind(("h", folder_hash))
+            .bind(("n", file_name))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query create folder"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query for file"))?;
 
-        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
+        let files: Vec<File> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize file"))?;
 
-        Ok(())
+        Ok(files.into_iter().nth(0))
     }
 
     pub async fn get_file(&self, space_id: RecordId, file_id: &str) -> AppResult<Option<File>> {
@@ -383,6 +351,53 @@ impl Datastore {
         let paths: Vec<String> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to get file path"))?;
 
         Ok(paths.into_iter().nth(0))
+    }
+
+    pub async fn create_folder(
+        &self,
+        space_id: RecordId,
+        path_prefix: &str,
+        parent_folder_hash: String,
+        folder_name: String,
+    ) -> AppResult<()> {
+        let dir_tree = self.get_dir_tree(space_id.clone()).await?;
+
+        let Some(path) = dir_tree.trace_path_to_parent(&parent_folder_hash) else {
+            return Err(ErrType::BadRequest.new("Parent folder not found"));
+        };
+
+        let path = std::path::PathBuf::from(path.trim_matches('/'));
+        let tree = path.components().into_iter().rev().fold(
+            serde_json::json!({
+                folder_name.as_str(): super::space::Folder {
+                    hash: Hash::new(&format!("{path_prefix}/{folder_name}")).get(),
+                    dirs: BTreeMap::new(),
+                }
+            }),
+            |acc, comp| match comp {
+                std::path::Component::Normal(os_str) => {
+                    let path_str = os_str.to_str().unwrap();
+                    serde_json::json!({
+                        path_str: {
+                            "dirs": acc,
+                        }
+                    })
+                }
+                _ => acc,
+            },
+        );
+
+        let res = self
+            .db
+            .query("UPDATE $id MERGE { dir_tree: $f }")
+            .bind(("id", space_id))
+            .bind(("f", tree))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query create folder"))?;
+
+        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
+
+        Ok(())
     }
 
     pub async fn get_dir_tree(&self, space_id: RecordId) -> AppResult<super::space::Folder> {

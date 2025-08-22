@@ -77,8 +77,11 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct SignedUrlRequest {
+        #[validate(length(equal = 64))]
+        pub folder_hash: String,
+
         #[validate(length(min = 3))]
-        pub file_path: String,
+        pub file_name: String,
     }
 
     #[derive(Deserialize, ToSchema, Validate)]
