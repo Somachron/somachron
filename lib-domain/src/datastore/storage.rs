@@ -97,6 +97,12 @@ pub struct FileMeta {
     pub user: Option<RecordId>,
 }
 
+#[derive(Deserialize)]
+pub struct StreamPaths {
+    pub thumbnail_path: String,
+    pub original_path: String,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct MigrationFileData {
     pub id: RecordId,
@@ -336,19 +342,20 @@ impl Datastore {
         res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize files"))
     }
 
-    pub async fn get_file_path(&self, file_id: &str, is_thumbnail: bool) -> AppResult<Option<String>> {
+    pub async fn get_file_stream_paths(&self, file_id: &str) -> AppResult<Option<StreamPaths>> {
         let file_id = File::get_id(file_id);
 
-        let mut res = if is_thumbnail {
-            self.db.query(r#"SELECT VALUE string::concat(path, "/", thumbnail_file_name) FROM $id"#)
-        } else {
-            self.db.query(r#"SELECT VALUE string::concat(path, "/", file_name) FROM $id"#)
-        }
-        .bind(("id", file_id))
-        .await
-        .map_err(|err| ErrType::DbError.err(err, "Failed to query file path"))?;
+        let mut res = self
+            .db
+            .query(
+                r#"SELECT string::concat(path, "/", thumbnail_file_name) AS thumbnail_path, string::concat(path, "/", file_name) AS original_path FROM $id"#,
+            )
+            .bind(("id", file_id))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query file path"))?;
 
-        let paths: Vec<String> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to get file path"))?;
+        let paths: Vec<StreamPaths> =
+            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to get file path"))?;
 
         Ok(paths.into_iter().nth(0))
     }
@@ -391,7 +398,12 @@ impl Datastore {
             .db
             .query("UPDATE $id MERGE { dir_tree: $f }")
             .bind(("id", space_id))
-            .bind(("f", tree))
+            .bind((
+                "f",
+                serde_json::json!({
+                    "dirs": tree,
+                }),
+            ))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to query create folder"))?;
 

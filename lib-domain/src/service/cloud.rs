@@ -4,7 +4,7 @@ use crate::{
     datastore::{space::Folder, user_space::SpaceRole},
     dto::cloud::{
         req::UploadCompleteRequest,
-        res::{SignedUrlResponse, _FileMetaResponseVec},
+        res::{InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec},
     },
     extension::{IdStr, SpaceCtx, UserId},
 };
@@ -32,7 +32,7 @@ impl Service {
         self.ds.create_folder(space_id, &path_prefix, parent_folder_hash, folder_name).await
     }
 
-    pub async fn generate_upload_signed_url(
+    pub async fn initiate_upload(
         &self,
         SpaceCtx {
             role,
@@ -42,7 +42,7 @@ impl Service {
         storage: &Storage,
         folder_hash: String,
         file_name: String,
-    ) -> AppResult<SignedUrlResponse> {
+    ) -> AppResult<InitiateUploadResponse> {
         match role {
             SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot upload: Unauthorized read role")),
             _ => (),
@@ -52,12 +52,15 @@ impl Service {
             return Err(ErrType::BadRequest.new("Folder not found"));
         };
 
-        let file = self.ds.get_file_from_fields(space_id.clone(), file_name.clone(), folder_hash).await?;
-        let file_name = file.map(|f| format!("copy_{}", f.file_name)).unwrap_or(file_name);
+        // TODO: what to do when file with name already exists ?
+        // let file = self.ds.get_file_from_fields(space_id.clone(), file_name.clone(), folder_hash).await?;
+        // let file_name = file.map(|f| format!("copy_{}", f.file_name)).unwrap_or(file_name);
+        let file_path = format!("{}/{}", folder_path, file_name);
 
-        let url = storage.generate_upload_signed_url(&space_id.id(), &format!("{}/{}", folder_path, file_name)).await?;
-        Ok(SignedUrlResponse {
+        let url = storage.generate_upload_signed_url(&space_id.id(), &file_path).await?;
+        Ok(InitiateUploadResponse {
             url,
+            file_name,
         })
     }
 
@@ -71,7 +74,8 @@ impl Service {
         }: SpaceCtx,
         storage: &Storage,
         UploadCompleteRequest {
-            file_path,
+            folder_hash,
+            file_name,
             file_size,
         }: UploadCompleteRequest,
     ) -> AppResult<()> {
@@ -80,8 +84,14 @@ impl Service {
             _ => (),
         };
 
+        let Some(folder_path) = self.ds.get_dir_tree(space_id.clone()).await?.trace_path_to_parent(&folder_hash) else {
+            return Err(ErrType::BadRequest.new("Folder not found"));
+        };
+
         let space_id_str = space_id.id();
-        let file_data = storage.process_upload_completion(&space_id_str, &file_path, file_size).await?;
+        let file_data = storage
+            .process_upload_completion(&space_id_str, &format!("{}/{}", folder_path, file_name), file_size)
+            .await?;
         for data in file_data.into_iter() {
             let _ = self.ds.upsert_file(user_id.clone(), space_id.clone(), data).await?;
         }
@@ -116,13 +126,18 @@ impl Service {
         &self,
         storage: &Storage,
         file_id: String,
-        is_thumbnail: bool,
-    ) -> AppResult<String> {
-        let r2_path = self.ds.get_file_path(&file_id, is_thumbnail).await?;
-        match r2_path {
-            Some(path) => storage.generate_download_signed_url(&path).await,
-            None => return Err(ErrType::NotFound.new("Requested file not found")),
-        }
+    ) -> AppResult<StreamedUrlsResponse> {
+        let Some(stream_paths) = self.ds.get_file_stream_paths(&file_id).await? else {
+            return Err(ErrType::NotFound.new("Requested file not found"));
+        };
+
+        let original_stream = storage.generate_download_signed_url(&stream_paths.original_path).await?;
+        let thumbnail_stream = storage.generate_download_signed_url(&stream_paths.thumbnail_path).await?;
+
+        Ok(StreamedUrlsResponse {
+            original_stream,
+            thumbnail_stream,
+        })
     }
 
     pub async fn delete_folder(

@@ -142,18 +142,20 @@ impl R2Storage {
             }
         }
 
-        let delete = Delete::builder()
-            .set_objects(Some(delete_objects))
-            .build()
-            .map_err(|err| ErrType::R2Error.err(err, "Failed to create delete param"))?;
-        let _ = self
-            .client
-            .delete_objects()
-            .bucket(&self.bucket_name)
-            .delete(delete)
-            .send()
-            .await
-            .map_err(|err| ErrType::R2Error.err(err.into_service_error(), "Failed to delete folder objects"))?;
+        if !delete_objects.is_empty() {
+            let delete = Delete::builder()
+                .set_objects(Some(delete_objects))
+                .build()
+                .map_err(|err| ErrType::R2Error.err(err, "Failed to create delete param"))?;
+            let _ = self
+                .client
+                .delete_objects()
+                .bucket(&self.bucket_name)
+                .delete(delete)
+                .send()
+                .await
+                .map_err(|err| ErrType::R2Error.err(err.into_service_error(), "Failed to delete folder objects"))?;
+        }
         Ok(())
     }
 

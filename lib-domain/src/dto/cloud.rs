@@ -10,8 +10,15 @@ pub mod res {
     };
 
     #[derive(Serialize, ToSchema)]
-    pub struct SignedUrlResponse {
+    pub struct InitiateUploadResponse {
         pub url: String,
+        pub file_name: String,
+    }
+
+    #[derive(Serialize, ToSchema)]
+    pub struct StreamedUrlsResponse {
+        pub original_stream: String,
+        pub thumbnail_stream: String,
     }
 
     impl_dto!(
@@ -76,7 +83,7 @@ pub mod req {
     use validator::Validate;
 
     #[derive(Deserialize, ToSchema, Validate)]
-    pub struct SignedUrlRequest {
+    pub struct InitiateUploadRequest {
         #[validate(length(equal = 64))]
         pub folder_hash: String,
 
@@ -87,8 +94,8 @@ pub mod req {
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct UploadCompleteRequest {
         #[validate(length(min = 3))]
-        pub file_path: String,
-
+        pub folder_hash: String,
+        pub file_name: String,
         pub file_size: usize,
     }
 

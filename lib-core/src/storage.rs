@@ -250,8 +250,10 @@ impl Storage {
             .and_then(|s| s.to_str())
             .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
 
-        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
-        let r2_folder = r2_folder.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
+        let r2_path =
+            r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?.trim_matches('/');
+        let r2_folder =
+            r2_folder.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?.trim_matches('/');
 
         // prepare path
         let file_name =

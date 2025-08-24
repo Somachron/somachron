@@ -8,8 +8,8 @@ use lib_core::{ApiError, ApiResult, EmptyResponse, Json, ReqId};
 use lib_domain::{
     datastore::space::Folder,
     dto::cloud::{
-        req::{CreateFolderRequest, SignedUrlRequest, UploadCompleteRequest},
-        res::{FileMetaResponse, SignedUrlResponse, _FileMetaResponseVec},
+        req::{CreateFolderRequest, InitiateUploadRequest, UploadCompleteRequest},
+        res::{FileMetaResponse, InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec},
     },
     extension::{SpaceCtx, UserId},
 };
@@ -20,14 +20,13 @@ use super::middleware;
 
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
-        .route("/l/{hash}", get(list_files))
-        .route("/ld", get(list_folders))
-        .route("/p/{hash}", delete(delete_folder))
-        .route("/f/{id}", delete(delete_file))
-        .route("/d", post(create_folder))
+        .route("/ls/{hash}", get(list_files))
+        .route("/lf", get(list_folders))
+        .route("/rm/{hash}", delete(delete_folder))
+        .route("/rmf/{id}", delete(delete_file))
+        .route("/mkdir", post(create_folder))
         .route("/stream/{id}", get(generate_download_signed_url))
-        .route("/stream/th/{id}", get(generate_thumbnail_download_signed_url))
-        .route("/upload", post(generate_upload_signed_url))
+        .route("/upload", post(initiate_upload))
         .route("/upload/complete", post(upload_completion))
         .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
         .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate));
@@ -90,7 +89,7 @@ pub async fn list_files(
 
 #[utoipa::path(
     get,
-    path = "/v1/media/ld",
+    path = "/v1/media/lf/{hash}",
     responses((status=200, body=Vec<FileMetaResponse>)),
     tag = "Cloud"
 )]
@@ -105,17 +104,17 @@ pub async fn list_folders(
 #[utoipa::path(
     post,
     path = "/v1/media/upload",
-    responses((status=200, body=SignedUrlResponse)),
+    responses((status=200, body=InitiateUploadResponse)),
     tag = "Cloud"
 )]
-pub async fn generate_upload_signed_url(
+pub async fn initiate_upload(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Json(body): Json<SignedUrlRequest>,
-) -> ApiResult<SignedUrlResponse> {
+    Json(body): Json<InitiateUploadRequest>,
+) -> ApiResult<InitiateUploadResponse> {
     app.service()
-        .generate_upload_signed_url(space_ctx, app.storage(), body.folder_hash, body.file_name)
+        .initiate_upload(space_ctx, app.storage(), body.folder_hash, body.file_name)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))
@@ -124,44 +123,18 @@ pub async fn generate_upload_signed_url(
 #[utoipa::path(
     get,
     path = "/v1/media/stream/{id}",
-    responses((status=200, body=SignedUrlResponse)),
+    responses((status=200, body=StreamedUrlsResponse)),
     tag = "Cloud"
 )]
 pub async fn generate_download_signed_url(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Path(file_id): Path<String>,
-) -> ApiResult<SignedUrlResponse> {
+) -> ApiResult<StreamedUrlsResponse> {
     app.service()
-        .generate_download_signed_url(app.storage(), file_id, false)
+        .generate_download_signed_url(app.storage(), file_id)
         .await
-        .map(|url| {
-            Json(SignedUrlResponse {
-                url,
-            })
-        })
-        .map_err(|err| ApiError(err, req_id))
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/media/stream/th/{id}",
-    responses((status=200, body=SignedUrlResponse)),
-    tag = "Cloud"
-)]
-pub async fn generate_thumbnail_download_signed_url(
-    State(app): State<AppState>,
-    Extension(req_id): Extension<ReqId>,
-    Path(file_id): Path<String>,
-) -> ApiResult<SignedUrlResponse> {
-    app.service()
-        .generate_download_signed_url(app.storage(), file_id, true)
-        .await
-        .map(|url| {
-            Json(SignedUrlResponse {
-                url,
-            })
-        })
+        .map(Json)
         .map_err(|err| ApiError(err, req_id))
 }
 
