@@ -9,7 +9,7 @@ use lib_core::{
 use serde::{Deserialize, Serialize};
 use surrealdb::RecordId;
 
-use crate::datastore::Datastore;
+use crate::{datastore::Datastore, extension::IdStr};
 
 use super::DbSchema;
 
@@ -98,6 +98,28 @@ pub struct FileMeta {
 }
 
 #[derive(Deserialize)]
+pub struct Folder {
+    pub id: RecordId,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+
+    pub name: String,
+}
+impl DbSchema for Folder {
+    fn table_name() -> &'static str {
+        "folder"
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FolderTree {
+    pub id: RecordId,
+    pub name: String,
+
+    pub next: Vec<FolderTree>,
+}
+
+#[derive(Deserialize)]
 pub struct StreamPaths {
     pub thumbnail_path: String,
     pub original_path: String,
@@ -107,9 +129,15 @@ pub struct StreamPaths {
 pub struct MigrationFileData {
     pub id: RecordId,
     pub file_name: String,
+    pub folder_hash: String,
     pub thumbnail_path: String,
     pub r2_path: String,
     pub space: RecordId,
+}
+
+pub enum FsLink {
+    File(RecordId),
+    Folder(RecordId),
 }
 
 impl Datastore {
@@ -123,13 +151,67 @@ impl Datastore {
                 DEFINE FIELD IF NOT EXISTS thumbnail_file_name ON file TYPE string;
                 UPDATE file SET path = '', thumbnail_file_name = '';
 
-                DEFINE FIELD IF NOT EXISTS dir_tree ON space FLEXIBLE TYPE object;
-                UPDATE space SET dir_tree = {};
+                DEFINE TABLE folder TYPE NORMAL SCHEMAFULL;
+                DEFINE FIELD created_at ON TABLE folder TYPE datetime DEFAULT time::now();
+                DEFINE FIELD updated_at ON TABLE folder TYPE datetime VALUE time::now();
+                DEFINE FIELD name ON TABLE folder TYPE string ASSERT string::len($value) > 0;
+                DEFINE FIELD space ON TABLE folder TYPE record<space>;
+                DEFINE INDEX unique_folder ON TABLE folder COLUMNS name UNIQUE;
+
+                DEFINE TABLE fs TYPE RELATION IN folder OUT folder|file ENFORCED SCHEMAFULL;
+                DEFINE FIELD created_at ON TABLE fs TYPE datetime DEFAULT time::now();
+                DEFINE INDEX unique_link ON TABLE fs COLUMNS in, out UNIQUE;
+
+                DEFINE FIELD IF NOT EXISTS folder ON space TYPE record<folder>;
             "#,
             )
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to migrate schema"))?;
         Ok(())
+    }
+
+    pub async fn cleanup_schema(&self) -> AppResult<()> {
+        self.db
+            .query(
+                r#"
+                REMOVE FIELD IF EXISTS r2_path ON file;
+                REMOVE FIELD IF EXISTS thumbnail_path ON file;
+                REMOVE FIELD IF EXISTS file_hash ON file;
+                REMOVE FIELD IF EXISTS folder_hash ON file;
+                UPDATE file SET r2_path = NONE, thumbnail_path = NONE, file_hash = NONE, folder_hash = NONE;
+            "#,
+            )
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to migrate schema"))?;
+        Ok(())
+    }
+
+    pub async fn create_space_root_folder(&self, space_id: RecordId) -> AppResult<RecordId> {
+        let mut res = self
+            .db
+            .query("CREATE folder SET name = $n, space = $s")
+            .bind(("n", space_id.id()))
+            .bind(("s", space_id.clone()))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, format!("Failed to create space folder: {}", space_id)))?;
+
+        let folders: Vec<Folder> = res
+            .take(0)
+            .map_err(|err| ErrType::DbError.err(err, format!("Failed to create space root folder: {}", space_id)))?;
+
+        let Some(folder) = folders.into_iter().nth(0) else {
+            return Err(ErrType::DbError.new("No created folders found"));
+        };
+
+        let _ = self
+            .db
+            .query("UPDATE $id SET folder = $f")
+            .bind(("id", space_id))
+            .bind(("f", folder.id.clone()))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to set folder for space"))?;
+
+        Ok(folder.id)
     }
 
     pub async fn get_all_files(&self) -> AppResult<Vec<MigrationFileData>> {
@@ -138,6 +220,7 @@ impl Datastore {
 
     pub async fn migrate_file_data(
         &self,
+        folder_id: RecordId,
         file_id: RecordId,
         path: String,
         thumbnail_file_name: String,
@@ -150,72 +233,69 @@ impl Datastore {
             .await
             .map_err(|err| ErrType::DbError.err(err, format!("Failed to set path for file: {}", file_id)))?;
 
-        Ok(())
+        self.fs_link(folder_id, FsLink::File(file_id)).await
     }
 
-    pub async fn migration_create_folder(&self, space_id: RecordId, path_prefix: &str, path: &str) -> AppResult<()> {
-        let path_prefix = path_prefix.trim_matches('/');
-        let mut depth = Vec::new();
-        let mut trail = String::from(path_prefix);
+    pub async fn migrate_folder_paths(
+        &self,
+        space_id: RecordId,
+        path_prefix: std::path::PathBuf,
+        root_folder_id: RecordId,
+        dirs: Vec<std::path::PathBuf>,
+    ) -> AppResult<BTreeMap<String, RecordId>> {
+        let mut ids = BTreeMap::<String, RecordId>::new();
+        let mut hash_ids = BTreeMap::<String, RecordId>::new();
+        let trail = path_prefix.to_str().unwrap();
+        hash_ids.insert(Hash::new(trail).get(), root_folder_id.clone());
 
-        let path = std::path::PathBuf::from(path.trim_matches('/'));
-        for comp in path.components().into_iter() {
-            match comp {
-                std::path::Component::Normal(os_str) => {
-                    let path_str = os_str.to_str().unwrap();
+        for path in dirs.into_iter() {
+            let mut trail = String::from(trail);
+            let mut prev_folder_id = root_folder_id.clone();
 
-                    trail.push('/');
-                    trail.push_str(path_str);
-                    let hash = Hash::new(&trail);
+            for comp in path.components().into_iter() {
+                match comp {
+                    std::path::Component::Normal(os_str) => {
+                        let path_str = os_str.to_str().unwrap();
 
-                    depth.push((
-                        path_str.to_owned(),
-                        super::space::Folder {
-                            hash: hash.get(),
-                            dirs: BTreeMap::new(),
-                        },
-                    ));
-                }
-                _ => (),
-            };
+                        trail.push('/');
+                        trail.push_str(path_str);
+                        let hash = Hash::new(&trail);
+
+                        let folder_id = match ids.get(path_str) {
+                            Some(id) => id.clone(),
+                            None => {
+                                let folder = self
+                                    .create_orphan_folder(space_id.clone(), path_str.to_owned())
+                                    .await?
+                                    .expect("Should have folder id");
+                                folder.id
+                            }
+                        };
+                        ids.insert(path_str.to_owned(), folder_id.clone());
+                        hash_ids.insert(hash.get(), folder_id.clone());
+
+                        self.fs_link(prev_folder_id.clone(), FsLink::Folder(folder_id.clone())).await?;
+
+                        prev_folder_id = folder_id;
+                    }
+                    _ => (),
+                };
+            }
         }
 
-        let tree = super::space::Folder {
-            hash: Hash::new(path_prefix).get(),
-            dirs: depth.into_iter().rev().fold(BTreeMap::new(), |acc, (path, folder)| {
-                BTreeMap::from([(
-                    path,
-                    super::space::Folder {
-                        hash: folder.hash,
-                        dirs: acc,
-                    },
-                )])
-            }),
-        };
-
-        let res = self
-            .db
-            .query("UPDATE $id MERGE { dir_tree: $f }")
-            .bind(("id", space_id))
-            .bind(("f", tree))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query create folder"))?;
-        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
-
-        Ok(())
+        Ok(hash_ids)
     }
 
     // ---------------------- MIGRATION
 
-    pub async fn upsert_file(&self, user_id: RecordId, space_id: RecordId, file_data: FileData) -> AppResult<File> {
-        let file = match self
-            .get_file_from_fields(
-                space_id.clone(),
-                file_data.file_name.clone(),
-                file_data.folder_hash.get_ref().to_owned(),
-            )
-            .await?
-        {
+    pub async fn upsert_file(
+        &self,
+        user_id: RecordId,
+        space_id: RecordId,
+        folder_id: String,
+        file_data: FileData,
+    ) -> AppResult<File> {
+        let file = match self.get_file_from_fields(space_id.clone(), file_data.file_name.clone(), folder_id).await? {
             Some(file) => self.update_file(file.id, file_data).await,
             None => self.create_file(user_id, space_id, file_data).await,
         }?;
@@ -233,16 +313,14 @@ impl Datastore {
             metadata,
             size: file_size,
             media_type,
-            folder_hash,
         }: FileData,
     ) -> AppResult<File> {
         let metadata = Metadata::from(metadata);
 
         let mut res = self
             .db
-            .query("UPDATE $id SET folder_hash = $f, file_name = $n, file_size = $s, media_type = $t, thumbnail_file_name = $th, path = $r, metadata = $mt")
+            .query("UPDATE $id SET file_name = $n, file_size = $s, media_type = $t, thumbnail_file_name = $th, path = $r, metadata = $mt")
             .bind(("id", file_id))
-            .bind(("f", folder_hash.get()))
             .bind(("n", file_name))
             .bind(("s", file_size))
             .bind(("t", media_type))
@@ -269,15 +347,13 @@ impl Datastore {
             metadata,
             size: file_size,
             media_type,
-            folder_hash,
         }: FileData,
     ) -> AppResult<File> {
         let metadata = Metadata::from(metadata);
 
         let mut res = self
             .db
-            .query("CREATE file SET folder_hash = $f, file_name = $n, file_size = $s, media_type = $t, thumbnail_file_name = $th, path = $r, user = $u, space = $sp, metadata = $mt")
-            .bind(("f", folder_hash.get()))
+            .query("CREATE file SET file_name = $n, file_size = $s, media_type = $t, thumbnail_file_name = $th, path = $r, user = $u, space = $sp, metadata = $mt")
             .bind(("n", file_name))
             .bind(("s", file_size))
             .bind(("t", media_type))
@@ -299,13 +375,15 @@ impl Datastore {
         &self,
         space_id: RecordId,
         file_name: String,
-        folder_hash: String,
+        folder_id: String,
     ) -> AppResult<Option<File>> {
+        let folder_id = Folder::get_id(&folder_id);
+
         let mut res = self
             .db
-            .query("SELECT * FROM file WHERE space = $s AND folder_hash = $h AND file_name = $n")
+            .query("SELECT * FROM file WHERE <-fs<-folder[WHERE id = $f AND space = $s] AND file_name = $n")
             .bind(("s", space_id.clone()))
-            .bind(("h", folder_hash))
+            .bind(("f", folder_id))
             .bind(("n", file_name))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to query for file"))?;
@@ -330,27 +408,30 @@ impl Datastore {
         Ok(files.into_iter().nth(0))
     }
 
-    pub async fn get_files(&self, space_id: RecordId, folder_hash: String) -> AppResult<Vec<FileMeta>> {
+    pub async fn get_files(&self, space_id: RecordId, folder_id: String) -> AppResult<Vec<FileMeta>> {
+        let folder_id = Folder::get_id(&folder_id);
+
         let mut res = self
             .db
-            .query("SELECT id, file_name, media_type, user FROM file WHERE space = $s AND folder_hash = $h")
+            .query(r#"SELECT VALUE out.{id, file_name, media_type, user} FROM $f->fs[WHERE record::tb(out) == "file" AND in.space = $s]"#)
             .bind(("s", space_id))
-            .bind(("h", folder_hash))
+            .bind(("f", folder_id))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to query list of files"))?;
 
         res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize files"))
     }
 
-    pub async fn get_file_stream_paths(&self, file_id: &str) -> AppResult<Option<StreamPaths>> {
+    pub async fn get_file_stream_paths(&self, space_id: RecordId, file_id: &str) -> AppResult<Option<StreamPaths>> {
         let file_id = File::get_id(file_id);
 
         let mut res = self
             .db
             .query(
-                r#"SELECT string::concat(path, "/", thumbnail_file_name) AS thumbnail_path, string::concat(path, "/", file_name) AS original_path FROM $id"#,
+                r#"SELECT string::concat(path, "/", thumbnail_file_name) AS thumbnail_path, string::concat(path, "/", file_name) AS original_path FROM $id WHERE space = $s"#,
             )
             .bind(("id", file_id))
+            .bind(("s", space_id))
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to query file path"))?;
 
@@ -360,170 +441,208 @@ impl Datastore {
         Ok(paths.into_iter().nth(0))
     }
 
-    pub async fn create_folder(
-        &self,
-        space_id: RecordId,
-        path_prefix: &str,
-        parent_folder_hash: String,
-        folder_name: String,
-    ) -> AppResult<()> {
-        let dir_tree = self.get_dir_tree(space_id.clone()).await?;
+    pub async fn create_orphan_folder(&self, space_id: RecordId, folder_name: String) -> AppResult<Option<Folder>> {
+        let mut res = self
+            .db
+            .query("CREATE folder SET name = $n, space = $s")
+            .bind(("n", folder_name))
+            .bind(("s", space_id))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query create orphan folder"))?;
 
-        let Some(path) = dir_tree.trace_path_to_parent(&parent_folder_hash) else {
+        let folders: Vec<_> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to create orphan folder"))?;
+        Ok(folders.into_iter().nth(0))
+    }
+
+    pub async fn create_folder(&self, space_id: RecordId, folder_id: String, folder_name: String) -> AppResult<()> {
+        let folder_id = Folder::get_id(&folder_id);
+        let Some(parent_folder) = self.get_folder(space_id.clone(), folder_id).await? else {
             return Err(ErrType::BadRequest.new("Parent folder not found"));
         };
 
-        let path = std::path::PathBuf::from(path.trim_matches('/'));
-        let tree = path.components().into_iter().rev().fold(
-            serde_json::json!({
-                folder_name.as_str(): super::space::Folder {
-                    hash: Hash::new(&format!("{path_prefix}/{folder_name}")).get(),
-                    dirs: BTreeMap::new(),
-                }
-            }),
-            |acc, comp| match comp {
-                std::path::Component::Normal(os_str) => {
-                    let path_str = os_str.to_str().unwrap();
-                    serde_json::json!({
-                        path_str: {
-                            "dirs": acc,
-                        }
-                    })
-                }
-                _ => acc,
-            },
-        );
+        let Some(new_folder) = self.create_orphan_folder(space_id, folder_name).await? else {
+            return Err(ErrType::DbError.new("Failed to get created folder"));
+        };
 
+        self.fs_link(parent_folder.id, FsLink::Folder(new_folder.id)).await
+    }
+
+    pub async fn fs_link(&self, parent_folder_id: RecordId, fs_id: FsLink) -> AppResult<()> {
         let res = self
             .db
-            .query("UPDATE $id MERGE { dir_tree: $f }")
-            .bind(("id", space_id))
+            .query("RELATE $p->fs->$n")
+            .bind(("p", parent_folder_id))
             .bind((
-                "f",
-                serde_json::json!({
-                    "dirs": tree,
-                }),
+                "n",
+                match fs_id {
+                    FsLink::File(record_id) => record_id,
+                    FsLink::Folder(record_id) => record_id,
+                },
             ))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query create folder"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to link folders"))?;
 
-        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
+        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to link created folder"))?;
 
         Ok(())
     }
 
-    pub async fn get_dir_tree(&self, space_id: RecordId) -> AppResult<super::space::Folder> {
+    pub async fn get_folder(&self, space_id: RecordId, folder_id: RecordId) -> AppResult<Option<Folder>> {
         let mut res = self
             .db
-            .query("SELECT VALUE dir_tree FROM $id")
-            .bind(("id", space_id))
+            .query("SELECT * FROM $f WHERE space = $s")
+            .bind(("f", folder_id))
+            .bind(("s", space_id))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query dirs"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to fetch folder by ID"))?;
 
-        let list: Vec<_> =
-            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space dir_tree"))?;
-        Ok(list.into_iter().nth(0).unwrap_or_default())
+        let folders: Vec<_> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to get folder by id"))?;
+        Ok(folders.into_iter().nth(0))
     }
 
-    pub async fn get_inner_dirs(&self, space_id: RecordId, folder_hash: String) -> AppResult<Vec<(String, String)>> {
-        let dirs_tree = self.get_dir_tree(space_id.clone()).await?;
-        let Some((folder_path, folder_data)) = self.get_folder_from_hash(dirs_tree, folder_hash) else {
+    pub async fn list_folder(&self, space_id: RecordId, folder_id: String) -> AppResult<Vec<Folder>> {
+        let folder_id = Folder::get_id(&folder_id);
+
+        let mut res = self
+            .db
+            .query(r#"SELECT VALUE out.* FROM $f->fs[WHERE record::tb(out) == "folder" AND in.space = $s]"#)
+            .bind(("f", folder_id))
+            .bind(("s", space_id))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query list folders"))?;
+
+        res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to list folders"))
+    }
+
+    /// Returns [`Option`] of [`FolderTree`] for `folder_id`
+    async fn get_inner_folders(&self, space_id: RecordId, folder_id: RecordId) -> AppResult<Option<FolderTree>> {
+        let mut res = self
+            .db
+            .query(r#"SELECT @.{..}.{ id, name, next: ->fs[WHERE record::tb(out) == "folder"].out.@ } FROM $f WHERE space = $s"#)
+            .bind(("f", folder_id))
+            .bind(("s", space_id))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get child tree for folder"))?;
+        let folder_tree: Vec<FolderTree> =
+            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize dir tree"))?;
+        Ok(folder_tree.into_iter().nth(0))
+    }
+
+    /// Trace path to root
+    /// to be used as pefix for deletion
+    ///
+    /// Eg:
+    /// ```
+    ///     /---b----e
+    ///       \  `-c  `-g
+    ///        `-d  `-f
+    /// ```
+    ///
+    /// Querying for `f` should return (`b/c`, `f`);
+    /// which implies, do delete `f`, we need `b/c` prefix to delete
+    /// - `b/c/f`
+    /// - `b/c/f/*`
+    pub async fn trace_path_root(&self, space_id: RecordId, folder_id: String) -> AppResult<Option<(String, String)>> {
+        let folder_id = Folder::get_id(&folder_id);
+
+        let mut res = self
+            .db
+            .query("SELECT @.{..}.{ id, name, next: <-fs.in.@ } FROM $f WHERE space = $s")
+            .bind(("f", folder_id))
+            .bind(("s", space_id))
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get parent tree for folder"))?;
+        let folder_tree: Vec<FolderTree> =
+            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize dir tree"))?;
+
+        let Some(folder) = folder_tree.into_iter().nth(0) else {
+            return Ok(None);
+        };
+
+        let queried_folder_name = folder.name.clone();
+
+        // fact: all the `next` will be of length 1 as per graph
+        // root -> children, but child -> single parent
+        let mut queue = VecDeque::new();
+        queue.push_back((folder.name, folder.next));
+
+        let mut paths = Vec::new();
+        while let Some((folder_name, dirs)) = queue.pop_front() {
+            paths.push(folder_name);
+
+            for dir in dirs.into_iter() {
+                queue.push_back((dir.name, dir.next));
+            }
+        }
+        // remove root folder
+        let _ = paths.pop();
+        paths.reverse();
+        // remove queried folder
+        let _ = paths.pop();
+
+        Ok(Some((paths.join("/"), queried_folder_name)))
+    }
+
+    pub async fn get_inner_folder_paths(
+        &self,
+        space_id: RecordId,
+        folder_id: String,
+    ) -> AppResult<Vec<(String, RecordId)>> {
+        let Some((mut parent_path, _)) = self.trace_path_root(space_id.clone(), folder_id.clone()).await? else {
+            return Err(ErrType::DbError.new("Failed to trace parent path"));
+        };
+
+        let folder_id = Folder::get_id(&folder_id);
+
+        let Some(folder_tree) = self.get_inner_folders(space_id.clone(), folder_id.clone()).await? else {
             return Err(ErrType::BadRequest.new("No folder found"));
         };
 
-        let mut results = Vec::new();
+        let mut paths = Vec::<(String, RecordId)>::new();
         let mut queue = VecDeque::new();
-        queue.push_back((folder_path, folder_data, 0));
 
-        while let Some((folder_path, folder_data, depth)) = queue.pop_front() {
-            results.push((folder_path.clone(), folder_data.hash, depth));
+        parent_path.push('/');
+        parent_path.push_str(&folder_tree.name);
+        queue.push_back((parent_path, folder_tree.id, folder_tree.next));
 
-            for (subfolder_path, subfolder_data) in folder_data.dirs.into_iter() {
-                queue.push_back((format!("{folder_path}/{subfolder_path}"), subfolder_data, depth + 1));
+        while let Some((folder_path, folder_id, dirs)) = queue.pop_front() {
+            paths.push((folder_path.clone(), folder_id));
+
+            for subfolder in dirs.into_iter() {
+                let mut folder_path = folder_path.clone();
+                folder_path.push('/');
+                folder_path.push_str(&subfolder.name);
+                queue.push_back((folder_path, subfolder.id, subfolder.next));
             }
         }
 
-        // sort in inner most as first order
-        results.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
+        // reverse the paths => inner to outer most order
+        paths.reverse();
 
-        Ok(results.into_iter().map(|(p, h, _)| (p, h)).collect())
+        Ok(paths)
     }
 
-    pub async fn delete_folder(&self, space_id: RecordId, path: &str) -> AppResult<()> {
-        if !path.trim().trim_matches('/').is_empty() {
-            let mut query = String::from("UPDATE $id SET dir_tree");
-            self.get_query_for_path(&mut query, path);
-            query.push_str(" = NONE");
-
-            let res = self
-                .db
-                .query(query)
-                .bind(("id", space_id))
-                .await
-                .map_err(|err| ErrType::DbError.err(err, "Failed to query delete folder"))?;
-            res.check().map_err(|err| ErrType::DbError.err(err, "Failed to delete files for folder"))?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn delete_files(&self, space_id: RecordId, folder_hash: String) -> AppResult<()> {
+    pub async fn delete_folder(&self, space_id: RecordId, folder_id: RecordId) -> AppResult<()> {
         let res = self
             .db
-            .query("DELETE file WHERE space = $s AND folder_hash = $h")
-            .bind(("s", space_id.clone()))
-            .bind(("h", folder_hash))
+            .query(
+                r#"
+                DELETE $id->fs.out WHERE space = $s;
+                DELETE $id WHERE space = $s;
+            "#,
+            )
+            .bind(("id", folder_id))
+            .bind(("s", space_id))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query delete files"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to query delete folder"))?;
         res.check().map_err(|err| ErrType::DbError.err(err, "Failed to delete files for folder"))?;
 
         Ok(())
     }
 
-    pub async fn delete_file(&self, folder_id: RecordId) -> AppResult<()> {
+    pub async fn delete_file(&self, file_id: RecordId) -> AppResult<()> {
         let _: Option<File> =
-            self.db.delete(folder_id).await.map_err(|err| ErrType::DbError.err(err, "Failed to query delete file"))?;
+            self.db.delete(file_id).await.map_err(|err| ErrType::DbError.err(err, "Failed to query delete file"))?;
         Ok(())
-    }
-
-    /// Function that creates nested access for folder in query
-    ///
-    /// example:
-    ///     `a/b/c` => query+`.dirs["a"].dirs["b"].dirs["c"]`
-    fn get_query_for_path(&self, query: &mut String, path: &str) {
-        let path = std::path::PathBuf::from(&path);
-        for comp in path.components().into_iter() {
-            match comp {
-                std::path::Component::Normal(os_str) => {
-                    let path_str = os_str.to_str().unwrap();
-
-                    query.push_str(".dirs[\"");
-                    query.push_str(path_str);
-                    query.push_str("\"]");
-                }
-                _ => (),
-            };
-        }
-    }
-
-    /// Get path and folder data from dir_tree for folder_hash
-    fn get_folder_from_hash(&self, tree: super::space::Folder, hash: String) -> Option<(String, super::space::Folder)> {
-        let mut queue = VecDeque::new();
-        queue.push_back(("".to_owned(), tree));
-
-        while let Some((path, folder)) = queue.pop_front() {
-            if folder.hash == hash {
-                return Some((path, folder));
-            }
-
-            for (p, f) in folder.dirs.into_iter() {
-                if f.hash == hash {
-                    return Some((p, f));
-                }
-                queue.push_back((p, f));
-            }
-        }
-
-        None
     }
 }

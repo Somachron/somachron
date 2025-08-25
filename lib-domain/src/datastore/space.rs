@@ -1,43 +1,11 @@
-use std::collections::{BTreeMap, VecDeque};
-
 use chrono::{DateTime, Utc};
 use lib_core::{AppResult, ErrType};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use surrealdb::RecordId;
 
 use crate::datastore::DbSchema;
 
 use super::Datastore;
-
-#[derive(Default, Serialize, Deserialize)]
-pub struct Folder {
-    pub hash: String,
-    pub dirs: BTreeMap<String, Folder>,
-}
-impl Folder {
-    /// Get path till `folder_hash`
-    ///
-    /// Returns path if hash found
-    pub fn trace_path_to_parent(self, folder_hash: &str) -> Option<String> {
-        let mut queue = VecDeque::new();
-        queue.push_back((self, "".to_owned()));
-
-        while let Some((folder, path)) = queue.pop_front() {
-            if folder.hash == folder_hash {
-                return Some(path);
-            }
-
-            for (name, subfolder) in folder.dirs.into_iter() {
-                let mut next_path = path.clone();
-                next_path.push('/');
-                next_path.push_str(&name);
-                queue.push_back((subfolder, next_path));
-            }
-        }
-
-        None
-    }
-}
 
 #[derive(Deserialize)]
 pub struct Space {
@@ -50,7 +18,7 @@ pub struct Space {
     pub picture_url: String,
 
     #[serde(default)]
-    pub dir_tree: Folder,
+    pub folder: Option<RecordId>,
 }
 impl DbSchema for Space {
     fn table_name() -> &'static str {

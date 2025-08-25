@@ -47,9 +47,6 @@ pub struct FileData {
     pub metadata: media::MediaMetadata,
     pub size: usize,
     pub media_type: MediaType,
-
-    /// sha256 hash from r2_path without file_name
-    pub folder_hash: Hash,
 }
 
 /// Manage storage operations
@@ -278,7 +275,6 @@ impl Storage {
         let (metadata, paths) = metadata_result?;
 
         let thumbnail_file_name = r2_thumbnail.file_name().and_then(|s| s.to_str()).unwrap().to_owned();
-        let folder_hash = Hash::new(r2_folder);
 
         let all_metadata = paths
             .into_iter()
@@ -292,7 +288,6 @@ impl Storage {
                     infer::MatcherType::Video => MediaType::Video,
                     _ => MediaType::Image,
                 },
-                folder_hash: folder_hash.clone(),
             })
             .collect();
 

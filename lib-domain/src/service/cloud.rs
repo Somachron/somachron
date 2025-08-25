@@ -1,10 +1,10 @@
 use lib_core::{storage::Storage, AppResult, ErrType};
 
 use crate::{
-    datastore::{space::Folder, user_space::SpaceRole},
+    datastore::user_space::SpaceRole,
     dto::cloud::{
         req::UploadCompleteRequest,
-        res::{InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec},
+        res::{InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec, _FolderResponseVec},
     },
     extension::{IdStr, SpaceCtx, UserId},
 };
@@ -19,8 +19,7 @@ impl Service {
             space_id,
             ..
         }: SpaceCtx,
-        storage: &Storage,
-        parent_folder_hash: String,
+        parent_folder_id: String,
         folder_name: String,
     ) -> AppResult<()> {
         match role {
@@ -28,8 +27,7 @@ impl Service {
             _ => (),
         };
 
-        let path_prefix = storage.get_spaces_path(&space_id.id());
-        self.ds.create_folder(space_id, &path_prefix, parent_folder_hash, folder_name).await
+        self.ds.create_folder(space_id, parent_folder_id, folder_name).await
     }
 
     pub async fn initiate_upload(
@@ -40,7 +38,7 @@ impl Service {
             ..
         }: SpaceCtx,
         storage: &Storage,
-        folder_hash: String,
+        folder_id: String,
         file_name: String,
     ) -> AppResult<InitiateUploadResponse> {
         match role {
@@ -48,14 +46,14 @@ impl Service {
             _ => (),
         };
 
-        let Some(folder_path) = self.ds.get_dir_tree(space_id.clone()).await?.trace_path_to_parent(&folder_hash) else {
+        let Some((folder_path, folder_name)) = self.ds.trace_path_root(space_id.clone(), folder_id).await? else {
             return Err(ErrType::BadRequest.new("Folder not found"));
         };
 
         // TODO: what to do when file with name already exists ?
         // let file = self.ds.get_file_from_fields(space_id.clone(), file_name.clone(), folder_hash).await?;
         // let file_name = file.map(|f| format!("copy_{}", f.file_name)).unwrap_or(file_name);
-        let file_path = format!("{}/{}", folder_path, file_name);
+        let file_path = format!("{}/{}/{}", folder_path, folder_name, file_name);
 
         let url = storage.generate_upload_signed_url(&space_id.id(), &file_path).await?;
         Ok(InitiateUploadResponse {
@@ -74,7 +72,7 @@ impl Service {
         }: SpaceCtx,
         storage: &Storage,
         UploadCompleteRequest {
-            folder_hash,
+            folder_id,
             file_name,
             file_size,
         }: UploadCompleteRequest,
@@ -84,16 +82,21 @@ impl Service {
             _ => (),
         };
 
-        let Some(folder_path) = self.ds.get_dir_tree(space_id.clone()).await?.trace_path_to_parent(&folder_hash) else {
+        let Some((folder_path, folder_name)) = self.ds.trace_path_root(space_id.clone(), folder_id.clone()).await?
+        else {
             return Err(ErrType::BadRequest.new("Folder not found"));
         };
 
         let space_id_str = space_id.id();
         let file_data = storage
-            .process_upload_completion(&space_id_str, &format!("{}/{}", folder_path, file_name), file_size)
+            .process_upload_completion(
+                &space_id_str,
+                &format!("{}/{}/{}", folder_path, folder_name, file_name),
+                file_size,
+            )
             .await?;
         for data in file_data.into_iter() {
-            let _ = self.ds.upsert_file(user_id.clone(), space_id.clone(), data).await?;
+            let _ = self.ds.upsert_file(user_id.clone(), space_id.clone(), folder_id.clone(), data).await?;
         }
 
         Ok(())
@@ -105,9 +108,9 @@ impl Service {
             space_id,
             ..
         }: SpaceCtx,
-        folder_hash: String,
+        folder_id: String,
     ) -> AppResult<_FileMetaResponseVec> {
-        let mut files = self.ds.get_files(space_id, folder_hash).await?;
+        let mut files = self.ds.get_files(space_id, folder_id).await?;
         files.sort_by(|a, b| a.file_name.cmp(&b.file_name));
         Ok(_FileMetaResponseVec(files))
     }
@@ -118,16 +121,21 @@ impl Service {
             space_id,
             ..
         }: SpaceCtx,
-    ) -> AppResult<Folder> {
-        self.ds.get_dir_tree(space_id).await
+        folder_id: String,
+    ) -> AppResult<_FolderResponseVec> {
+        self.ds.list_folder(space_id, folder_id).await.map(_FolderResponseVec)
     }
 
     pub async fn generate_download_signed_url(
         &self,
+        SpaceCtx {
+            space_id,
+            ..
+        }: SpaceCtx,
         storage: &Storage,
         file_id: String,
     ) -> AppResult<StreamedUrlsResponse> {
-        let Some(stream_paths) = self.ds.get_file_stream_paths(&file_id).await? else {
+        let Some(stream_paths) = self.ds.get_file_stream_paths(space_id, &file_id).await? else {
             return Err(ErrType::NotFound.new("Requested file not found"));
         };
 
@@ -148,7 +156,7 @@ impl Service {
             ..
         }: SpaceCtx,
         storage: &Storage,
-        folder_hash: String,
+        folder_id: String,
     ) -> AppResult<()> {
         match role {
             SpaceRole::Read | SpaceRole::Upload => {
@@ -159,13 +167,11 @@ impl Service {
 
         let space_id_str = space_id.id();
 
-        let folders = self.ds.get_inner_dirs(space_id.clone(), folder_hash).await?;
-        for (folder_path, hash) in folders.iter() {
+        let folders = self.ds.get_inner_folder_paths(space_id.clone(), folder_id.clone()).await?;
+        for (folder_path, folder_id) in folders.into_iter() {
             storage.delete_folder(&space_id_str, &folder_path).await?;
-            self.ds.delete_files(space_id.clone(), hash.clone()).await?;
+            self.ds.delete_folder(space_id.clone(), folder_id).await?;
         }
-        let (folder_path, _) = folders.into_iter().last().expect("Whoa.. empty list ?");
-        self.ds.delete_folder(space_id.clone(), &folder_path).await?;
 
         Ok(())
     }

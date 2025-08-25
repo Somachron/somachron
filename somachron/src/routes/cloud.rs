@@ -6,10 +6,12 @@ use axum::{
 };
 use lib_core::{ApiError, ApiResult, EmptyResponse, Json, ReqId};
 use lib_domain::{
-    datastore::space::Folder,
     dto::cloud::{
         req::{CreateFolderRequest, InitiateUploadRequest, UploadCompleteRequest},
-        res::{FileMetaResponse, InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec},
+        res::{
+            FileMetaResponse, FolderResponse, InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec,
+            _FolderResponseVec,
+        },
     },
     extension::{SpaceCtx, UserId},
 };
@@ -20,9 +22,9 @@ use super::middleware;
 
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
-        .route("/ls/{hash}", get(list_files))
+        .route("/ls/{id}", get(list_files))
         .route("/lf", get(list_folders))
-        .route("/rm/{hash}", delete(delete_folder))
+        .route("/rm/{id}", delete(delete_folder))
         .route("/rmf/{id}", delete(delete_file))
         .route("/mkdir", post(create_folder))
         .route("/stream/{id}", get(generate_download_signed_url))
@@ -44,10 +46,10 @@ pub async fn delete_folder(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_hash): Path<String>,
+    Path(folder_id): Path<String>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .delete_folder(space_ctx, app.storage(), folder_hash)
+        .delete_folder(space_ctx, app.storage(), folder_id)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Path deleted")))
         .map_err(|err| ApiError(err, req_id))
@@ -74,7 +76,7 @@ pub async fn delete_file(
 
 #[utoipa::path(
     get,
-    path = "/v1/media/l/{hash}",
+    path = "/v1/media/l/{id}",
     responses((status=200, body=Vec<FileMetaResponse>)),
     tag = "Cloud"
 )]
@@ -82,23 +84,24 @@ pub async fn list_files(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_hash): Path<String>,
+    Path(folder_id): Path<String>,
 ) -> ApiResult<_FileMetaResponseVec> {
-    app.service().list_files(space_ctx, folder_hash).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.service().list_files(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
     get,
-    path = "/v1/media/lf/{hash}",
-    responses((status=200, body=Vec<FileMetaResponse>)),
+    path = "/v1/media/lf/{id}",
+    responses((status=200, body=Vec<FolderResponse>)),
     tag = "Cloud"
 )]
 pub async fn list_folders(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-) -> ApiResult<Folder> {
-    app.service().list_folders(space_ctx).await.map(Json).map_err(|err| ApiError(err, req_id))
+    Path(folder_id): Path<String>,
+) -> ApiResult<_FolderResponseVec> {
+    app.service().list_folders(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -114,7 +117,7 @@ pub async fn initiate_upload(
     Json(body): Json<InitiateUploadRequest>,
 ) -> ApiResult<InitiateUploadResponse> {
     app.service()
-        .initiate_upload(space_ctx, app.storage(), body.folder_hash, body.file_name)
+        .initiate_upload(space_ctx, app.storage(), body.folder_id, body.file_name)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))
@@ -129,10 +132,11 @@ pub async fn initiate_upload(
 pub async fn generate_download_signed_url(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
     Path(file_id): Path<String>,
 ) -> ApiResult<StreamedUrlsResponse> {
     app.service()
-        .generate_download_signed_url(app.storage(), file_id)
+        .generate_download_signed_url(space_ctx, app.storage(), file_id)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))
@@ -171,7 +175,7 @@ pub async fn create_folder(
     Json(body): Json<CreateFolderRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .create_folder(space_ctx, app.storage(), body.parent_folder_hash, body.folder_name)
+        .create_folder(space_ctx, body.parent_folder_id, body.folder_name)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))
         .map_err(|err| ApiError(err, req_id))

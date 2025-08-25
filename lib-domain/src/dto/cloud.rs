@@ -5,7 +5,7 @@ pub mod res {
     use utoipa::ToSchema;
 
     use crate::{
-        datastore::storage::{File, FileMeta, Metadata},
+        datastore::storage::{File, FileMeta, Folder, Metadata},
         dto::{Datetime, _IdOptionRef, _IdRef},
     };
 
@@ -75,6 +75,17 @@ pub mod res {
             user: Option<String> = user => _IdOptionRef,
         }
     );
+
+    impl_dto!(
+        #[derive(ToSchema)]
+        pub struct FolderResponse<Folder> {
+            id: String = id => _IdRef,
+            created_at: Datetime = created_at,
+            updated_at: Datetime = updated_at,
+
+            name: String = name,
+        }
+    );
 }
 
 pub mod req {
@@ -85,7 +96,7 @@ pub mod req {
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct InitiateUploadRequest {
         #[validate(length(equal = 64))]
-        pub folder_hash: String,
+        pub folder_id: String,
 
         #[validate(length(min = 3))]
         pub file_name: String,
@@ -94,7 +105,7 @@ pub mod req {
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct UploadCompleteRequest {
         #[validate(length(min = 3))]
-        pub folder_hash: String,
+        pub folder_id: String,
         pub file_name: String,
         pub file_size: usize,
     }
@@ -102,7 +113,7 @@ pub mod req {
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct CreateFolderRequest {
         #[validate(length(equal = 64))]
-        pub parent_folder_hash: String,
+        pub parent_folder_id: String,
 
         #[validate(length(min = 3))]
         pub folder_name: String,

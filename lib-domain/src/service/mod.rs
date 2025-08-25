@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use lib_core::storage::Storage;
+use surrealdb::RecordId;
 
 use crate::{datastore::Datastore, extension::IdStr};
 
@@ -71,27 +72,32 @@ impl Service {
 
         // migrate folders
         let spaces = self.ds.get_all_spaces().await.expect("No spaces ?");
+        let mut hash_ids = BTreeMap::<String, RecordId>::new();
         for space in spaces.into_iter() {
-            match storage.list_dir(&space.id.id()).await {
-                Ok((path_prefix, dirs)) => {
-                    for dir_path in dirs.into_iter() {
-                        if let Err(err) = self
-                            .ds
-                            .migration_create_folder(
-                                space.id.clone(),
-                                path_prefix.to_str().unwrap(),
-                                dir_path.to_str().unwrap(),
-                            )
-                            .await
-                        {
-                            dbg!(err);
-                        }
-                    }
-                }
+            let folder_id = match self.ds.create_space_root_folder(space.id.clone()).await {
+                Ok(id) => id,
                 Err(err) => {
                     dbg!(err);
+                    continue;
                 }
             };
+
+            let (path_prefix, dirs) = match storage.list_dir(&space.id.id()).await {
+                Ok(d) => d,
+                Err(err) => {
+                    dbg!(err);
+                    continue;
+                }
+            };
+
+            let hashes = match self.ds.migrate_folder_paths(space.id, path_prefix, folder_id, dirs).await {
+                Ok(h) => h,
+                Err(err) => {
+                    dbg!(err);
+                    continue;
+                }
+            };
+            hash_ids.extend(hashes);
         }
 
         // update folder path
@@ -105,9 +111,12 @@ impl Service {
             let thumbnail_path = std::path::PathBuf::from(&file.thumbnail_path);
             let thumbnail_ext = thumbnail_path.extension().and_then(|s| s.to_str()).unwrap().to_owned();
 
+            let folder_id = hash_ids.get(&file.folder_hash).unwrap();
+
             if let Err(err) = self
                 .ds
                 .migrate_file_data(
+                    folder_id.clone(),
                     file.id,
                     path.to_str().unwrap().trim_matches('/').to_owned(),
                     format!("thumbnail_{file_stem}.{thumbnail_ext}"),
