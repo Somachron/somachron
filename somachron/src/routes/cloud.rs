@@ -23,7 +23,7 @@ use super::middleware;
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
         .route("/ls/{id}", get(list_files))
-        .route("/lf", get(list_folders))
+        .route("/lf/{id}", get(list_folders))
         .route("/rm/{id}", delete(delete_folder))
         .route("/rmf/{id}", delete(delete_file))
         .route("/mkdir", post(create_folder))

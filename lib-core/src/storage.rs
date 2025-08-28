@@ -321,13 +321,10 @@ impl Storage {
                     let mut tmp_thumbnail_path = tmp_path.clone();
                     let tmp_thumbnail_file =
                         tmp_thumbnail_path.file_stem().and_then(|s| s.to_str()).unwrap().to_owned();
-                    tmp_thumbnail_path.set_file_name(format!("{tmp_thumbnail_file}_{i}.jpeg"));
+                    tmp_thumbnail_path.set_file_name(format!("{tmp_thumbnail_file}.jpeg"));
 
-                    let (file_name, thumbnail_file_name) = if i > 0 {
-                        (format!("{file_name}_{i}.{ext}"), format!("{thumbnail_file_name}_{i}.jpeg"))
-                    } else {
-                        (format!("{file_name}.{ext}"), format!("{thumbnail_file_name}.jpeg"))
-                    };
+                    let (file_name, thumbnail_file_name) =
+                        (format!("{file_name}_{i}.{ext}"), format!("{thumbnail_file_name}_{i}.jpeg"));
 
                     let mut r2_path = r2_path.clone();
                     r2_path.set_file_name(&file_name);

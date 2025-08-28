@@ -190,7 +190,7 @@ impl Datastore {
         let mut res = self
             .db
             .query("CREATE folder SET name = $n, space = $s")
-            .bind(("n", space_id.id()))
+            .bind(("n", format!("root_{}", space_id.id())))
             .bind(("s", space_id.clone()))
             .await
             .map_err(|err| ErrType::DbError.err(err, format!("Failed to create space folder: {}", space_id)))?;
@@ -295,10 +295,11 @@ impl Datastore {
         folder_id: String,
         file_data: FileData,
     ) -> AppResult<File> {
-        let file = match self.get_file_from_fields(space_id.clone(), file_data.file_name.clone(), folder_id).await? {
-            Some(file) => self.update_file(file.id, file_data).await,
-            None => self.create_file(user_id, space_id, file_data).await,
-        }?;
+        let file =
+            match self.get_file_from_fields(space_id.clone(), file_data.file_name.clone(), folder_id.clone()).await? {
+                Some(file) => self.update_file(file.id, file_data).await,
+                None => self.create_file(user_id, space_id, folder_id, file_data).await,
+            }?;
 
         Ok(file)
     }
@@ -340,6 +341,7 @@ impl Datastore {
         &self,
         user_id: RecordId,
         space_id: RecordId,
+        folder_id: String,
         FileData {
             file_name,
             path,
@@ -349,6 +351,7 @@ impl Datastore {
             media_type,
         }: FileData,
     ) -> AppResult<File> {
+        let folder_id = Folder::get_id(&folder_id);
         let metadata = Metadata::from(metadata);
 
         let mut res = self
@@ -368,7 +371,11 @@ impl Datastore {
         let files: Vec<File> =
             res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize created file"))?;
 
-        files.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to get created file"))
+        let file = files.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to get created file"))?;
+
+        self.fs_link(folder_id, FsLink::File(file.id.clone())).await?;
+
+        Ok(file)
     }
 
     pub async fn get_file_from_fields(
@@ -381,7 +388,7 @@ impl Datastore {
 
         let mut res = self
             .db
-            .query("SELECT * FROM file WHERE <-fs<-folder[WHERE id = $f AND space = $s] AND file_name = $n")
+            .query("SELECT * FROM file WHERE <-fs.in[WHERE id = $f AND space = $s] AND file_name = $n")
             .bind(("s", space_id.clone()))
             .bind(("f", folder_id))
             .bind(("n", file_name))
@@ -559,8 +566,6 @@ impl Datastore {
             return Ok(None);
         };
 
-        let queried_folder_name = folder.name.clone();
-
         // fact: all the `next` will be of length 1 as per graph
         // root -> children, but child -> single parent
         let mut queue = VecDeque::new();
@@ -574,11 +579,12 @@ impl Datastore {
                 queue.push_back((dir.name, dir.next));
             }
         }
+
         // remove root folder
         let _ = paths.pop();
         paths.reverse();
-        // remove queried folder
-        let _ = paths.pop();
+        // get and remove queried folder
+        let queried_folder_name = paths.pop().unwrap_or_default();
 
         Ok(Some((paths.join("/"), queried_folder_name)))
     }

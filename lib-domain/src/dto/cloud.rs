@@ -95,7 +95,7 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct InitiateUploadRequest {
-        #[validate(length(equal = 64))]
+        #[validate(length(equal = 20))]
         pub folder_id: String,
 
         #[validate(length(min = 3))]
@@ -104,15 +104,17 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct UploadCompleteRequest {
-        #[validate(length(min = 3))]
+        #[validate(length(equal = 20))]
         pub folder_id: String,
+
+        #[validate(length(min = 3))]
         pub file_name: String,
         pub file_size: usize,
     }
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct CreateFolderRequest {
-        #[validate(length(equal = 64))]
+        #[validate(length(equal = 20))]
         pub parent_folder_id: String,
 
         #[validate(length(min = 3))]

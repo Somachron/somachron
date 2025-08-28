@@ -53,9 +53,10 @@ impl Service {
         // TODO: what to do when file with name already exists ?
         // let file = self.ds.get_file_from_fields(space_id.clone(), file_name.clone(), folder_hash).await?;
         // let file_name = file.map(|f| format!("copy_{}", f.file_name)).unwrap_or(file_name);
-        let file_path = format!("{}/{}/{}", folder_path, folder_name, file_name);
+        let file_path = std::path::PathBuf::from(folder_path).join(folder_name).join(file_name.clone());
+        dbg!(&file_path);
 
-        let url = storage.generate_upload_signed_url(&space_id.id(), &file_path).await?;
+        let url = storage.generate_upload_signed_url(&space_id.id(), file_path.to_str().unwrap()).await?;
         Ok(InitiateUploadResponse {
             url,
             file_name,
@@ -82,19 +83,18 @@ impl Service {
             _ => (),
         };
 
+        // TODO: handle root folder
         let Some((folder_path, folder_name)) = self.ds.trace_path_root(space_id.clone(), folder_id.clone()).await?
         else {
             return Err(ErrType::BadRequest.new("Folder not found"));
         };
 
+        let file_path = std::path::PathBuf::from(folder_path).join(folder_name).join(file_name);
+        dbg!(&file_path);
+
         let space_id_str = space_id.id();
-        let file_data = storage
-            .process_upload_completion(
-                &space_id_str,
-                &format!("{}/{}/{}", folder_path, folder_name, file_name),
-                file_size,
-            )
-            .await?;
+        let file_data =
+            storage.process_upload_completion(&space_id_str, file_path.to_str().unwrap(), file_size).await?;
         for data in file_data.into_iter() {
             let _ = self.ds.upsert_file(user_id.clone(), space_id.clone(), folder_id.clone(), data).await?;
         }
