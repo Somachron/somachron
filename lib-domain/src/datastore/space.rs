@@ -42,7 +42,7 @@ impl Datastore {
 
         let spaces: Vec<Space> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space"))?;
 
-        spaces.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to create requested space"))
+        spaces.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to create requested space"))
     }
 
     pub async fn update_space(
@@ -63,6 +63,6 @@ impl Datastore {
 
         let spaces: Vec<Space> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space"))?;
 
-        spaces.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to update requested space"))
+        spaces.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to update requested space"))
     }
 }

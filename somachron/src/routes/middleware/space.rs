@@ -22,7 +22,7 @@ pub async fn validate_user_space(
         .get(super::X_SPACE_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .ok_or(ApiError(ErrType::BadRequest.new("Missing space ID"), req_id.clone()))?;
+        .ok_or(ApiError(ErrType::BadRequest.msg("Missing space ID"), req_id.clone()))?;
 
     let space_member = app
         .service()
@@ -30,7 +30,7 @@ pub async fn validate_user_space(
         .get_user_space(&user_id.0.id(), space_id)
         .await
         .map_err(|err| ApiError(err, req_id.clone()))?
-        .ok_or(ApiError(ErrType::Unauthorized.new("User not member of space"), req_id))?;
+        .ok_or(ApiError(ErrType::Unauthorized.msg("User not member of space"), req_id))?;
 
     let space_ctx = SpaceCtx {
         membership_id: space_member.id,

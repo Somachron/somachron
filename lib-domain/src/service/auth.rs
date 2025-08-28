@@ -18,7 +18,7 @@ impl Service {
             if user.allowed {
                 Ok(())
             } else {
-                Err(ErrType::Unauthorized.new("Not allowed"))
+                Err(ErrType::Unauthorized.msg("Not allowed"))
             }
         })
     }

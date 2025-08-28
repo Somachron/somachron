@@ -177,7 +177,7 @@ impl Datastore {
         let files: Vec<File> =
             res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize created file"))?;
 
-        files.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to get created file"))
+        files.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to get created file"))
     }
 
     async fn create_file(
@@ -214,7 +214,7 @@ impl Datastore {
         let files: Vec<File> =
             res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize created file"))?;
 
-        let file = files.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to get created file"))?;
+        let file = files.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to get created file"))?;
 
         self.fs_link(folder_id, FsLink::File(file.id.clone())).await?;
 
@@ -307,11 +307,11 @@ impl Datastore {
     pub async fn create_folder(&self, space_id: RecordId, folder_id: String, folder_name: String) -> AppResult<()> {
         let folder_id = Folder::get_id(&folder_id);
         let Some(parent_folder) = self.get_folder(space_id.clone(), folder_id).await? else {
-            return Err(ErrType::BadRequest.new("Parent folder not found"));
+            return Err(ErrType::BadRequest.msg("Parent folder not found"));
         };
 
         let Some(new_folder) = self.create_orphan_folder(space_id, folder_name).await? else {
-            return Err(ErrType::DbError.new("Failed to get created folder"));
+            return Err(ErrType::DbError.msg("Failed to get created folder"));
         };
 
         self.fs_link(parent_folder.id, FsLink::Folder(new_folder.id)).await
@@ -438,13 +438,13 @@ impl Datastore {
         folder_id: String,
     ) -> AppResult<Vec<(String, RecordId)>> {
         let Some((mut parent_path, _)) = self.trace_path_root(space_id.clone(), folder_id.clone()).await? else {
-            return Err(ErrType::DbError.new("Failed to trace parent path"));
+            return Err(ErrType::DbError.msg("Failed to trace parent path"));
         };
 
         let folder_id = Folder::get_id(&folder_id);
 
         let Some(folder_tree) = self.get_inner_folders(space_id.clone(), folder_id.clone()).await? else {
-            return Err(ErrType::BadRequest.new("No folder found"));
+            return Err(ErrType::BadRequest.msg("No folder found"));
         };
 
         let mut paths = Vec::<(String, RecordId)>::new();

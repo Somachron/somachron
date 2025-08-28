@@ -31,8 +31,8 @@ pub async fn intercept(mut req: Request, next: Next) -> Response {
 }
 
 fn log_response(req_id: ReqId, status: StatusCode, duration: Duration) {
-    let message = format!("Completed with status {}", status);
-    let duration = format!("{:?}", duration);
+    let message = format!("Completed with status {status}");
+    let duration = format!("{duration:?}");
     match status {
         StatusCode::OK => tracing::info!(req_id = &req_id.0, message, duration),
         StatusCode::INTERNAL_SERVER_ERROR => {

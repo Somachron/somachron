@@ -85,7 +85,7 @@ where
         })?;
 
         payload.validate().map_err(|e| {
-            let err_msg = format!("Bad Payload: {}", e);
+            let err_msg = format!("Bad Payload: {e}");
             ApiError(ErrType::BadRequest.err(e, err_msg), req_id.clone())
         })?;
 
@@ -140,13 +140,8 @@ impl ErrType {
 
     #[track_caller]
     pub fn r2_delete(err: SdkError<DeleteObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
-        AppError::init(
-            ErrType::R2Error,
-            match err.into_service_error() {
-                err => Some(err.into()),
-            },
-            message,
-        )
+        let err = err.into_service_error();
+        AppError::init(ErrType::R2Error, Some(err.into()), message)
     }
 
     #[track_caller]
@@ -162,7 +157,7 @@ impl ErrType {
     }
 
     #[track_caller]
-    pub fn new(self, message: impl Into<String>) -> AppError {
+    pub fn msg(self, message: impl Into<String>) -> AppError {
         AppError::init(self, None, message)
     }
 

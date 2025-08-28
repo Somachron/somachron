@@ -17,6 +17,12 @@ pub struct ClerkAuth {
     validation: Validation,
 }
 
+impl Default for ClerkAuth {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClerkAuth {
     pub fn new() -> Self {
         let config = ClerkConfig::new();

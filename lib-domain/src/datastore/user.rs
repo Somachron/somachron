@@ -65,7 +65,7 @@ impl Datastore {
 
         let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
 
-        users.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to create requested user"))
+        users.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to create requested user"))
     }
 
     pub async fn update_user(&self, id: RecordId, given_name: &str, picture_url: &str) -> AppResult<User> {
@@ -80,6 +80,6 @@ impl Datastore {
 
         let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
 
-        users.into_iter().nth(0).ok_or(ErrType::ServerError.new("Failed to update requested user"))
+        users.into_iter().nth(0).ok_or(ErrType::ServerError.msg("Failed to update requested user"))
     }
 }

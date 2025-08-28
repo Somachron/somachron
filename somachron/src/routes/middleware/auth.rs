@@ -15,9 +15,9 @@ fn extract_bearer(headers: &HeaderMap) -> AppResult<&str> {
         .get(super::AUTHORIZATION_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .ok_or(ErrType::Unauthorized.new("Missing authorization token"))?;
+        .ok_or(ErrType::Unauthorized.msg("Missing authorization token"))?;
 
-    bearer_value.split(' ').last().ok_or(ErrType::Unauthorized.new("Missing bearer"))
+    bearer_value.split(' ').next_back().ok_or(ErrType::Unauthorized.msg("Missing bearer"))
 }
 
 pub async fn authenticate(
@@ -35,11 +35,11 @@ pub async fn authenticate(
         .ds()
         .get_user_by_clerk_id(&claims.sub)
         .await
-        .map(|id| id.ok_or(ApiError(ErrType::Unauthorized.new("User not found"), req_id.clone())))
+        .map(|id| id.ok_or(ApiError(ErrType::Unauthorized.msg("User not found"), req_id.clone())))
         .map_err(|err| ApiError(err, req_id.clone()))??;
 
     if !user.allowed {
-        return Err(ApiError(ErrType::Unauthorized.new("Not allowed"), req_id));
+        return Err(ApiError(ErrType::Unauthorized.msg("Not allowed"), req_id));
     }
 
     let user_id = UserId(user.id);

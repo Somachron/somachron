@@ -19,7 +19,7 @@ impl Datastore {
         let db_config = config::DbConfig::new();
 
         let url = db_config.url;
-        let db = Surreal::new::<Ws>(&url).await.expect(&format!("Failed to connect to db: {url}"));
+        let db = Surreal::new::<Ws>(&url).await.unwrap_or_else(|err| panic!("Failed to connect to db: {url} -- {err}"));
 
         db.signin(Root {
             username: &db_config.username,

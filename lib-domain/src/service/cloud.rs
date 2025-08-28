@@ -22,10 +22,9 @@ impl Service {
         parent_folder_id: String,
         folder_name: String,
     ) -> AppResult<()> {
-        match role {
-            SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot create folder: Unauthorized read role")),
-            _ => (),
-        };
+        if let SpaceRole::Read = role {
+            return Err(ErrType::Unauthorized.msg("Cannot create folder: Unauthorized read role"));
+        }
 
         self.ds.create_folder(space_id, parent_folder_id, folder_name).await
     }
@@ -41,13 +40,12 @@ impl Service {
         folder_id: String,
         file_name: String,
     ) -> AppResult<InitiateUploadResponse> {
-        match role {
-            SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot upload: Unauthorized read role")),
-            _ => (),
-        };
+        if let SpaceRole::Read = role {
+            return Err(ErrType::Unauthorized.msg("Cannot upload: Unauthorized read role"));
+        }
 
         let Some((folder_path, folder_name)) = self.ds.trace_path_root(space_id.clone(), folder_id).await? else {
-            return Err(ErrType::BadRequest.new("Folder not found"));
+            return Err(ErrType::BadRequest.msg("Folder not found"));
         };
 
         // TODO: what to do when file with name already exists ?
@@ -78,15 +76,14 @@ impl Service {
             file_size,
         }: UploadCompleteRequest,
     ) -> AppResult<()> {
-        match role {
-            SpaceRole::Read => return Err(ErrType::Unauthorized.new("Cannot complete upload: Unauthorized read role")),
-            _ => (),
-        };
+        if let SpaceRole::Read = role {
+            return Err(ErrType::Unauthorized.msg("Cannot complete upload: Unauthorized read role"));
+        }
 
         // TODO: handle root folder
         let Some((folder_path, folder_name)) = self.ds.trace_path_root(space_id.clone(), folder_id.clone()).await?
         else {
-            return Err(ErrType::BadRequest.new("Folder not found"));
+            return Err(ErrType::BadRequest.msg("Folder not found"));
         };
 
         let file_path = std::path::PathBuf::from(folder_path).join(folder_name).join(file_name);
@@ -136,7 +133,7 @@ impl Service {
         file_id: String,
     ) -> AppResult<StreamedUrlsResponse> {
         let Some(stream_paths) = self.ds.get_file_stream_paths(space_id, &file_id).await? else {
-            return Err(ErrType::NotFound.new("Requested file not found"));
+            return Err(ErrType::NotFound.msg("Requested file not found"));
         };
 
         let original_stream = storage.generate_download_signed_url(&stream_paths.original_path).await?;
@@ -160,7 +157,7 @@ impl Service {
     ) -> AppResult<()> {
         match role {
             SpaceRole::Read | SpaceRole::Upload => {
-                return Err(ErrType::Unauthorized.new("Cannot delete: Unauthorized read|upload role"))
+                return Err(ErrType::Unauthorized.msg("Cannot delete: Unauthorized read|upload role"))
             }
             _ => (),
         };
@@ -188,7 +185,7 @@ impl Service {
     ) -> AppResult<()> {
         match role {
             SpaceRole::Read | SpaceRole::Upload => {
-                return Err(ErrType::Unauthorized.new("Cannot delete: Unauthorized read|upload role"))
+                return Err(ErrType::Unauthorized.msg("Cannot delete: Unauthorized read|upload role"))
             }
             _ => (),
         };

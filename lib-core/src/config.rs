@@ -7,6 +7,7 @@ pub fn get_volume_path() -> String {
     std::env::var("VOLUME_PATH").unwrap_or_default()
 }
 
+#[derive(Default)]
 pub struct DbConfig {
     pub url: String,
     pub username: String,

@@ -112,7 +112,7 @@ impl Storage {
     /// Creates space folder
     pub async fn create_space_folder(&self, space_id: &str) -> AppResult<()> {
         let r2_path = self.r2_spaces.join(space_id);
-        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.msg("Failed to get str from folder path"))?;
         self.r2.create_folder(r2_path).await
     }
 
@@ -123,7 +123,7 @@ impl Storage {
         let file_path = self.clean_path(file_path)?;
 
         let file_path = self.r2_spaces.join(space_id).join(file_path);
-        let file_path = file_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?;
+        let file_path = file_path.to_str().ok_or(ErrType::FsError.msg("Failed to get str from file path"))?;
 
         self.r2.generate_upload_signed_url(file_path).await
     }
@@ -148,7 +148,7 @@ impl Storage {
         file_path: &str,
         file_size: usize,
     ) -> AppResult<Vec<FileData>> {
-        let file_path = self.clean_path(&file_path)?;
+        let file_path = self.clean_path(file_path)?;
         let file_path = file_path.as_str();
 
         // prepare r2 path
@@ -161,16 +161,16 @@ impl Storage {
         let ext = r2_path
             .extension()
             .and_then(|s| s.to_str())
-            .ok_or(ErrType::FsError.new("Invalid file path without extenstion"))?;
+            .ok_or(ErrType::FsError.msg("Invalid file path without extenstion"))?;
 
         let r2_path =
-            r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?.trim_matches('/');
+            r2_path.to_str().ok_or(ErrType::FsError.msg("Failed to get str from file path"))?.trim_matches('/');
         let r2_folder =
-            r2_folder.to_str().ok_or(ErrType::FsError.new("Failed to get str from file path"))?.trim_matches('/');
+            r2_folder.to_str().ok_or(ErrType::FsError.msg("Failed to get str from file path"))?.trim_matches('/');
 
         // prepare path
         let file_name =
-            r2_thumbnail.file_name().and_then(|s| s.to_str()).ok_or(ErrType::FsError.new("No file name"))?.to_owned();
+            r2_thumbnail.file_name().and_then(|s| s.to_str()).ok_or(ErrType::FsError.msg("No file name"))?.to_owned();
         r2_thumbnail.set_file_name(format!("thumbnail_{file_name}"));
 
         // process thumbnail and metadata
@@ -178,12 +178,9 @@ impl Storage {
         let bytes_stream = self.r2.download_media(r2_path).await?;
         let tmp_path = self.save_tmp_file(space_id, bytes_stream).await?;
 
-        match media_type {
-            infer::MatcherType::Video => {
-                r2_thumbnail.set_extension("jpeg");
-            }
-            _ => (),
-        };
+        if media_type == infer::MatcherType::Video {
+            r2_thumbnail.set_extension("jpeg");
+        }
 
         // extract media metadata
         let metadata_result = self.process_media(space_id, file_path, ext, &tmp_path, &r2_thumbnail, media_type).await;
@@ -216,10 +213,10 @@ impl Storage {
         file_path: &str,
         ext: &str,
         tmp_path: &PathBuf,
-        r2_thumbnail: &PathBuf,
+        r2_thumbnail: &Path,
         media_type: infer::MatcherType,
     ) -> AppResult<(media::MediaMetadata, Vec<(Option<String>, Option<String>)>)> {
-        let metadata = media::extract_metadata(&tmp_path).await?;
+        let metadata = media::extract_metadata(tmp_path).await?;
 
         let path = PathBuf::from(file_path);
         let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap();
@@ -229,7 +226,7 @@ impl Storage {
         let mut media_data = Vec::new();
 
         // create thumbnail
-        let heif_paths = media::run_thumbnailer(&tmp_path, media_type, &metadata).await?;
+        let heif_paths = media::run_thumbnailer(tmp_path, media_type, &metadata).await?;
         match heif_paths {
             Some(paths) => {
                 for (i, tmp_path) in paths.into_iter().enumerate() {
@@ -246,7 +243,7 @@ impl Storage {
                     r2_path.set_file_name(&file_name);
                     let r2_path = r2_path.to_str().unwrap();
 
-                    let mut r2_thumbnail = r2_thumbnail.clone();
+                    let mut r2_thumbnail = r2_thumbnail.to_path_buf();
                     r2_thumbnail.set_file_name(&thumbnail_file_name);
                     let r2_thumbnail = r2_thumbnail.to_str().unwrap();
 
@@ -260,7 +257,7 @@ impl Storage {
             }
             None => {
                 let r2_thumbnail = r2_thumbnail.to_str().unwrap();
-                self.r2.upload_photo(r2_thumbnail, &tmp_path).await?;
+                self.r2.upload_photo(r2_thumbnail, tmp_path).await?;
                 media_data.push((None, None));
             }
         };
@@ -281,10 +278,10 @@ impl Storage {
         let path = self.clean_path(dir_path)?;
 
         let mut r2_path = self.r2_spaces.join(space_id).join(path);
-        if let Some(_) = r2_path.extension() {
+        if r2_path.extension().is_some() {
             r2_path.set_file_name("");
         }
-        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.new("Failed to get str from folder path"))?;
+        let r2_path = r2_path.to_str().ok_or(ErrType::FsError.msg("Failed to get str from folder path"))?;
 
         self.r2.delete_folder(r2_path).await
     }

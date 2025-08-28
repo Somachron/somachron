@@ -34,7 +34,7 @@ impl Service {
     ) -> AppResult<()> {
         match role {
             SpaceRole::Read | SpaceRole::Upload => {
-                return Err(ErrType::Unauthorized.new("Cannot add user: Unauthorized read|upload role"))
+                return Err(ErrType::Unauthorized.msg("Cannot add user: Unauthorized read|upload role"))
             }
             _ => (),
         };
@@ -54,12 +54,12 @@ impl Service {
         req_role: SpaceRole,
     ) -> AppResult<()> {
         if user_id.id() == req_user_id {
-            return Err(ErrType::BadRequest.new("Cannot self modify role"));
+            return Err(ErrType::BadRequest.msg("Cannot self modify role"));
         }
 
         match role {
             SpaceRole::Owner => (),
-            _ => return Err(ErrType::Unauthorized.new("Cannot modify user role: Unauthorized role")),
+            _ => return Err(ErrType::Unauthorized.msg("Cannot modify user role: Unauthorized role")),
         };
 
         let space_member = self.ds.get_user_space(&req_user_id, &space_id.id()).await?;
@@ -81,7 +81,7 @@ impl Service {
     ) -> AppResult<()> {
         match role {
             SpaceRole::Owner => (),
-            _ => return Err(ErrType::Unauthorized.new("Cannot remove user: Unauthorized role")),
+            _ => return Err(ErrType::Unauthorized.msg("Cannot remove user: Unauthorized role")),
         };
 
         let space_member = self.ds.get_user_space(&req_user_id, &space_id.id()).await?;

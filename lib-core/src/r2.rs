@@ -132,7 +132,7 @@ impl R2Storage {
             .map_err(|err| ErrType::r2_list_err(err, "Failed to list objects"))?;
 
         let mut delete_objects = Vec::<ObjectIdentifier>::new();
-        for obj in objects.contents().into_iter() {
+        for obj in objects.contents().iter() {
             if let Some(key) = obj.key() {
                 let id = ObjectIdentifier::builder()
                     .key(key)

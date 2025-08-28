@@ -15,7 +15,6 @@ tower-http = { version = "0.6.6", features = ["fs"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 
@@ -24,3 +23,6 @@ dotenv = "0.15.0"
 [profile.release]
 codegen-units = 1
 lto = "thin"
+strip = true
+opt-level = 3
+panic = 'abort'

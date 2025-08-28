@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -92,7 +92,7 @@ impl<'de> Deserialize<'de> for MediaOrientation {
             "mirror horizontal and rotate 90 cw" | "transverse" | "7" => Ok(MediaOrientation::Transverse),
             "8" => Ok(MediaOrientation::R270CW),
 
-            _ => Err(serde::de::Error::custom(format!("Invalid rotation value: {}", s))),
+            _ => Err(serde::de::Error::custom(format!("Invalid rotation value: {s}"))),
         }
     }
 }
@@ -178,9 +178,9 @@ pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
 }
 
 /// Extract metadata from image path
-pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<MediaMetadata> {
+pub(super) async fn extract_metadata(tmp_path: &Path) -> AppResult<MediaMetadata> {
     let output = tokio::process::Command::new("exiftool")
-        .args(&["-j", tmp_path.to_str().unwrap()])
+        .args(["-j", tmp_path.to_str().unwrap()])
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -190,7 +190,7 @@ pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<MediaMetad
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ErrType::MediaError.new(stderr));
+        return Err(ErrType::MediaError.msg(stderr));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -200,7 +200,7 @@ pub(super) async fn extract_metadata(tmp_path: &PathBuf) -> AppResult<MediaMetad
         serde_json::from_str(&data).map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize metadata"))?;
 
     let data = if let Some(arr) = result.as_array() {
-        arr.into_iter().nth(0).cloned().unwrap_or(serde_json::Value::Null)
+        arr.iter().next().cloned().unwrap_or(serde_json::Value::Null)
     } else {
         result
     };
@@ -235,7 +235,7 @@ fn extract_gps_info(data: &serde_json::Value) -> Option<(f64, f64)> {
         lat.zip(lng)
     });
 
-    coordinates.and_then(|(lat, lng)| Some((parse_dms_decimal(lat), parse_dms_decimal(lng))))
+    coordinates.map(|(lat, lng)| (parse_dms_decimal(lat), parse_dms_decimal(lng)))
 }
 
 fn parse_dms_decimal(dms: &str) -> f64 {
@@ -255,7 +255,7 @@ fn parse_dms_decimal(dms: &str) -> f64 {
 
 /// Spawn thumbnailer binary
 pub(super) async fn run_thumbnailer(
-    src: &PathBuf,
+    src: &Path,
     media_type: infer::MatcherType,
     metadata: &MediaMetadata,
 ) -> AppResult<Option<Vec<String>>> {
@@ -278,8 +278,7 @@ pub(super) async fn run_thumbnailer(
 
     let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
     let output = command
-        .args(&["-m", mode])
-        .args(&["-r", &rotation.to_string(), src.to_str().unwrap()])
+        .args(["-m", mode, "-r", &rotation.to_string(), src.to_str().unwrap()])
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -289,7 +288,7 @@ pub(super) async fn run_thumbnailer(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ErrType::MediaError.new(stderr.into_owned()));
+        return Err(ErrType::MediaError.msg(stderr.into_owned()));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);

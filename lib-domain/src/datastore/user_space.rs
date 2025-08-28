@@ -78,12 +78,12 @@ impl Datastore {
         let space_members: Vec<SpaceMember> =
             res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space member"))?;
 
-        space_members.into_iter().nth(0).ok_or(ErrType::DbError.new("Failed to add user to space"))
+        space_members.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to add user to space"))
     }
 
     pub async fn get_user_space(&self, user_id: &str, space_id: &str) -> AppResult<Option<SpaceMember>> {
         let user_id = super::user::User::get_id(user_id);
-        let space_id = super::space::Space::get_id(&space_id);
+        let space_id = super::space::Space::get_id(space_id);
 
         let mut res = self
             .db

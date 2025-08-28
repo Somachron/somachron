@@ -16,6 +16,6 @@ ser_mapper = "0.3.1"
 utoipa = { workspace = true }
 
 # db
-surrealdb = "2.3.7"
+surrealdb = { version = "2.3.7", features = ["allocator"] }
 chrono = { workspace = true }
 nanoid = { workspace = true }

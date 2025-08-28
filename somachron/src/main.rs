@@ -40,5 +40,10 @@ async fn run() {
 }
 
 fn main() {
-    tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("Failed to build async rt").block_on(run())
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(10 * 1024 * 1024) // 10 MB
+        .build()
+        .expect("Failed to build async rt")
+        .block_on(run())
 }
