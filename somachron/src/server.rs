@@ -12,7 +12,6 @@ use crate::{
 /// Serves axum backend server
 pub async fn serve() {
     let app = App::new().await;
-    app.bootstrap().await;
 
     // build our application with a route
     // bind routes

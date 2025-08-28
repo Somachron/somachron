@@ -1,15 +1,15 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 
 use chrono::{DateTime, Utc};
 use lib_core::{
     media::MediaMetadata,
-    storage::{FileData, Hash, MediaType},
+    storage::{FileData, MediaType},
     AppResult, ErrType,
 };
 use serde::{Deserialize, Serialize};
 use surrealdb::RecordId;
 
-use crate::{datastore::Datastore, extension::IdStr};
+use crate::datastore::Datastore;
 
 use super::DbSchema;
 
@@ -125,169 +125,12 @@ pub struct StreamPaths {
     pub original_path: String,
 }
 
-#[derive(Clone, Deserialize)]
-pub struct MigrationFileData {
-    pub id: RecordId,
-    pub file_name: String,
-    pub folder_hash: String,
-    pub thumbnail_path: String,
-    pub r2_path: String,
-    pub space: RecordId,
-}
-
 pub enum FsLink {
     File(RecordId),
     Folder(RecordId),
 }
 
 impl Datastore {
-    // ---------------------- MIGRATION
-
-    pub async fn migrate_schema(&self) -> AppResult<()> {
-        self.db
-            .query(
-                r#"
-                DEFINE FIELD IF NOT EXISTS path ON file TYPE string;
-                DEFINE FIELD IF NOT EXISTS thumbnail_file_name ON file TYPE string;
-                UPDATE file SET path = '', thumbnail_file_name = '';
-
-                DEFINE TABLE folder TYPE NORMAL SCHEMAFULL;
-                DEFINE FIELD created_at ON TABLE folder TYPE datetime DEFAULT time::now();
-                DEFINE FIELD updated_at ON TABLE folder TYPE datetime VALUE time::now();
-                DEFINE FIELD name ON TABLE folder TYPE string ASSERT string::len($value) > 0;
-                DEFINE FIELD space ON TABLE folder TYPE record<space>;
-                DEFINE INDEX unique_folder ON TABLE folder COLUMNS name UNIQUE;
-
-                DEFINE TABLE fs TYPE RELATION IN folder OUT folder|file ENFORCED SCHEMAFULL;
-                DEFINE FIELD created_at ON TABLE fs TYPE datetime DEFAULT time::now();
-                DEFINE INDEX unique_link ON TABLE fs COLUMNS in, out UNIQUE;
-
-                DEFINE FIELD IF NOT EXISTS folder ON space TYPE record<folder>;
-            "#,
-            )
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to migrate schema"))?;
-        Ok(())
-    }
-
-    pub async fn cleanup_schema(&self) -> AppResult<()> {
-        self.db
-            .query(
-                r#"
-                REMOVE FIELD IF EXISTS r2_path ON file;
-                REMOVE FIELD IF EXISTS thumbnail_path ON file;
-                REMOVE FIELD IF EXISTS file_hash ON file;
-                REMOVE FIELD IF EXISTS folder_hash ON file;
-                UPDATE file SET r2_path = NONE, thumbnail_path = NONE, file_hash = NONE, folder_hash = NONE;
-            "#,
-            )
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to migrate schema"))?;
-        Ok(())
-    }
-
-    pub async fn create_space_root_folder(&self, space_id: RecordId) -> AppResult<RecordId> {
-        let mut res = self
-            .db
-            .query("CREATE folder SET name = $n, space = $s")
-            .bind(("n", format!("root_{}", space_id.id())))
-            .bind(("s", space_id.clone()))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, format!("Failed to create space folder: {}", space_id)))?;
-
-        let folders: Vec<Folder> = res
-            .take(0)
-            .map_err(|err| ErrType::DbError.err(err, format!("Failed to create space root folder: {}", space_id)))?;
-
-        let Some(folder) = folders.into_iter().nth(0) else {
-            return Err(ErrType::DbError.new("No created folders found"));
-        };
-
-        let _ = self
-            .db
-            .query("UPDATE $id SET folder = $f")
-            .bind(("id", space_id))
-            .bind(("f", folder.id.clone()))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to set folder for space"))?;
-
-        Ok(folder.id)
-    }
-
-    pub async fn get_all_files(&self) -> AppResult<Vec<MigrationFileData>> {
-        self.db.select(File::table_name()).await.map_err(|err| ErrType::DbError.err(err, "Failed to get all files"))
-    }
-
-    pub async fn migrate_file_data(
-        &self,
-        folder_id: RecordId,
-        file_id: RecordId,
-        path: String,
-        thumbnail_file_name: String,
-    ) -> AppResult<()> {
-        self.db
-            .query("UPDATE $f SET path = $p, thumbnail_file_name = $t")
-            .bind(("f", file_id.clone()))
-            .bind(("p", path))
-            .bind(("t", thumbnail_file_name))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, format!("Failed to set path for file: {}", file_id)))?;
-
-        self.fs_link(folder_id, FsLink::File(file_id)).await
-    }
-
-    pub async fn migrate_folder_paths(
-        &self,
-        space_id: RecordId,
-        path_prefix: std::path::PathBuf,
-        root_folder_id: RecordId,
-        dirs: Vec<std::path::PathBuf>,
-    ) -> AppResult<BTreeMap<String, RecordId>> {
-        let mut ids = BTreeMap::<String, RecordId>::new();
-        let mut hash_ids = BTreeMap::<String, RecordId>::new();
-        let trail = path_prefix.to_str().unwrap();
-        hash_ids.insert(Hash::new(trail).get(), root_folder_id.clone());
-
-        for path in dirs.into_iter() {
-            let mut trail = String::from(trail);
-            let mut prev_folder_id = root_folder_id.clone();
-
-            for comp in path.components().into_iter() {
-                match comp {
-                    std::path::Component::Normal(os_str) => {
-                        let path_str = os_str.to_str().unwrap();
-
-                        trail.push('/');
-                        trail.push_str(path_str);
-                        let hash = Hash::new(&trail);
-
-                        let folder_id = match ids.get(path_str) {
-                            Some(id) => id.clone(),
-                            None => {
-                                let folder = self
-                                    .create_orphan_folder(space_id.clone(), path_str.to_owned())
-                                    .await?
-                                    .expect("Should have folder id");
-                                folder.id
-                            }
-                        };
-                        ids.insert(path_str.to_owned(), folder_id.clone());
-                        hash_ids.insert(hash.get(), folder_id.clone());
-
-                        self.fs_link(prev_folder_id.clone(), FsLink::Folder(folder_id.clone())).await?;
-
-                        prev_folder_id = folder_id;
-                    }
-                    _ => (),
-                };
-            }
-        }
-
-        Ok(hash_ids)
-    }
-
-    // ---------------------- MIGRATION
-
     pub async fn upsert_file(
         &self,
         user_id: RecordId,

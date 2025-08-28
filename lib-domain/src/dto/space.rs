@@ -8,7 +8,7 @@ pub mod res {
             user_space::{SpaceRole, SpaceUser, UserSpace},
         },
         dto::{
-            Datetime, _IdOptionRef, _IdRef,
+            Datetime, _IdRef,
             user::res::{UserResponse, _UserResponseRef},
         },
     };
@@ -23,7 +23,7 @@ pub mod res {
             name: String = name,
             description: String = description,
             picture_url: String = picture_url,
-            folder: String = folder => _IdOptionRef,
+            folder: String = folder => _IdRef,
         }
     );
 

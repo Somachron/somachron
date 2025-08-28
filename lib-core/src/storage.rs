@@ -1,7 +1,4 @@
-use std::{
-    collections::VecDeque,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use aws_sdk_s3::primitives::ByteStream;
 use nanoid::nanoid;
@@ -13,31 +10,12 @@ use super::{config, media, r2::R2Storage, AppResult, ErrType};
 
 const ROOT_DATA: &str = "somachron-data";
 const SPACES_PATH: &str = "spaces";
-const FS_TAG: &str = "fs::";
 
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaType {
     Image,
     Video,
-}
-
-/// Wrapper to enforce hash type
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-pub struct Hash(String);
-impl Hash {
-    pub fn new(path: &str) -> Self {
-        Self(sha256::digest(path.trim_matches('/')))
-    }
-
-    pub fn get(self) -> String {
-        self.0
-    }
-
-    pub fn get_ref(&self) -> &str {
-        &self.0
-    }
 }
 
 pub struct FileData {
@@ -55,9 +33,6 @@ pub struct FileData {
 pub struct Storage {
     /// /mounted/volume/[`ROOT_DATA`]
     root_path: PathBuf,
-
-    /// /mounted/volume/[`ROOT_DATA`]/[`SPACES_PATH`]
-    spaces_path: PathBuf,
 
     /// Root folder for R2: [`ROOT_DATA`]/[`SPACES_PATH`],
     r2_spaces: PathBuf,
@@ -87,49 +62,12 @@ impl Storage {
         let root_path = volume_path.join(ROOT_DATA);
         create_dir(&root_path).await.unwrap();
 
-        let spaces_path = root_path.join(SPACES_PATH);
-        create_dir(&root_path).await.unwrap();
-
         Self {
             root_path,
-            spaces_path,
             r2_spaces: PathBuf::from(ROOT_DATA).join(SPACES_PATH),
             r2: R2Storage::new(),
         }
     }
-
-    // ---------------------- MIGRATION
-
-    pub async fn migration_lock(&self) -> AppResult<()> {
-        let path = self.root_path.join("mg.lock");
-        {
-            let mut file = create_file(&path).await?;
-            file.write_all(&[65]).await.unwrap();
-            let _ = file.flush().await;
-        }
-        Ok(())
-    }
-
-    pub async fn migration_exists(&self) -> bool {
-        let path = self.root_path.join("mg.lock");
-        tokio::fs::try_exists(path).await.unwrap_or(true)
-    }
-
-    pub async fn upload_thumbnail(&self, space_id: &str, file_name: &str, thumbnail_path: &str) -> AppResult<()> {
-        let mut folders = PathBuf::from(thumbnail_path);
-        let thumbnail_ext = folders.extension().and_then(|s| s.to_str()).expect("No ext").to_owned();
-        folders.set_file_name("");
-
-        let file_path = PathBuf::from(file_name);
-        let file_stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap().to_owned();
-
-        let path_key =
-            self.r2_spaces.join(space_id).join(folders).join(format!("thumbnail_{file_stem}.{thumbnail_ext}"));
-        let source_path = self.spaces_path.join(space_id).join(thumbnail_path);
-        self.r2.upload_photo(path_key.to_str().unwrap(), &source_path).await
-    }
-
-    // ---------------------- MIGRATION
 
     async fn save_tmp_file(&self, space_id: &str, mut bytes_stream: ByteStream) -> AppResult<PathBuf> {
         let tmp_dir_path = self.root_path.join(space_id).join("tmp");
@@ -162,7 +100,7 @@ impl Storage {
     /// * Replace `..` with empty from start and end
     pub fn clean_path(&self, path: &str) -> AppResult<String> {
         let path = urlencoding::decode(path).map_err(|err| ErrType::FsError.err(err, "Invalid path"))?;
-        Ok(path.trim_start_matches(FS_TAG).replace("..", "").trim_matches('/').to_owned())
+        Ok(path.replace("..", "").trim_matches('/').to_owned())
     }
 
     /// Get path prefix
@@ -196,28 +134,6 @@ impl Storage {
     pub async fn generate_download_signed_url(&self, path: &str) -> AppResult<String> {
         let path = self.clean_path(path)?;
         self.r2.generate_download_signed_url(&path).await
-    }
-
-    /// List items in the `dir` path
-    ///
-    /// * Skips `tmp`
-    /// * Skips `.*` files
-    /// * Processes only `*.json` files
-    ///
-    /// Returns vec [`String`]
-    #[deprecated]
-    pub async fn list_dir(&self, space_id: &str) -> AppResult<(PathBuf, Vec<PathBuf>)> {
-        let dir_path = self.spaces_path.join(space_id);
-        let dirs = self.collect_dirs(dir_path.clone()).await?;
-        Ok((
-            self.r2_spaces.join(space_id),
-            dirs.into_iter()
-                .map(|p| {
-                    let path = p.strip_prefix(&dir_path).unwrap();
-                    path.to_path_buf()
-                })
-                .collect(),
-        ))
     }
 
     /// Process the uploaded media
@@ -377,43 +293,5 @@ impl Storage {
         self.r2.delete_key(&r2_file).await?;
         self.r2.delete_key(&r2_thumbnail).await?;
         Ok(())
-    }
-
-    async fn collect_dirs(&self, dir_path: PathBuf) -> AppResult<Vec<PathBuf>> {
-        struct DirDepth {
-            path: PathBuf,
-            depth: u32,
-        }
-        let mut folders = Vec::new();
-        folders.push(DirDepth {
-            path: dir_path.clone(),
-            depth: 0,
-        });
-
-        let mut queue = VecDeque::new();
-        queue.push_back((dir_path, 0));
-
-        while let Some((dir, depth)) = queue.pop_front() {
-            let mut rd = tokio::fs::read_dir(&dir)
-                .await
-                .map_err(|err| ErrType::FsError.err(err, format!("Failed to read dir: {:?}", dir)))?;
-
-            while let Some(entry) =
-                rd.next_entry().await.map_err(|err| ErrType::FsError.err(err, "Failed to iter dir"))?
-            {
-                let path = entry.path();
-                if path.is_dir() {
-                    folders.push(DirDepth {
-                        path: path.clone(),
-                        depth: depth + 1,
-                    });
-                    queue.push_back((path, depth + 1));
-                }
-            }
-        }
-
-        folders.sort_by(|a: &DirDepth, b: &DirDepth| b.depth.cmp(&a.depth).then_with(|| a.path.cmp(&b.path)));
-
-        Ok(folders.into_iter().map(|f| f.path).collect())
     }
 }
