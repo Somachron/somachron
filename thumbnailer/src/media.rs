@@ -27,7 +27,7 @@ pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<Option<Vec
             let file_name = src
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .ok_or(ErrType::FsError.new(format!("Failed to get file name for {:?}", src)))?;
+                .ok_or(ErrType::FsError.msg(format!("Failed to get file name for {src:?}")))?;
 
             let mut heif_paths = Vec::with_capacity(paths.len());
             for (i, src) in paths.into_iter().enumerate() {
@@ -50,7 +50,7 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
     let mut input = ffmpeg::format::input(&src).map_err(|err| ErrType::MediaError.err(err, "Failed to input bytes"))?;
 
     let video_stream =
-        input.streams().best(ffmpeg::media::Type::Video).ok_or(ErrType::MediaError.new("No video stream found"))?;
+        input.streams().best(ffmpeg::media::Type::Video).ok_or(ErrType::MediaError.msg("No video stream found"))?;
 
     let stream_index = video_stream.index();
     let context_decoder = ffmpeg::codec::Context::from_parameters(video_stream.parameters())
@@ -59,7 +59,7 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
         context_decoder.decoder().video().map_err(|err| ErrType::MediaError.err(err, "Failed to get decoder"))?;
 
     let codec =
-        ffmpeg::encoder::find(ffmpeg::codec::Id::MJPEG).ok_or(ErrType::MediaError.new("MJPEG codec not found"))?;
+        ffmpeg::encoder::find(ffmpeg::codec::Id::MJPEG).ok_or(ErrType::MediaError.msg("MJPEG codec not found"))?;
     let mut encoder = ffmpeg::codec::Context::new_with_codec(codec)
         .encoder()
         .video()
@@ -95,7 +95,7 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
                 .map_err(|err| ErrType::MediaError.err(err, "Failed to send packet to decoder"))?;
 
             // Found a frame to use as thumbnail
-            if let Ok(_) = decoder.receive_frame(&mut frame) {
+            if decoder.receive_frame(&mut frame).is_ok() {
                 scaler
                     .run(&frame, &mut scaled_frame)
                     .map_err(|err| ErrType::MediaError.err(err, "Failed to scale frame"))?;
@@ -106,16 +106,16 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
 
                 let mut thumbnail = Vec::<u8>::new();
                 let mut encoded_packet = ffmpeg::Packet::empty();
-                while let Ok(_) = encoder.receive_packet(&mut encoded_packet) {
-                    let data = encoded_packet.data().ok_or(ErrType::MediaError.new("Empty encoded packet data"))?;
+                while encoder.receive_packet(&mut encoded_packet).is_ok() {
+                    let data = encoded_packet.data().ok_or(ErrType::MediaError.msg("Empty encoded packet data"))?;
                     thumbnail.extend_from_slice(data);
                 }
 
                 encoder.send_eof().map_err(|err| ErrType::MediaError.err(err, "Failed to send EOF to encoder"))?;
 
-                while let Ok(_) = encoder.receive_packet(&mut encoded_packet) {
+                while encoder.receive_packet(&mut encoded_packet).is_ok() {
                     let data =
-                        encoded_packet.data().ok_or(ErrType::MediaError.new("Empty draining encoded packet data"))?;
+                        encoded_packet.data().ok_or(ErrType::MediaError.msg("Empty draining encoded packet data"))?;
                     thumbnail.extend_from_slice(data);
                 }
 
@@ -177,10 +177,10 @@ fn create_thumbnail(
 fn infer_to_image_format(path: &PathBuf) -> AppResult<ImageFormat> {
     let kind = infer::get_from_path(path)
         .map_err(|err| ErrType::FsError.err(err, "Failed to process path"))?
-        .ok_or(ErrType::MediaError.new("Could not detect file type from magic bytes"))?;
+        .ok_or(ErrType::MediaError.msg("Could not detect file type from magic bytes"))?;
 
     if kind.matcher_type() != infer::MatcherType::Image {
-        return Err(ErrType::MediaError.new(format!(
+        return Err(ErrType::MediaError.msg(format!(
             "File is not an image, detected as: {} ({})",
             kind.mime_type(),
             kind.extension()
@@ -197,7 +197,7 @@ fn infer_to_image_format(path: &PathBuf) -> AppResult<ImageFormat> {
         "image/avif" => Ok(ImageFormat::General(image::ImageFormat::Avif)),
         "image/x-icon" => Ok(ImageFormat::General(image::ImageFormat::Ico)),
         "image/heif" => Ok(ImageFormat::Heif),
-        mime => Err(ErrType::MediaError.new(format!("{} ({})", mime, kind.extension()))),
+        mime => Err(ErrType::MediaError.msg(format!("{} ({})", mime, kind.extension()))),
     }
 }
 
@@ -225,7 +225,7 @@ fn convert_heif_to_jpeg(path: &PathBuf) -> AppResult<Vec<PathBuf>> {
             .map_err(|err| ErrType::MediaError.err(err, "Failed to decode from heif handle"))?;
         let planes = image.planes();
         let interleaved =
-            planes.interleaved.ok_or(ErrType::MediaError.new("Interleaved planes not found in heif image"))?;
+            planes.interleaved.ok_or(ErrType::MediaError.msg("Interleaved planes not found in heif image"))?;
 
         // get buffer
         let img_buffer: image::RgbImage =

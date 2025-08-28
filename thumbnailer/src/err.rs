@@ -7,7 +7,7 @@ pub enum ErrType {
 }
 impl ErrType {
     #[track_caller]
-    pub fn new(self, message: impl Into<String>) -> AppError {
+    pub fn msg(self, message: impl Into<String>) -> AppError {
         AppError::init(self, None, message)
     }
 
