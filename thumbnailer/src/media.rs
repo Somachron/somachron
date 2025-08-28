@@ -32,9 +32,7 @@ pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<Option<Vec
             let mut heif_paths = Vec::with_capacity(paths.len());
             for (i, src) in paths.into_iter().enumerate() {
                 let mut dst = src.clone();
-                if i > 0 {
-                    dst.set_file_name(format!("{file_name}_{i}.jpeg"));
-                }
+                dst.set_file_name(format!("{file_name}_{i}.jpeg"));
 
                 heif_paths.push(src.to_str().unwrap().to_owned());
 
