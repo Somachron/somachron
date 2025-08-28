@@ -126,5 +126,10 @@ impl Service {
                 dbg!(err);
             }
         }
+
+        // cleanup schema
+        if let Err(err) = self.ds.cleanup_schema().await {
+            dbg!(err);
+        }
     }
 }
