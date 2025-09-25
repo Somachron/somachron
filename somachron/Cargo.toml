@@ -24,5 +24,3 @@ dotenv = "0.15.0"
 codegen-units = 1
 lto = "thin"
 strip = true
-opt-level = 3
-panic = 'abort'
