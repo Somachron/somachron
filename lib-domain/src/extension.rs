@@ -1,5 +1,5 @@
 use lib_core::clerk::TokenClaims;
-use surrealdb::RecordId;
+use uuid::Uuid;
 
 use crate::datastore::user_space::SpaceRole;
 
@@ -8,7 +8,7 @@ use crate::datastore::user_space::SpaceRole;
 pub struct Claims(pub TokenClaims);
 
 #[repr(transparent)]
-pub struct UserId(pub RecordId);
+pub struct UserId(pub Uuid);
 impl Clone for UserId {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -16,8 +16,8 @@ impl Clone for UserId {
 }
 
 pub struct SpaceCtx {
-    pub membership_id: RecordId,
-    pub space_id: RecordId,
+    pub membership_id: Uuid,
+    pub space_id: Uuid,
     pub role: SpaceRole,
 }
 impl Clone for SpaceCtx {
@@ -27,15 +27,5 @@ impl Clone for SpaceCtx {
             space_id: self.space_id.clone(),
             role: self.role,
         }
-    }
-}
-
-pub trait IdStr {
-    fn id(&self) -> String;
-}
-
-impl IdStr for RecordId {
-    fn id(&self) -> String {
-        format!("{}", self.key())
     }
 }

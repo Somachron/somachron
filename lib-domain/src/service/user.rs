@@ -22,7 +22,8 @@ impl Service {
     pub async fn webhook_update_user(&self, data: UserUpdateEvent) -> AppResult<()> {
         let UserUpdate {
             id,
-            name,
+            first_name,
+            last_name,
             picture_url,
         } = data.get_data_update();
 
@@ -30,7 +31,7 @@ impl Service {
             return Ok(());
         };
 
-        let _ = self.ds.update_user(user.id, &name, &picture_url).await?;
+        let _ = self.ds.update_user(user.id, &first_name, &last_name, &picture_url).await?;
         Ok(())
     }
 }

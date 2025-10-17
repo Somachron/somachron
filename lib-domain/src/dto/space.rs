@@ -23,7 +23,6 @@ pub mod res {
             name: String = name,
             description: String = description,
             picture_url: String = picture_url,
-            folder: String = folder => _IdRef,
         }
     );
 
@@ -36,6 +35,7 @@ pub mod res {
 
             role: SpaceRole = role,
             space: SpaceResponse = space => _SpaceResponseRef,
+            folder: String = root_folder,
         }
     );
 
@@ -57,7 +57,7 @@ pub mod req {
     use utoipa::ToSchema;
     use validator::Validate;
 
-    use crate::datastore::user_space::SpaceRole;
+    use crate::{datastore::user_space::SpaceRole, dto::DtoUuid};
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct SpaceCreateRequest {
@@ -68,14 +68,12 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct SpaceMemberRequest {
-        #[validate(length(equal = 20))]
-        pub user_id: String,
+        pub user_id: DtoUuid,
     }
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct UpdateSpaceMemberRoleRequest {
-        #[validate(length(equal = 20))]
-        pub user_id: String,
+        pub user_id: DtoUuid,
 
         pub role: SpaceRole,
     }

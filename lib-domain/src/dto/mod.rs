@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use ser_mapper::impl_dto;
-use serde::Serialize;
-use surrealdb::RecordId;
+use serde::{Deserialize, Serialize};
 use utoipa::{
     openapi::{schema::SchemaType, KnownFormat, ObjectBuilder, RefOr, Schema, SchemaFormat, Type},
     PartialSchema, ToSchema,
 };
+use uuid::Uuid;
 
 pub mod cloud;
 pub mod space;
@@ -28,18 +28,17 @@ impl PartialSchema for Datetime {
 }
 
 impl_dto!(@define_dto
-    pub struct Id<RecordId> {
+    pub struct Id<Uuid> {
         __pad: u64,
     }
 );
 
-impl IdSerializer for RecordId {
+impl IdSerializer for Uuid {
     fn dto_serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let id = self.key().to_string();
-        serializer.serialize_str(&id)
+        self.serialize(serializer)
     }
 }
 
@@ -48,5 +47,21 @@ impl ToSchema for Id {}
 impl PartialSchema for Id {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
         String::schema()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct DtoUuid(pub Uuid);
+
+impl ToSchema for DtoUuid {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::from("Uuid")
+    }
+}
+
+impl PartialSchema for DtoUuid {
+    fn schema() -> RefOr<Schema> {
+        RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)).build()))
     }
 }

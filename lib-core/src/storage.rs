@@ -20,10 +20,9 @@ pub enum MediaType {
 
 pub struct FileData {
     pub file_name: String,
-    pub path: String,
     pub thumbnail_file_name: String,
     pub metadata: media::MediaMetadata,
-    pub size: usize,
+    pub size: i64,
     pub media_type: MediaType,
 }
 
@@ -131,9 +130,10 @@ impl Storage {
     /// Generate presigned URL for steaming media
     ///
     /// To be used by frontend
-    pub async fn generate_download_signed_url(&self, path: &str) -> AppResult<String> {
+    pub async fn generate_download_signed_url(&self, space_id: &str, path: &str) -> AppResult<String> {
         let path = self.clean_path(path)?;
-        self.r2.generate_download_signed_url(&path).await
+        let path = self.r2_spaces.join(space_id).join(path);
+        self.r2.generate_download_signed_url(path.to_str().unwrap()).await
     }
 
     /// Process the uploaded media
@@ -154,8 +154,6 @@ impl Storage {
         // prepare r2 path
         let r2_path = self.r2_spaces.join(space_id).join(file_path);
         let mut r2_thumbnail = r2_path.clone();
-        let mut r2_folder = r2_path.clone();
-        r2_folder.set_file_name("");
 
         // get file extension
         let ext = r2_path
@@ -165,8 +163,6 @@ impl Storage {
 
         let r2_path =
             r2_path.to_str().ok_or(ErrType::FsError.msg("Failed to get str from file path"))?.trim_matches('/');
-        let r2_folder =
-            r2_folder.to_str().ok_or(ErrType::FsError.msg("Failed to get str from file path"))?.trim_matches('/');
 
         // prepare path
         let file_name =
@@ -193,10 +189,9 @@ impl Storage {
             .into_iter()
             .map(|(processed_file_name, processed_thumbnail_file_name)| FileData {
                 file_name: processed_file_name.unwrap_or(file_name.to_owned()),
-                path: r2_folder.to_owned(),
                 thumbnail_file_name: processed_thumbnail_file_name.unwrap_or(thumbnail_file_name.clone()),
                 metadata: metadata.clone(),
-                size: file_size,
+                size: file_size as i64,
                 media_type: match media_type {
                     infer::MatcherType::Video => MediaType::Video,
                     _ => MediaType::Image,

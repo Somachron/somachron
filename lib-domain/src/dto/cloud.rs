@@ -5,7 +5,7 @@ pub mod res {
     use utoipa::ToSchema;
 
     use crate::{
-        datastore::storage::{File, FileMeta, Folder, Metadata},
+        datastore::storage::{FileMeta, FsNode, Metadata, NodeMetadata},
         dto::{Datetime, _IdOptionRef, _IdRef},
     };
 
@@ -23,7 +23,7 @@ pub mod res {
 
     impl_dto!(
         #[derive(ToSchema)]
-        pub struct FileMetadataResponse<Metadata> {
+        pub struct MediaMetadataResponse<Metadata> {
             make: Option<String> = make,
             model: Option<String> = model,
             software: Option<String> = software,
@@ -49,18 +49,25 @@ pub mod res {
 
     impl_dto!(
         #[derive(ToSchema)]
-        pub struct FileResponse<File> {
+        pub struct FileMetadataResponse<NodeMetadata> {
+            thumbnail_file_name: Option<String> = thumbnail_file_name,
+            file_meta: MediaMetadataResponse = file_meta => _MediaMetadataResponseOptionRef,
+            media_type: Option<MediaType> = media_type,
+        }
+    );
+
+    impl_dto!(
+        #[derive(ToSchema)]
+        pub struct FileResponse<FsNode> {
             id: String = id => _IdRef,
             created_at: Datetime = created_at,
             updated_at: Datetime = updated_at,
 
-            file_name: String = file_name,
-            file_size: u64 = file_size,
-            media_type: MediaType = media_type,
-            thumbnail_file_name: String = thumbnail_file_name,
+            file_name: String = node_name,
+            file_size: u64 = node_size,
             path: String = path,
-            user: String = user => _IdOptionRef,
-            space: String = space => _IdRef,
+            user: String = user_id => _IdOptionRef,
+            space: String = space_id => _IdRef,
             metadata: FileMetadataResponse = metadata => _FileMetadataResponseRef,
         }
     );
@@ -78,12 +85,12 @@ pub mod res {
 
     impl_dto!(
         #[derive(ToSchema)]
-        pub struct FolderResponse<Folder> {
+        pub struct FolderResponse<FsNode> {
             id: String = id => _IdRef,
             created_at: Datetime = created_at,
             updated_at: Datetime = updated_at,
 
-            name: String = name,
+            name: String = node_name,
         }
     );
 }
@@ -93,10 +100,11 @@ pub mod req {
     use utoipa::ToSchema;
     use validator::Validate;
 
+    use crate::dto::DtoUuid;
+
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct InitiateUploadRequest {
-        #[validate(length(equal = 20))]
-        pub folder_id: String,
+        pub folder_id: DtoUuid,
 
         #[validate(length(min = 3))]
         pub file_name: String,
@@ -104,8 +112,7 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct UploadCompleteRequest {
-        #[validate(length(equal = 20))]
-        pub folder_id: String,
+        pub folder_id: DtoUuid,
 
         #[validate(length(min = 3))]
         pub file_name: String,
@@ -114,8 +121,7 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct CreateFolderRequest {
-        #[validate(length(equal = 20))]
-        pub parent_folder_id: String,
+        pub parent_folder_id: DtoUuid,
 
         #[validate(length(min = 3))]
         pub folder_name: String,

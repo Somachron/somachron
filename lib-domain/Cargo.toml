@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 lib-core = { path = "../lib-core" }
+lib-migrations = { path = "../lib-migrations" }
 
 tokio = { workspace = true }
 
@@ -16,6 +17,11 @@ ser_mapper = "0.3.1"
 utoipa = { workspace = true }
 
 # db
-surrealdb = { version = "2.3.7", features = ["allocator"] }
+tokio-postgres = { version = "=0.7.14", features = [
+    "with-chrono-0_4",
+    "with-serde_json-1",
+    "with-uuid-1",
+] }
 chrono = { workspace = true }
 nanoid = { workspace = true }
+uuid = { workspace = true }

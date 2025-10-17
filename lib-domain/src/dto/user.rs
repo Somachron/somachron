@@ -13,7 +13,7 @@ pub mod res {
             id: String = id => _IdRef,
             created_at: Datetime = created_at,
             updated_at: Datetime = updated_at,
-            given_name: String = given_name,
+            given_name: String = first_name,
             email: String = email,
             picture_url: String = picture_url,
         }
@@ -24,7 +24,7 @@ pub mod res {
         pub struct PlatformUserResponse<User> {
             id: String = id => _IdRef,
             created_at: Datetime = created_at,
-            given_name: String = given_name,
+            given_name: String = first_name,
             picture_url: String = picture_url,
         }
     );

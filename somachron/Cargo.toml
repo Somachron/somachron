@@ -19,6 +19,7 @@ utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 
 dotenv = "0.15.0"
+uuid = { workspace = true }
 
 [profile.release]
 codegen-units = 1

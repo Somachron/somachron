@@ -1,9 +1,10 @@
 use lib_core::{AppResult, ErrType};
+use uuid::Uuid;
 
 use crate::{
     datastore::user_space::SpaceRole,
     dto::space::res::{_SpaceUserResponseVec, _UserSpaceResponseVec},
-    extension::{IdStr, SpaceCtx, UserId},
+    extension::{SpaceCtx, UserId},
 };
 
 use super::Service;
@@ -20,7 +21,7 @@ impl Service {
             ..
         }: SpaceCtx,
     ) -> AppResult<_SpaceUserResponseVec> {
-        self.ds.get_all_users_for_space(&space_id.id()).await.map(_SpaceUserResponseVec)
+        self.ds.get_all_users_for_space(&space_id).await.map(_SpaceUserResponseVec)
     }
 
     pub async fn add_user_to_space(
@@ -30,7 +31,7 @@ impl Service {
             role,
             ..
         }: SpaceCtx,
-        req_user_id: String,
+        req_user_id: Uuid,
     ) -> AppResult<()> {
         match role {
             SpaceRole::Read | SpaceRole::Upload => {
@@ -39,7 +40,7 @@ impl Service {
             _ => (),
         };
 
-        self.ds.add_user_to_space(&req_user_id, space_id, SpaceRole::Read).await.map(|_| ())
+        self.ds.add_user_to_space(&req_user_id, &space_id, SpaceRole::Read).await.map(|_| ())
     }
 
     pub async fn update_user_space_role(
@@ -50,10 +51,10 @@ impl Service {
             role,
             ..
         }: SpaceCtx,
-        req_user_id: String,
+        req_user_id: Uuid,
         req_role: SpaceRole,
     ) -> AppResult<()> {
-        if user_id.id() == req_user_id {
+        if user_id == req_user_id {
             return Err(ErrType::BadRequest.msg("Cannot self modify role"));
         }
 
@@ -62,7 +63,7 @@ impl Service {
             _ => return Err(ErrType::Unauthorized.msg("Cannot modify user role: Unauthorized role")),
         };
 
-        let space_member = self.ds.get_user_space(&req_user_id, &space_id.id()).await?;
+        let space_member = self.ds.get_user_space(&req_user_id, &space_id).await?;
         if let Some(member) = space_member {
             self.ds.update_space_user_role(member.id, req_role).await?;
         }
@@ -77,14 +78,14 @@ impl Service {
             role,
             ..
         }: SpaceCtx,
-        req_user_id: String,
+        req_user_id: Uuid,
     ) -> AppResult<()> {
         match role {
             SpaceRole::Owner => (),
             _ => return Err(ErrType::Unauthorized.msg("Cannot remove user: Unauthorized role")),
         };
 
-        let space_member = self.ds.get_user_space(&req_user_id, &space_id.id()).await?;
+        let space_member = self.ds.get_user_space(&req_user_id, &space_id).await?;
         if let Some(member) = space_member {
             self.ds.remove_user_from_space(member.id).await?;
         }

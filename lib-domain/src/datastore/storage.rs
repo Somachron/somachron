@@ -1,17 +1,13 @@
-use std::collections::VecDeque;
-
 use chrono::{DateTime, Utc};
 use lib_core::{
     media::MediaMetadata,
     storage::{FileData, MediaType},
-    AppResult, ErrType,
+    AppError, AppResult, ErrType,
 };
 use serde::{Deserialize, Serialize};
-use surrealdb::RecordId;
+use uuid::Uuid;
 
 use crate::datastore::Datastore;
-
-use super::DbSchema;
 
 #[derive(Serialize, Deserialize)]
 pub struct Metadata {
@@ -26,7 +22,7 @@ pub struct Metadata {
     pub media_duration: Option<String>,
     pub frame_rate: Option<f64>,
 
-    pub date_time: Option<surrealdb::Datetime>,
+    pub date_time: Option<DateTime<Utc>>,
     pub iso: Option<u64>,
     pub shutter_speed: Option<String>,
     pub aperture: Option<f64>,
@@ -50,7 +46,7 @@ impl From<MediaMetadata> for Metadata {
             duration: metadata.duration,
             media_duration: metadata.media_duration,
             frame_rate: metadata.frame_rate,
-            date_time: metadata.date_time.map(|dt| surrealdb::Datetime::from(dt.0)),
+            date_time: metadata.date_time.map(|dt| dt.0),
             iso: metadata.iso.map(|u| u as u64),
             shutter_speed: metadata.shutter_speed.map(|v| match v {
                 lib_core::media::EitherValue::Either(s) => s,
@@ -68,430 +64,482 @@ impl From<MediaMetadata> for Metadata {
     }
 }
 
-#[derive(Deserialize)]
-pub struct File {
-    pub id: RecordId,
+#[derive(Debug)]
+pub enum NodeType {
+    Folder,
+    File,
+}
+impl NodeType {
+    pub fn value(&self) -> i16 {
+        match self {
+            NodeType::Folder => 0,
+            NodeType::File => 1,
+        }
+    }
+}
+impl TryFrom<i16> for NodeType {
+    type Error = AppError;
+
+    fn try_from(value: i16) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(NodeType::Folder),
+            1 => Ok(NodeType::File),
+            x => Err(ErrType::DbError.msg(format!("Invalid node type: {x}"))),
+        }
+    }
+}
+impl<'a> tokio_postgres::types::FromSql<'a> for NodeType {
+    fn from_sql(
+        ty: &tokio_postgres::types::Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let node_type = i16::from_sql(ty, raw)?;
+        let node_type = NodeType::try_from(node_type)?;
+        Ok(node_type)
+    }
+
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        match *ty {
+            tokio_postgres::types::Type::INT2 => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct NodeMetadata {
+    pub thumbnail_file_name: Option<String>,
+    pub file_meta: Option<Metadata>,
+    pub media_type: Option<MediaType>,
+}
+impl<'a> tokio_postgres::types::FromSql<'a> for NodeMetadata {
+    fn from_sql(
+        _ty: &tokio_postgres::types::Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        // this will also handle invalid data type or json
+        serde_json::from_slice(&raw[1..]).map_err(Into::into)
+    }
+
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        match *ty {
+            tokio_postgres::types::Type::JSONB => true,
+            _ => false,
+        }
+    }
+}
+impl NodeMetadata {
+    pub fn jsonb(
+        thumbnail_file_name: String,
+        file_meta: Metadata,
+        media_type: MediaType,
+    ) -> AppResult<serde_json::Value> {
+        let meta = Self {
+            thumbnail_file_name: Some(thumbnail_file_name),
+            file_meta: Some(file_meta),
+            media_type: Some(media_type),
+        };
+        serde_json::to_value(&meta).map_err(|err| ErrType::FsError.err(err, "Failed to serialize metadata"))
+    }
+}
+
+pub struct FsNode {
+    pub id: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 
-    pub file_name: String,
-    pub file_size: u64,
-    pub media_type: MediaType,
-    pub thumbnail_file_name: String,
+    pub user_id: Option<Uuid>,
+    pub space_id: Uuid,
+    pub node_type: NodeType,
+    pub node_size: i64,
+    pub parent_node: Option<Uuid>,
+    pub node_name: String,
     pub path: String,
-    pub user: Option<RecordId>,
-    pub space: RecordId,
-    pub metadata: Metadata,
+    pub metadata: NodeMetadata,
 }
-impl DbSchema for File {
-    fn table_name() -> &'static str {
-        "file"
+impl TryFrom<tokio_postgres::Row> for FsNode {
+    type Error = tokio_postgres::error::Error;
+
+    fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.try_get(0)?,
+            created_at: value.try_get(1)?,
+            updated_at: value.try_get(2)?,
+            user_id: value.try_get(3)?,
+            space_id: value.try_get(4)?,
+            node_type: value.try_get(5)?,
+            node_size: value.try_get(6)?,
+            parent_node: value.try_get(7)?,
+            node_name: value.try_get(8)?,
+            path: value.try_get(9)?,
+            metadata: value.try_get(10)?,
+        })
     }
 }
 
-#[derive(Deserialize)]
 pub struct FileMeta {
-    pub id: RecordId,
+    pub id: Uuid,
     pub file_name: String,
     pub media_type: MediaType,
-    pub user: Option<RecordId>,
+    pub user: Option<Uuid>,
 }
+impl TryFrom<tokio_postgres::Row> for FileMeta {
+    type Error = tokio_postgres::error::Error;
 
-#[derive(Deserialize)]
-pub struct Folder {
-    pub id: RecordId,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-
-    pub name: String,
-}
-impl DbSchema for Folder {
-    fn table_name() -> &'static str {
-        "folder"
+    fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
+        let meta: NodeMetadata = value.get(10);
+        Ok(Self {
+            id: value.try_get(0)?,
+            file_name: value.try_get(8)?,
+            media_type: meta.media_type.unwrap_or(MediaType::Image),
+            user: value.try_get(3)?,
+        })
     }
 }
 
-#[derive(Deserialize)]
-pub struct FolderTree {
-    pub id: RecordId,
-    pub name: String,
-
-    pub next: Vec<FolderTree>,
-}
-
-#[derive(Deserialize)]
 pub struct StreamPaths {
     pub thumbnail_path: String,
     pub original_path: String,
 }
+impl TryFrom<tokio_postgres::Row> for StreamPaths {
+    type Error = tokio_postgres::error::Error;
 
-pub enum FsLink {
-    File(RecordId),
-    Folder(RecordId),
+    fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            thumbnail_path: value.try_get(1)?,
+            original_path: value.try_get(0)?,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct InnerFolder {
+    pub id: Uuid,
+    pub parent: Option<Uuid>,
+    pub path: String,
 }
 
 impl Datastore {
     pub async fn upsert_file(
         &self,
-        user_id: RecordId,
-        space_id: RecordId,
-        folder_id: String,
+        user_id: &Uuid,
+        space_id: &Uuid,
+        folder: &FsNode,
         file_data: FileData,
-    ) -> AppResult<File> {
-        let file =
-            match self.get_file_from_fields(space_id.clone(), file_data.file_name.clone(), folder_id.clone()).await? {
-                Some(file) => self.update_file(file.id, file_data).await,
-                None => self.create_file(user_id, space_id, folder_id, file_data).await,
-            }?;
+    ) -> AppResult<FsNode> {
+        let file = match self.get_file_from_fields(&space_id, &file_data.file_name, &folder.id).await? {
+            Some(file) => self.update_file(file.id, folder, space_id, file_data).await,
+            None => self.create_file(user_id, space_id, folder, file_data).await,
+        }?;
 
         Ok(file)
     }
 
     async fn update_file(
         &self,
-        file_id: RecordId,
+        file_id: Uuid,
+        folder: &FsNode,
+        space_id: &Uuid,
         FileData {
             file_name,
-            path,
             thumbnail_file_name,
             metadata,
             size: file_size,
             media_type,
         }: FileData,
-    ) -> AppResult<File> {
-        let metadata = Metadata::from(metadata);
+    ) -> AppResult<FsNode> {
+        let file_meta = Metadata::from(metadata);
+        let metadata = NodeMetadata::jsonb(thumbnail_file_name, file_meta, media_type)?;
 
-        let mut res = self
+        let row = self
             .db
-            .query("UPDATE $id SET file_name = $n, file_size = $s, media_type = $t, thumbnail_file_name = $th, path = $r, metadata = $mt")
-            .bind(("id", file_id))
-            .bind(("n", file_name))
-            .bind(("s", file_size))
-            .bind(("t", media_type))
-            .bind(("th", thumbnail_file_name))
-            .bind(("r", path))
-            .bind(("mt", metadata))
+            .query_one(
+                &self.storage_stmts.update_node,
+                &[&file_id, &folder.id, &space_id, &file_name, &file_size, &NodeType::File.value(), &metadata],
+            )
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query create file"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to update file"))?;
 
-        let files: Vec<File> =
-            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize created file"))?;
-
-        files.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to get created file"))
+        FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse updated file"))
     }
 
     async fn create_file(
         &self,
-        user_id: RecordId,
-        space_id: RecordId,
-        folder_id: String,
+        user_id: &Uuid,
+        space_id: &Uuid,
+        folder: &FsNode,
         FileData {
             file_name,
-            path,
             thumbnail_file_name,
             metadata,
             size: file_size,
             media_type,
         }: FileData,
-    ) -> AppResult<File> {
-        let folder_id = Folder::get_id(&folder_id);
+    ) -> AppResult<FsNode> {
         let metadata = Metadata::from(metadata);
+        let file_meta = NodeMetadata::jsonb(thumbnail_file_name, metadata, media_type)?;
 
-        let mut res = self
+        let row = self
             .db
-            .query("CREATE file SET file_name = $n, file_size = $s, media_type = $t, thumbnail_file_name = $th, path = $r, user = $u, space = $sp, metadata = $mt")
-            .bind(("n", file_name))
-            .bind(("s", file_size))
-            .bind(("t", media_type))
-            .bind(("th", thumbnail_file_name))
-            .bind(("r", path))
-            .bind(("u", user_id))
-            .bind(("sp", space_id))
-            .bind(("mt", metadata))
+            .query_one(
+                &self.storage_stmts.insert_fs_node,
+                &[
+                    &Uuid::now_v7(),
+                    &user_id,
+                    &space_id,
+                    &NodeType::File.value(),
+                    &(file_size as i64),
+                    &folder.id,
+                    &file_name,
+                    &folder.path,
+                    &file_meta,
+                ],
+            )
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query create file"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to create file"))?;
 
-        let files: Vec<File> =
-            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize created file"))?;
+        let file = FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse created file"))?;
 
-        let file = files.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to get created file"))?;
-
-        self.fs_link(folder_id, FsLink::File(file.id.clone())).await?;
+        self.fs_link(&folder.id, file.id).await?;
 
         Ok(file)
     }
 
     pub async fn get_file_from_fields(
         &self,
-        space_id: RecordId,
-        file_name: String,
-        folder_id: String,
-    ) -> AppResult<Option<File>> {
-        let folder_id = Folder::get_id(&folder_id);
-
-        let mut res = self
+        space_id: &Uuid,
+        file_name: &str,
+        folder_id: &Uuid,
+    ) -> AppResult<Option<FsNode>> {
+        let rows = self
             .db
-            .query("SELECT * FROM file WHERE <-fs.in[WHERE id = $f AND space = $s] AND file_name = $n")
-            .bind(("s", space_id.clone()))
-            .bind(("f", folder_id))
-            .bind(("n", file_name))
+            .query(&self.storage_stmts.get_node_by_name, &[&space_id, &folder_id, &file_name])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query for file"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get file by name"))?;
 
-        let files: Vec<File> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize file"))?;
-
-        Ok(files.into_iter().nth(0))
+        match rows.into_iter().next() {
+            Some(row) => FsNode::try_from(row)
+                .map(Some)
+                .map_err(|err| ErrType::DbError.err(err, "Failed to parse file from name")),
+            None => Ok(None),
+        }
     }
 
-    pub async fn get_file(&self, space_id: RecordId, file_id: &str) -> AppResult<Option<File>> {
-        let file_id = File::get_id(file_id);
-        let mut res = self
+    pub async fn get_file(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<FsNode>> {
+        let rows = self
             .db
-            .query("SELECT * FROM $id WHERE space = $s")
-            .bind(("id", file_id))
-            .bind(("s", space_id))
+            .query(&self.storage_stmts.get_fs_node, &[&file_id, &NodeType::File.value(), &space_id])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get file"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get file by id"))?;
 
-        let files: Vec<_> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize file"))?;
-
-        Ok(files.into_iter().nth(0))
+        match rows.into_iter().next() {
+            Some(row) => {
+                FsNode::try_from(row).map(Some).map_err(|err| ErrType::DbError.err(err, "Failed to parse file by id"))
+            }
+            None => Ok(None),
+        }
     }
 
-    pub async fn get_files(&self, space_id: RecordId, folder_id: String) -> AppResult<Vec<FileMeta>> {
-        let folder_id = Folder::get_id(&folder_id);
-
-        let mut res = self
+    pub async fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<FileMeta>> {
+        let rows = self
             .db
-            .query(r#"SELECT VALUE out.{id, file_name, media_type, user} FROM $f->fs[WHERE record::tb(out) == "file" AND in.space = $s]"#)
-            .bind(("s", space_id))
-            .bind(("f", folder_id))
+            .query(&self.storage_stmts.list_nodes, &[&NodeType::File.value(), &space_id, &folder_id])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query list of files"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get files"))?;
 
-        res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize files"))
+        let size = rows.len();
+        rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
+            let f = FileMeta::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse listed files"))?;
+            acc.push(f);
+            Ok(acc)
+        })
     }
 
-    pub async fn get_file_stream_paths(&self, space_id: RecordId, file_id: &str) -> AppResult<Option<StreamPaths>> {
-        let file_id = File::get_id(file_id);
-
-        let mut res = self
+    pub async fn get_file_stream_paths(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<StreamPaths>> {
+        let rows = self
             .db
-            .query(
-                r#"SELECT string::concat(path, "/", thumbnail_file_name) AS thumbnail_path, string::concat(path, "/", file_name) AS original_path FROM $id WHERE space = $s"#,
+            .query(&self.storage_stmts.get_file_stream_paths, &[&file_id, &space_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get file stream paths"))?;
+
+        match rows.into_iter().next() {
+            Some(row) => StreamPaths::try_from(row)
+                .map(Some)
+                .map_err(|err| ErrType::DbError.err(err, "Failed to parse stream paths for file")),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn create_root_folder(&self, space_id: &Uuid) -> AppResult<()> {
+        let id = Uuid::now_v7();
+        let _ = self
+            .db
+            .query_one(
+                &self.storage_stmts.insert_fs_node,
+                &[
+                    &id,
+                    &Option::<Uuid>::None,
+                    &space_id,
+                    &NodeType::Folder.value(),
+                    &0i64,
+                    &Option::<Uuid>::None,
+                    &format!("root_{id}"),
+                    &"/",
+                    &serde_json::json!({}),
+                ],
             )
-            .bind(("id", file_id))
-            .bind(("s", space_id))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query file path"))?;
-
-        let paths: Vec<StreamPaths> =
-            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to get file path"))?;
-
-        Ok(paths.into_iter().nth(0))
-    }
-
-    pub async fn create_orphan_folder(&self, space_id: RecordId, folder_name: String) -> AppResult<Option<Folder>> {
-        let mut res = self
-            .db
-            .query("CREATE folder SET name = $n, space = $s")
-            .bind(("n", folder_name))
-            .bind(("s", space_id))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query create orphan folder"))?;
-
-        let folders: Vec<_> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to create orphan folder"))?;
-        Ok(folders.into_iter().nth(0))
-    }
-
-    pub async fn create_folder(&self, space_id: RecordId, folder_id: String, folder_name: String) -> AppResult<()> {
-        let folder_id = Folder::get_id(&folder_id);
-        let Some(parent_folder) = self.get_folder(space_id.clone(), folder_id).await? else {
-            return Err(ErrType::BadRequest.msg("Parent folder not found"));
-        };
-
-        let Some(new_folder) = self.create_orphan_folder(space_id, folder_name).await? else {
-            return Err(ErrType::DbError.msg("Failed to get created folder"));
-        };
-
-        self.fs_link(parent_folder.id, FsLink::Folder(new_folder.id)).await
-    }
-
-    pub async fn fs_link(&self, parent_folder_id: RecordId, fs_id: FsLink) -> AppResult<()> {
-        let res = self
-            .db
-            .query("RELATE $p->fs->$n")
-            .bind(("p", parent_folder_id))
-            .bind((
-                "n",
-                match fs_id {
-                    FsLink::File(record_id) => record_id,
-                    FsLink::Folder(record_id) => record_id,
-                },
-            ))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to link folders"))?;
-
-        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to link created folder"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to create space root folder"))?;
 
         Ok(())
     }
 
-    pub async fn get_folder(&self, space_id: RecordId, folder_id: RecordId) -> AppResult<Option<Folder>> {
-        let mut res = self
-            .db
-            .query("SELECT * FROM $f WHERE space = $s")
-            .bind(("f", folder_id))
-            .bind(("s", space_id))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to fetch folder by ID"))?;
-
-        let folders: Vec<_> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to get folder by id"))?;
-        Ok(folders.into_iter().nth(0))
-    }
-
-    pub async fn list_folder(&self, space_id: RecordId, folder_id: String) -> AppResult<Vec<Folder>> {
-        let folder_id = Folder::get_id(&folder_id);
-
-        let mut res = self
-            .db
-            .query(r#"SELECT VALUE out.* FROM $f->fs[WHERE record::tb(out) == "folder" AND in.space = $s]"#)
-            .bind(("f", folder_id))
-            .bind(("s", space_id))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query list folders"))?;
-
-        res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to list folders"))
-    }
-
-    /// Returns [`Option`] of [`FolderTree`] for `folder_id`
-    async fn get_inner_folders(&self, space_id: RecordId, folder_id: RecordId) -> AppResult<Option<FolderTree>> {
-        let mut res = self
-            .db
-            .query(r#"SELECT @.{..}.{ id, name, next: ->fs[WHERE record::tb(out) == "folder"].out.@ } FROM $f WHERE space = $s"#)
-            .bind(("f", folder_id))
-            .bind(("s", space_id))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get child tree for folder"))?;
-        let folder_tree: Vec<FolderTree> =
-            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize dir tree"))?;
-        Ok(folder_tree.into_iter().nth(0))
-    }
-
-    /// Trace path to root
-    /// to be used as pefix for deletion
-    ///
-    /// Eg:
-    /// ```
-    ///     /---b----e
-    ///       \  `-c  `-g
-    ///        `-d  `-f
-    /// ```
-    ///
-    /// Querying for `f` should return (`b/c`, `f`);
-    /// which implies, do delete `f`, we need `b/c` prefix to delete
-    /// - `b/c/f`
-    /// - `b/c/f/*`
-    pub async fn trace_path_root(&self, space_id: RecordId, folder_id: String) -> AppResult<Option<(String, String)>> {
-        let folder_id = Folder::get_id(&folder_id);
-
-        let mut res = self
-            .db
-            .query("SELECT @.{..}.{ id, name, next: <-fs.in.@ } FROM $f WHERE space = $s")
-            .bind(("f", folder_id))
-            .bind(("s", space_id))
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get parent tree for folder"))?;
-        let folder_tree: Vec<FolderTree> =
-            res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize dir tree"))?;
-
-        let Some(folder) = folder_tree.into_iter().nth(0) else {
-            return Ok(None);
+    pub async fn create_folder(&self, space_id: Uuid, parent_folder: FsNode, folder_name: String) -> AppResult<()> {
+        let parent_folder_id = parent_folder.id;
+        let mut new_path = if parent_folder.parent_node.is_none() {
+            // avoid space root folder name
+            String::new()
+        } else {
+            parent_folder.path
         };
+        new_path.push('/');
+        new_path.push_str(&folder_name);
 
-        // fact: all the `next` will be of length 1 as per graph
-        // root -> children, but child -> single parent
-        let mut queue = VecDeque::new();
-        queue.push_back((folder.name, folder.next));
-
-        let mut paths = Vec::new();
-        while let Some((folder_name, dirs)) = queue.pop_front() {
-            paths.push(folder_name);
-
-            for dir in dirs.into_iter() {
-                queue.push_back((dir.name, dir.next));
-            }
-        }
-
-        // remove root folder
-        let _ = paths.pop();
-        paths.reverse();
-        // get and remove queried folder
-        let queried_folder_name = paths.pop().unwrap_or_default();
-
-        Ok(Some((paths.join("/"), queried_folder_name)))
-    }
-
-    pub async fn get_inner_folder_paths(
-        &self,
-        space_id: RecordId,
-        folder_id: String,
-    ) -> AppResult<Vec<(String, RecordId)>> {
-        let Some((mut parent_path, _)) = self.trace_path_root(space_id.clone(), folder_id.clone()).await? else {
-            return Err(ErrType::DbError.msg("Failed to trace parent path"));
-        };
-
-        let folder_id = Folder::get_id(&folder_id);
-
-        let Some(folder_tree) = self.get_inner_folders(space_id.clone(), folder_id.clone()).await? else {
-            return Err(ErrType::BadRequest.msg("No folder found"));
-        };
-
-        let mut paths = Vec::<(String, RecordId)>::new();
-        let mut queue = VecDeque::new();
-
-        parent_path.push('/');
-        parent_path.push_str(&folder_tree.name);
-        queue.push_back((parent_path, folder_tree.id, folder_tree.next));
-
-        while let Some((folder_path, folder_id, dirs)) = queue.pop_front() {
-            paths.push((folder_path.clone(), folder_id));
-
-            for subfolder in dirs.into_iter() {
-                let mut folder_path = folder_path.clone();
-                folder_path.push('/');
-                folder_path.push_str(&subfolder.name);
-                queue.push_back((folder_path, subfolder.id, subfolder.next));
-            }
-        }
-
-        // reverse the paths => inner to outer most order
-        paths.reverse();
-
-        Ok(paths)
-    }
-
-    pub async fn delete_folder(&self, space_id: RecordId, folder_id: RecordId) -> AppResult<()> {
-        let res = self
+        let row = self
             .db
-            .query(
-                r#"
-                DELETE $id->fs.out WHERE space = $s;
-                DELETE $id WHERE space = $s;
-            "#,
+            .query_one(
+                &self.storage_stmts.insert_fs_node,
+                &[
+                    &Uuid::now_v7(),
+                    &Option::<Uuid>::None,
+                    &space_id,
+                    &NodeType::Folder.value(),
+                    &0i64,
+                    &parent_folder_id,
+                    &folder_name,
+                    &new_path,
+                    &serde_json::json!({}),
+                ],
             )
-            .bind(("id", folder_id))
-            .bind(("s", space_id))
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query delete folder"))?;
-        res.check().map_err(|err| ErrType::DbError.err(err, "Failed to delete files for folder"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
+
+        let folder =
+            FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse created folder"))?;
+
+        self.fs_link(&parent_folder.id, folder.id).await?;
 
         Ok(())
     }
 
-    pub async fn delete_file(&self, file_id: RecordId) -> AppResult<()> {
-        let _: Option<File> =
-            self.db.delete(file_id).await.map_err(|err| ErrType::DbError.err(err, "Failed to query delete file"))?;
+    pub async fn fs_link(&self, parent_folder_id: &Uuid, fs_id: Uuid) -> AppResult<()> {
+        let _ = self
+            .db
+            .query_one(&self.storage_stmts.link_fs_node, &[&parent_folder_id, &fs_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to link fs node"))?;
+
+        Ok(())
+    }
+
+    pub async fn get_folder(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Option<FsNode>> {
+        let rows = self
+            .db
+            .query(&self.storage_stmts.get_fs_node, &[&folder_id, &NodeType::Folder.value(), &space_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get folder"))?;
+
+        match rows.into_iter().next() {
+            Some(row) => {
+                FsNode::try_from(row).map(Some).map_err(|err| ErrType::DbError.err(err, "Failed to parse folder by id"))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn list_folder(&self, space_id: Uuid, parent_folder_id: Uuid) -> AppResult<Vec<FsNode>> {
+        let rows = self
+            .db
+            .query(&self.storage_stmts.list_nodes, &[&NodeType::Folder.value(), &space_id, &parent_folder_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get folders"))?;
+
+        let size = rows.len();
+        rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
+            let f = FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse listed files"))?;
+            acc.push(f);
+            Ok(acc)
+        })
+    }
+
+    pub async fn get_inner_folder_paths(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<InnerFolder>> {
+        let rows = self
+            .db
+            .query(&self.storage_stmts.get_inner_folders, &[&folder_id, &space_id, &NodeType::Folder.value()])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get inner folders"))?;
+
+        let size = rows.len();
+        rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
+            let fs_node =
+                FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse inner folders"))?;
+            acc.push(InnerFolder {
+                id: fs_node.id,
+                parent: fs_node.parent_node,
+                path: fs_node.path,
+            });
+            Ok(acc)
+        })
+    }
+
+    pub async fn delete_folder(&self, space_id: &Uuid, inner_folders: Vec<InnerFolder>) -> AppResult<()> {
+        // for each inner-most folder
+        for inner in inner_folders.iter().rev() {
+            // get files
+            let files = self.list_files(space_id, &inner.id).await?;
+
+            // drop all links for this folder
+            self.db
+                .query(&self.storage_stmts.drop_parent_fs_link, &[&inner.id])
+                .await
+                .map_err(|err| ErrType::DbError.err(err, "Failed remove folder links"))?;
+
+            self.db
+                .query(&self.storage_stmts.drop_child_fs_link, &[&inner.id])
+                .await
+                .map_err(|err| ErrType::DbError.err(err, "Failed remove folder links"))?;
+
+            // delete files
+            for file in files.iter() {
+                self.db
+                    .query(&self.storage_stmts.delete_node, &[&file.id, &inner.id, &space_id])
+                    .await
+                    .map_err(|err| ErrType::DbError.err(err, "Failed to delete file node"))?;
+            }
+
+            // delete folder
+            self.db
+                .query(&self.storage_stmts.delete_node, &[&inner.id, &inner.parent, &space_id])
+                .await
+                .map_err(|err| ErrType::DbError.err(err, "Failed to delete node"))?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_file(&self, file_id: Uuid) -> AppResult<()> {
+        let _ = self
+            .db
+            .query(&self.storage_stmts.unlink_fs_node, &[&file_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to unlink file"));
+
+        let _ = self
+            .db
+            .query(&self.storage_stmts.delete_node, &[&file_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to delete file"));
+
         Ok(())
     }
 }

@@ -210,6 +210,14 @@ impl AppError {
     }
 }
 
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for AppError {}
+
 pub type AppResult<T> = Result<T, AppError>;
 pub struct ApiError(pub AppError, pub ReqId);
 pub type ApiResult<T> = axum::response::Result<Json<T>, ApiError>;

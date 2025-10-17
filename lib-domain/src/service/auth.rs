@@ -7,7 +7,7 @@ impl Service {
         match self.ds.get_user_by_clerk_id(&claims.sub).await? {
             Some(user) => {
                 if claims.updated_at > user.updated_at.timestamp() as f64 {
-                    self.ds.update_user(user.id, &claims.name, &claims.picture).await
+                    self.ds.update_user(user.id, &claims.name, "", &claims.picture).await
                 } else {
                     Ok(user)
                 }

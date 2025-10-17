@@ -1,68 +1,64 @@
 use chrono::{DateTime, Utc};
 use lib_core::{AppResult, ErrType};
-use serde::Deserialize;
-use surrealdb::RecordId;
-
-use crate::datastore::DbSchema;
+use uuid::Uuid;
 
 use super::Datastore;
 
-#[derive(Deserialize)]
 pub struct Space {
-    pub id: RecordId,
+    pub id: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 
     pub name: String,
     pub description: String,
     pub picture_url: String,
-
-    pub folder: RecordId,
 }
-impl DbSchema for Space {
-    fn table_name() -> &'static str {
-        "space"
+impl From<tokio_postgres::Row> for Space {
+    fn from(value: tokio_postgres::Row) -> Self {
+        Self {
+            id: value.get(0),
+            created_at: value.get(1),
+            updated_at: value.get(2),
+            name: value.get(3),
+            description: value.get(4),
+            picture_url: value.get(5),
+        }
     }
 }
 
 impl Datastore {
-    pub async fn get_space_by_id(&self, id: &str) -> AppResult<Option<Space>> {
-        let id = Space::get_id(id);
-        self.db.select(id).await.map_err(|err| ErrType::DbError.err(err, "Failed to query space by id"))
+    pub async fn get_space_by_id(&self, id: &Uuid) -> AppResult<Option<Space>> {
+        let rows = self
+            .db
+            .query(&self.space_stmts.get_by_id, &[&id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get space by id"))?;
+
+        Ok(rows.into_iter().nth(0).map(Space::from))
     }
 
     pub async fn insert_space(&self, name: &str, description: &str) -> AppResult<Space> {
-        let mut res = self
+        let row = self
             .db
-            .query("CREATE space SET name = $n, description = $d, picture_url = ''")
-            .bind(("n", name.to_owned()))
-            .bind(("d", description.to_owned()))
+            .query_one(&self.space_stmts.insert, &[&Uuid::now_v7(), &name, &description, &""])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query insert space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to insert space"))?;
 
-        let spaces: Vec<Space> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space"))?;
-
-        spaces.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to create requested space"))
+        Ok(Space::from(row))
     }
 
     pub async fn update_space(
         &self,
-        id: &str,
+        id: Uuid,
         name: &'static String,
         description: &'static String,
     ) -> AppResult<Space> {
-        let id = Space::get_id(id);
-        let mut res = self
+        let row = self
             .db
-            .query("UPDATE $id SET name = $n, description = $d")
-            .bind(("id", id))
-            .bind(("n", name))
-            .bind(("d", description))
+            .query_one(&self.space_stmts.update, &[&id, &name, &description])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query update space"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to update space"))?;
 
-        let spaces: Vec<Space> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize space"))?;
-
-        spaces.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to update requested space"))
+        Ok(Space::from(row))
     }
 }

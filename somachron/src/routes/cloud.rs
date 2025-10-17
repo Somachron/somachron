@@ -15,6 +15,7 @@ use lib_domain::{
     },
     extension::{SpaceCtx, UserId},
 };
+use uuid::Uuid;
 
 use crate::app::AppState;
 
@@ -46,7 +47,7 @@ pub async fn delete_folder(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_id): Path<String>,
+    Path(folder_id): Path<Uuid>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
         .delete_folder(space_ctx, app.storage(), folder_id)
@@ -65,7 +66,7 @@ pub async fn delete_file(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(file_id): Path<String>,
+    Path(file_id): Path<Uuid>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
         .delete_file(space_ctx, app.storage(), file_id)
@@ -84,7 +85,7 @@ pub async fn list_files(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_id): Path<String>,
+    Path(folder_id): Path<Uuid>,
 ) -> ApiResult<_FileMetaResponseVec> {
     app.service().list_files(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
@@ -99,7 +100,7 @@ pub async fn list_folders(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_id): Path<String>,
+    Path(folder_id): Path<Uuid>,
 ) -> ApiResult<_FolderResponseVec> {
     app.service().list_folders(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
@@ -117,7 +118,7 @@ pub async fn initiate_upload(
     Json(body): Json<InitiateUploadRequest>,
 ) -> ApiResult<InitiateUploadResponse> {
     app.service()
-        .initiate_upload(space_ctx, app.storage(), body.folder_id, body.file_name)
+        .initiate_upload(space_ctx, app.storage(), body.folder_id.0, body.file_name)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))
@@ -133,7 +134,7 @@ pub async fn generate_download_signed_url(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(file_id): Path<String>,
+    Path(file_id): Path<Uuid>,
 ) -> ApiResult<StreamedUrlsResponse> {
     app.service()
         .generate_download_signed_url(space_ctx, app.storage(), file_id)
@@ -175,7 +176,7 @@ pub async fn create_folder(
     Json(body): Json<CreateFolderRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .create_folder(space_ctx, body.parent_folder_id, body.folder_name)
+        .create_folder(space_ctx, body.parent_folder_id.0, body.folder_name)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))
         .map_err(|err| ApiError(err, req_id))

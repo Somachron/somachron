@@ -1,85 +1,87 @@
 use chrono::{DateTime, Utc};
 use lib_core::{clerk::TokenClaims, AppResult, ErrType};
-use serde::Deserialize;
-use surrealdb::RecordId;
-
-use crate::datastore::DbSchema;
+use uuid::Uuid;
 
 use super::Datastore;
 
-#[derive(Deserialize)]
 pub struct User {
-    pub id: RecordId,
+    pub id: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 
-    pub given_name: String,
-    pub email: String,
-    pub picture_url: String,
     pub allowed: bool,
+    pub email: String,
+    pub first_name: String,
+    pub last_name: String,
+    pub picture_url: String,
 }
-impl DbSchema for User {
-    fn table_name() -> &'static str {
-        "user"
+impl From<tokio_postgres::Row> for User {
+    fn from(value: tokio_postgres::Row) -> Self {
+        Self {
+            id: value.get(0),
+            created_at: value.get(1),
+            updated_at: value.get(2),
+            allowed: value.get(3),
+            // clerk_id: 4
+            email: value.get(5),
+            first_name: value.get(6),
+            last_name: value.get(7),
+            picture_url: value.get(8),
+        }
     }
 }
 
 impl Datastore {
     pub async fn get_user_by_clerk_id(&self, clerk_id: &str) -> AppResult<Option<User>> {
-        let mut res = self
+        let rows = self
             .db
-            .query("SELECT * FROM user WHERE clerk_id = $e")
-            .bind(("e", clerk_id.to_owned()))
+            .query(&self.user_stmts.get_by_clerk_id, &[&clerk_id])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query check for user using clerk id"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to check user by clerk id"))?;
 
-        let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
-
-        Ok(users.into_iter().nth(0))
+        Ok(rows.into_iter().nth(0).map(User::from))
     }
 
-    pub async fn get_user_by_id(&self, id: RecordId) -> AppResult<Option<User>> {
-        self.db.select(id).await.map_err(|err| ErrType::DbError.err(err, "Failed to query user by email"))
+    pub async fn get_user_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
+        let rows = self
+            .db
+            .query(&self.user_stmts.get_by_id, &[&id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get user by id"))?;
+
+        Ok(rows.into_iter().nth(0).map(User::from))
     }
 
     pub async fn get_platform_users(&self) -> AppResult<Vec<User>> {
-        let mut res = self
+        let rows = self
             .db
-            .query("SELECT * FROM user WHERE allowed = true")
+            .query(&self.user_stmts.get_allowed, &[])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get platform users"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get allowed users"))?;
 
-        res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize platform users"))
+        Ok(rows.into_iter().map(User::from).collect())
     }
 
     pub async fn insert_user(&self, claims: TokenClaims) -> AppResult<User> {
-        let mut res = self
+        let row = self
             .db
-            .query("CREATE user SET given_name = $n, clerk_id = $c, email = $e, picture_url = $p, allowed = false")
-            .bind(("n", claims.name))
-            .bind(("c", claims.sub))
-            .bind(("e", claims.email))
-            .bind(("p", claims.picture))
+            .query_one(
+                &self.user_stmts.insert,
+                &[&Uuid::now_v7(), &claims.sub, &claims.email, &claims.name, &"", &claims.picture],
+            )
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query insert user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to insert user"))?;
 
-        let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
-
-        users.into_iter().nth(0).ok_or(ErrType::DbError.msg("Failed to create requested user"))
+        Ok(User::from(row))
     }
 
-    pub async fn update_user(&self, id: RecordId, given_name: &str, picture_url: &str) -> AppResult<User> {
-        let mut res = self
+    pub async fn update_user(&self, id: Uuid, first_name: &str, last_name: &str, picture_url: &str) -> AppResult<User> {
+        let row = self
             .db
-            .query("UPDATE $id SET given_name = $n, picture_url = $p")
-            .bind(("id", id))
-            .bind(("n", given_name.to_owned()))
-            .bind(("p", picture_url.to_owned()))
+            .query_one(&self.user_stmts.update, &[&id, &first_name, &last_name, &picture_url])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query update user"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to update user"))?;
 
-        let users: Vec<User> = res.take(0).map_err(|err| ErrType::DbError.err(err, "Failed to deserialize user"))?;
-
-        users.into_iter().nth(0).ok_or(ErrType::ServerError.msg("Failed to update requested user"))
+        Ok(User::from(row))
     }
 }
