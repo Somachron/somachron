@@ -2,14 +2,14 @@ use lib_core::{AppResult, ErrType};
 use uuid::Uuid;
 
 use crate::{
-    datastore::user_space::SpaceRole,
+    datastore::user_space::{SpaceRole, UserSpaceDs},
     dto::space::res::{_SpaceUserResponseVec, _UserSpaceResponseVec},
     extension::{SpaceCtx, UserId},
 };
 
 use super::Service;
 
-impl Service {
+impl<D: UserSpaceDs> Service<D> {
     pub async fn get_spaces_for_user(&self, UserId(user_id): UserId) -> AppResult<_UserSpaceResponseVec> {
         self.ds.get_all_spaces_for_user(user_id).await.map(_UserSpaceResponseVec)
     }

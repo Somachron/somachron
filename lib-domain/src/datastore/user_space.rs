@@ -144,8 +144,22 @@ impl From<tokio_postgres::Row> for SpaceMember {
     }
 }
 
-impl Datastore {
-    pub async fn add_user_to_space(&self, user_id: &Uuid, space_id: &Uuid, role: SpaceRole) -> AppResult<SpaceMember> {
+pub trait UserSpaceDs {
+    fn add_user_to_space(
+        &self,
+        user_id: &Uuid,
+        space_id: &Uuid,
+        role: SpaceRole,
+    ) -> impl Future<Output = AppResult<SpaceMember>>;
+    fn get_user_space(&self, user_id: &Uuid, space_id: &Uuid) -> impl Future<Output = AppResult<Option<SpaceMember>>>;
+    fn get_all_spaces_for_user(&self, user_id: Uuid) -> impl Future<Output = AppResult<Vec<UserSpace>>>;
+    fn get_all_users_for_space(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<SpaceUser>>>;
+    fn update_space_user_role(&self, space_member_id: Uuid, role: SpaceRole) -> impl Future<Output = AppResult<()>>;
+    fn remove_user_from_space(&self, space_member_id: Uuid) -> impl Future<Output = AppResult<()>>;
+}
+
+impl UserSpaceDs for Datastore {
+    async fn add_user_to_space(&self, user_id: &Uuid, space_id: &Uuid, role: SpaceRole) -> AppResult<SpaceMember> {
         let row = self
             .db
             .query_one(&self.user_space_stmts.insert, &[&Uuid::now_v7(), &user_id, &space_id, &role.value()])
@@ -155,7 +169,7 @@ impl Datastore {
         Ok(SpaceMember::from(row))
     }
 
-    pub async fn get_user_space(&self, user_id: &Uuid, space_id: &Uuid) -> AppResult<Option<SpaceMember>> {
+    async fn get_user_space(&self, user_id: &Uuid, space_id: &Uuid) -> AppResult<Option<SpaceMember>> {
         let rows = self
             .db
             .query(&self.user_space_stmts.get_user_space, &[&user_id, &space_id])
@@ -165,7 +179,7 @@ impl Datastore {
         Ok(rows.into_iter().next().map(SpaceMember::from))
     }
 
-    pub async fn get_all_spaces_for_user(&self, user_id: Uuid) -> AppResult<Vec<UserSpace>> {
+    async fn get_all_spaces_for_user(&self, user_id: Uuid) -> AppResult<Vec<UserSpace>> {
         let rows = self
             .db
             .query(&self.user_space_stmts.get_all_spaces_for_user, &[&user_id, &NodeType::Folder.value()])
@@ -175,7 +189,7 @@ impl Datastore {
         Ok(rows.into_iter().map(UserSpace::from).collect())
     }
 
-    pub async fn get_all_users_for_space(&self, space_id: &Uuid) -> AppResult<Vec<SpaceUser>> {
+    async fn get_all_users_for_space(&self, space_id: &Uuid) -> AppResult<Vec<SpaceUser>> {
         let rows = self
             .db
             .query(&self.user_space_stmts.get_all_users_for_space, &[&space_id])
@@ -185,7 +199,7 @@ impl Datastore {
         Ok(rows.into_iter().map(SpaceUser::from).collect())
     }
 
-    pub async fn update_space_user_role(&self, space_member_id: Uuid, role: SpaceRole) -> AppResult<()> {
+    async fn update_space_user_role(&self, space_member_id: Uuid, role: SpaceRole) -> AppResult<()> {
         let _ = self
             .db
             .query_one(&self.user_space_stmts.update, &[&space_member_id, &role.value()])
@@ -194,7 +208,7 @@ impl Datastore {
         Ok(())
     }
 
-    pub async fn remove_user_from_space(&self, space_member_id: Uuid) -> AppResult<()> {
+    async fn remove_user_from_space(&self, space_member_id: Uuid) -> AppResult<()> {
         let _ = self
             .db
             .query_one(&self.user_space_stmts.delete, &[&space_member_id])

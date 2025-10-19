@@ -7,7 +7,7 @@ use lib_core::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::datastore::Datastore;
+use crate::datastore::{statements::StorageStatements, Datastore};
 
 #[derive(Serialize, Deserialize)]
 pub struct Metadata {
@@ -219,8 +219,51 @@ pub struct InnerFolder {
     pub path: String,
 }
 
-impl Datastore {
-    pub async fn upsert_file(
+pub trait StorageDs {
+    fn upsert_file(
+        &self,
+        user_id: &Uuid,
+        space_id: &Uuid,
+        folder: &FsNode,
+        file_data: FileData,
+    ) -> impl Future<Output = AppResult<FsNode>>;
+
+    fn get_file_from_fields(
+        &self,
+        space_id: &Uuid,
+        file_name: &str,
+        folder_id: &Uuid,
+    ) -> impl Future<Output = AppResult<Option<FsNode>>>;
+
+    fn get_file(&self, space_id: Uuid, file_id: Uuid) -> impl Future<Output = AppResult<Option<FsNode>>>;
+    fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Vec<FileMeta>>>;
+    fn get_file_stream_paths(
+        &self,
+        space_id: Uuid,
+        file_id: Uuid,
+    ) -> impl Future<Output = AppResult<Option<StreamPaths>>>;
+
+    fn create_root_folder(&self, space_id: &Uuid) -> impl Future<Output = AppResult<()>>;
+    fn create_folder(
+        &self,
+        space_id: Uuid,
+        parent_folder: FsNode,
+        folder_name: String,
+    ) -> impl Future<Output = AppResult<()>>;
+    fn get_folder(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Option<FsNode>>>;
+    fn list_folder(&self, space_id: Uuid, parent_folder_id: Uuid) -> impl Future<Output = AppResult<Vec<FsNode>>>;
+    fn get_inner_folder_paths(
+        &self,
+        space_id: &Uuid,
+        folder_id: &Uuid,
+    ) -> impl Future<Output = AppResult<Vec<InnerFolder>>>;
+
+    fn delete_folder(&self, space_id: &Uuid, inner_folders: Vec<InnerFolder>) -> impl Future<Output = AppResult<()>>;
+    fn delete_file(&self, file_id: Uuid) -> impl Future<Output = AppResult<()>>;
+}
+
+impl StorageDs for Datastore {
+    async fn upsert_file(
         &self,
         user_id: &Uuid,
         space_id: &Uuid,
@@ -228,84 +271,14 @@ impl Datastore {
         file_data: FileData,
     ) -> AppResult<FsNode> {
         let file = match self.get_file_from_fields(&space_id, &file_data.file_name, &folder.id).await? {
-            Some(file) => self.update_file(file.id, folder, space_id, file_data).await,
-            None => self.create_file(user_id, space_id, folder, file_data).await,
+            Some(file) => update_file(&self.db, &self.storage_stmts, file.id, folder, space_id, file_data).await,
+            None => create_file(&self.db, &self.storage_stmts, user_id, space_id, folder, file_data).await,
         }?;
 
         Ok(file)
     }
 
-    async fn update_file(
-        &self,
-        file_id: Uuid,
-        folder: &FsNode,
-        space_id: &Uuid,
-        FileData {
-            file_name,
-            thumbnail_file_name,
-            metadata,
-            size: file_size,
-            media_type,
-        }: FileData,
-    ) -> AppResult<FsNode> {
-        let file_meta = Metadata::from(metadata);
-        let metadata = NodeMetadata::jsonb(thumbnail_file_name, file_meta, media_type)?;
-
-        let row = self
-            .db
-            .query_one(
-                &self.storage_stmts.update_node,
-                &[&file_id, &folder.id, &space_id, &file_name, &file_size, &NodeType::File.value(), &metadata],
-            )
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to update file"))?;
-
-        FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse updated file"))
-    }
-
-    async fn create_file(
-        &self,
-        user_id: &Uuid,
-        space_id: &Uuid,
-        folder: &FsNode,
-        FileData {
-            file_name,
-            thumbnail_file_name,
-            metadata,
-            size: file_size,
-            media_type,
-        }: FileData,
-    ) -> AppResult<FsNode> {
-        let metadata = Metadata::from(metadata);
-        let file_meta = NodeMetadata::jsonb(thumbnail_file_name, metadata, media_type)?;
-
-        let row = self
-            .db
-            .query_one(
-                &self.storage_stmts.insert_fs_node,
-                &[
-                    &Uuid::now_v7(),
-                    &user_id,
-                    &space_id,
-                    &NodeType::File.value(),
-                    &(file_size as i64),
-                    &folder.id,
-                    &file_name,
-                    &folder.path,
-                    &file_meta,
-                ],
-            )
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to create file"))?;
-
-        let file = FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse created file"))?;
-
-        self.fs_link(&folder.id, file.id).await?;
-
-        Ok(file)
-    }
-
-    pub async fn get_file_from_fields(
+    async fn get_file_from_fields(
         &self,
         space_id: &Uuid,
         file_name: &str,
@@ -325,7 +298,7 @@ impl Datastore {
         }
     }
 
-    pub async fn get_file(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<FsNode>> {
+    async fn get_file(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<FsNode>> {
         let rows = self
             .db
             .query(&self.storage_stmts.get_fs_node, &[&file_id, &NodeType::File.value(), &space_id])
@@ -340,7 +313,7 @@ impl Datastore {
         }
     }
 
-    pub async fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<FileMeta>> {
+    async fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<FileMeta>> {
         let rows = self
             .db
             .query(&self.storage_stmts.list_nodes, &[&NodeType::File.value(), &space_id, &folder_id])
@@ -355,7 +328,7 @@ impl Datastore {
         })
     }
 
-    pub async fn get_file_stream_paths(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<StreamPaths>> {
+    async fn get_file_stream_paths(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<StreamPaths>> {
         let rows = self
             .db
             .query(&self.storage_stmts.get_file_stream_paths, &[&file_id, &space_id])
@@ -370,7 +343,7 @@ impl Datastore {
         }
     }
 
-    pub async fn create_root_folder(&self, space_id: &Uuid) -> AppResult<()> {
+    async fn create_root_folder(&self, space_id: &Uuid) -> AppResult<()> {
         let id = Uuid::now_v7();
         let _ = self
             .db
@@ -394,7 +367,7 @@ impl Datastore {
         Ok(())
     }
 
-    pub async fn create_folder(&self, space_id: Uuid, parent_folder: FsNode, folder_name: String) -> AppResult<()> {
+    async fn create_folder(&self, space_id: Uuid, parent_folder: FsNode, folder_name: String) -> AppResult<()> {
         let parent_folder_id = parent_folder.id;
         let mut new_path = if parent_folder.parent_node.is_none() {
             // avoid space root folder name
@@ -427,22 +400,12 @@ impl Datastore {
         let folder =
             FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse created folder"))?;
 
-        self.fs_link(&parent_folder.id, folder.id).await?;
+        fs_link(&self.db, &self.storage_stmts, &parent_folder.id, folder.id).await?;
 
         Ok(())
     }
 
-    pub async fn fs_link(&self, parent_folder_id: &Uuid, fs_id: Uuid) -> AppResult<()> {
-        let _ = self
-            .db
-            .query_one(&self.storage_stmts.link_fs_node, &[&parent_folder_id, &fs_id])
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to link fs node"))?;
-
-        Ok(())
-    }
-
-    pub async fn get_folder(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Option<FsNode>> {
+    async fn get_folder(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Option<FsNode>> {
         let rows = self
             .db
             .query(&self.storage_stmts.get_fs_node, &[&folder_id, &NodeType::Folder.value(), &space_id])
@@ -457,7 +420,7 @@ impl Datastore {
         }
     }
 
-    pub async fn list_folder(&self, space_id: Uuid, parent_folder_id: Uuid) -> AppResult<Vec<FsNode>> {
+    async fn list_folder(&self, space_id: Uuid, parent_folder_id: Uuid) -> AppResult<Vec<FsNode>> {
         let rows = self
             .db
             .query(&self.storage_stmts.list_nodes, &[&NodeType::Folder.value(), &space_id, &parent_folder_id])
@@ -472,7 +435,7 @@ impl Datastore {
         })
     }
 
-    pub async fn get_inner_folder_paths(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<InnerFolder>> {
+    async fn get_inner_folder_paths(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<InnerFolder>> {
         let rows = self
             .db
             .query(&self.storage_stmts.get_inner_folders, &[&folder_id, &space_id, &NodeType::Folder.value()])
@@ -492,7 +455,7 @@ impl Datastore {
         })
     }
 
-    pub async fn delete_folder(&self, space_id: &Uuid, inner_folders: Vec<InnerFolder>) -> AppResult<()> {
+    async fn delete_folder(&self, space_id: &Uuid, inner_folders: Vec<InnerFolder>) -> AppResult<()> {
         // for each inner-most folder
         for inner in inner_folders.iter().rev() {
             // get files
@@ -527,7 +490,7 @@ impl Datastore {
         Ok(())
     }
 
-    pub async fn delete_file(&self, file_id: Uuid) -> AppResult<()> {
+    async fn delete_file(&self, file_id: Uuid) -> AppResult<()> {
         let _ = self
             .db
             .query(&self.storage_stmts.unlink_fs_node, &[&file_id])
@@ -542,4 +505,88 @@ impl Datastore {
 
         Ok(())
     }
+}
+
+async fn update_file(
+    db: &tokio_postgres::Client,
+    storage_stmts: &StorageStatements,
+    file_id: Uuid,
+    folder: &FsNode,
+    space_id: &Uuid,
+    FileData {
+        file_name,
+        thumbnail_file_name,
+        metadata,
+        size: file_size,
+        media_type,
+    }: FileData,
+) -> AppResult<FsNode> {
+    let file_meta = Metadata::from(metadata);
+    let metadata = NodeMetadata::jsonb(thumbnail_file_name, file_meta, media_type)?;
+
+    let row = db
+        .query_one(
+            &storage_stmts.update_node,
+            &[&file_id, &folder.id, &space_id, &file_name, &file_size, &NodeType::File.value(), &metadata],
+        )
+        .await
+        .map_err(|err| ErrType::DbError.err(err, "Failed to update file"))?;
+
+    FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse updated file"))
+}
+
+async fn create_file(
+    db: &tokio_postgres::Client,
+    storage_stmts: &StorageStatements,
+    user_id: &Uuid,
+    space_id: &Uuid,
+    folder: &FsNode,
+    FileData {
+        file_name,
+        thumbnail_file_name,
+        metadata,
+        size: file_size,
+        media_type,
+    }: FileData,
+) -> AppResult<FsNode> {
+    let metadata = Metadata::from(metadata);
+    let file_meta = NodeMetadata::jsonb(thumbnail_file_name, metadata, media_type)?;
+
+    let row = db
+        .query_one(
+            &storage_stmts.insert_fs_node,
+            &[
+                &Uuid::now_v7(),
+                &user_id,
+                &space_id,
+                &NodeType::File.value(),
+                &(file_size as i64),
+                &folder.id,
+                &file_name,
+                &folder.path,
+                &file_meta,
+            ],
+        )
+        .await
+        .map_err(|err| ErrType::DbError.err(err, "Failed to create file"))?;
+
+    let file = FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse created file"))?;
+
+    fs_link(db, storage_stmts, &folder.id, file.id).await?;
+
+    Ok(file)
+}
+
+async fn fs_link(
+    db: &tokio_postgres::Client,
+    storage_stmts: &StorageStatements,
+    parent_folder_id: &Uuid,
+    fs_id: Uuid,
+) -> AppResult<()> {
+    let _ = db
+        .query_one(&storage_stmts.link_fs_node, &[&parent_folder_id, &fs_id])
+        .await
+        .map_err(|err| ErrType::DbError.err(err, "Failed to link fs node"))?;
+
+    Ok(())
 }

@@ -6,7 +6,10 @@ use axum::{
     Extension,
 };
 use lib_core::{ApiError, AppResult, ErrType, ReqId};
-use lib_domain::extension::{Claims, UserId};
+use lib_domain::{
+    datastore::user::UserDs,
+    extension::{Claims, UserId},
+};
 
 use crate::app::AppState;
 

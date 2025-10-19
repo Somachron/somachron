@@ -1,8 +1,10 @@
 use lib_core::{clerk::TokenClaims, AppResult, ErrType};
 
+use crate::datastore::user::UserDs;
+
 use super::Service;
 
-impl Service {
+impl<D: UserDs> Service<D> {
     pub async fn exchange_code_routine(&self, claims: TokenClaims) -> AppResult<()> {
         match self.ds.get_user_by_clerk_id(&claims.sub).await? {
             Some(user) => {

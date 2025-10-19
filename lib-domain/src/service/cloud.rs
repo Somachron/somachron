@@ -2,7 +2,7 @@ use lib_core::{storage::Storage, AppResult, ErrType};
 use uuid::Uuid;
 
 use crate::{
-    datastore::user_space::SpaceRole,
+    datastore::{storage::StorageDs, user_space::SpaceRole},
     dto::cloud::{
         req::UploadCompleteRequest,
         res::{InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec, _FolderResponseVec},
@@ -12,7 +12,7 @@ use crate::{
 
 use super::Service;
 
-impl Service {
+impl<D: StorageDs> Service<D> {
     pub async fn create_folder(
         &self,
         SpaceCtx {

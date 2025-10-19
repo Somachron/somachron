@@ -31,8 +31,22 @@ impl From<tokio_postgres::Row> for User {
     }
 }
 
-impl Datastore {
-    pub async fn get_user_by_clerk_id(&self, clerk_id: &str) -> AppResult<Option<User>> {
+pub trait UserDs {
+    fn get_user_by_clerk_id(&self, clerk_id: &str) -> impl Future<Output = AppResult<Option<User>>>;
+    fn get_user_by_id(&self, id: Uuid) -> impl Future<Output = AppResult<Option<User>>>;
+    fn get_platform_users(&self) -> impl Future<Output = AppResult<Vec<User>>>;
+    fn insert_user(&self, claims: TokenClaims) -> impl Future<Output = AppResult<User>>;
+    fn update_user(
+        &self,
+        id: Uuid,
+        first_name: &str,
+        last_name: &str,
+        picture_url: &str,
+    ) -> impl Future<Output = AppResult<User>>;
+}
+
+impl UserDs for Datastore {
+    async fn get_user_by_clerk_id(&self, clerk_id: &str) -> AppResult<Option<User>> {
         let rows = self
             .db
             .query(&self.user_stmts.get_by_clerk_id, &[&clerk_id])
@@ -42,7 +56,7 @@ impl Datastore {
         Ok(rows.into_iter().nth(0).map(User::from))
     }
 
-    pub async fn get_user_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
+    async fn get_user_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
         let rows = self
             .db
             .query(&self.user_stmts.get_by_id, &[&id])
@@ -52,7 +66,7 @@ impl Datastore {
         Ok(rows.into_iter().nth(0).map(User::from))
     }
 
-    pub async fn get_platform_users(&self) -> AppResult<Vec<User>> {
+    async fn get_platform_users(&self) -> AppResult<Vec<User>> {
         let rows = self
             .db
             .query(&self.user_stmts.get_allowed, &[])
@@ -62,7 +76,7 @@ impl Datastore {
         Ok(rows.into_iter().map(User::from).collect())
     }
 
-    pub async fn insert_user(&self, claims: TokenClaims) -> AppResult<User> {
+    async fn insert_user(&self, claims: TokenClaims) -> AppResult<User> {
         let row = self
             .db
             .query_one(
@@ -75,7 +89,7 @@ impl Datastore {
         Ok(User::from(row))
     }
 
-    pub async fn update_user(&self, id: Uuid, first_name: &str, last_name: &str, picture_url: &str) -> AppResult<User> {
+    async fn update_user(&self, id: Uuid, first_name: &str, last_name: &str, picture_url: &str) -> AppResult<User> {
         let row = self
             .db
             .query_one(&self.user_stmts.update, &[&id, &first_name, &last_name, &picture_url])

@@ -26,8 +26,19 @@ impl From<tokio_postgres::Row> for Space {
     }
 }
 
-impl Datastore {
-    pub async fn get_space_by_id(&self, id: &Uuid) -> AppResult<Option<Space>> {
+pub trait SpaceDs {
+    fn get_space_by_id(&self, id: &Uuid) -> impl Future<Output = AppResult<Option<Space>>>;
+    fn insert_space(&self, name: &str, description: &str) -> impl Future<Output = AppResult<Space>>;
+    fn update_space(
+        &self,
+        id: Uuid,
+        name: &'static String,
+        description: &'static String,
+    ) -> impl Future<Output = AppResult<Space>>;
+}
+
+impl SpaceDs for Datastore {
+    async fn get_space_by_id(&self, id: &Uuid) -> AppResult<Option<Space>> {
         let rows = self
             .db
             .query(&self.space_stmts.get_by_id, &[&id])
@@ -37,7 +48,7 @@ impl Datastore {
         Ok(rows.into_iter().nth(0).map(Space::from))
     }
 
-    pub async fn insert_space(&self, name: &str, description: &str) -> AppResult<Space> {
+    async fn insert_space(&self, name: &str, description: &str) -> AppResult<Space> {
         let row = self
             .db
             .query_one(&self.space_stmts.insert, &[&Uuid::now_v7(), &name, &description, &""])
@@ -47,12 +58,7 @@ impl Datastore {
         Ok(Space::from(row))
     }
 
-    pub async fn update_space(
-        &self,
-        id: Uuid,
-        name: &'static String,
-        description: &'static String,
-    ) -> AppResult<Space> {
+    async fn update_space(&self, id: Uuid, name: &'static String, description: &'static String) -> AppResult<Space> {
         let row = self
             .db
             .query_one(&self.space_stmts.update, &[&id, &name, &description])

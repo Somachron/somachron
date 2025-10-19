@@ -4,13 +4,14 @@ use lib_core::{
 };
 
 use crate::{
+    datastore::user::UserDs,
     dto::user::res::{_PlatformUserResponseVec, _UserResponse},
     extension::UserId,
 };
 
 use super::Service;
 
-impl Service {
+impl<D: UserDs> Service<D> {
     pub async fn get_user(&self, UserId(id): UserId) -> AppResult<_UserResponse> {
         self.ds.get_user_by_id(id).await?.map(_UserResponse).ok_or(ErrType::NotFound.msg("User not found"))
     }

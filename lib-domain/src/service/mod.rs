@@ -6,11 +6,13 @@ mod space;
 mod user;
 mod user_space;
 
-pub struct Service {
-    ds: Datastore,
+pub type AppService = Service<Datastore>;
+
+pub struct Service<D> {
+    ds: D,
 }
 
-impl Service {
+impl Service<Datastore> {
     pub async fn new() -> Self {
         Self {
             ds: Datastore::connect().await,

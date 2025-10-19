@@ -1,13 +1,14 @@
 use lib_core::{storage::Storage, AppResult};
 
 use crate::{
+    datastore::{space::SpaceDs, storage::StorageDs, user_space::UserSpaceDs},
     dto::space::{req::SpaceCreateRequest, res::_SpaceResponse},
     extension::UserId,
 };
 
 use super::Service;
 
-impl Service {
+impl<D: UserSpaceDs + SpaceDs + StorageDs> Service<D> {
     pub async fn create_user_space(
         &self,
         UserId(user_id): UserId,

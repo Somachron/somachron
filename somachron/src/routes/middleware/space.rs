@@ -8,7 +8,10 @@ use axum::{
     Extension,
 };
 use lib_core::{ApiError, ErrType, ReqId};
-use lib_domain::extension::{SpaceCtx, UserId};
+use lib_domain::{
+    datastore::user_space::UserSpaceDs,
+    extension::{SpaceCtx, UserId},
+};
 use uuid::Uuid;
 
 use crate::app::AppState;
