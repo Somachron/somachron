@@ -1,5 +1,6 @@
 use lib_core::config;
 
+pub mod native_app;
 pub mod space;
 pub mod storage;
 pub mod user;
@@ -11,6 +12,7 @@ pub struct Datastore {
     space_stmts: statements::SpaceStatements,
     user_space_stmts: statements::UsersSpacesStatements,
     storage_stmts: statements::StorageStatements,
+    native_app_stmts: statements::NativeAppStatements,
 }
 
 impl Datastore {
@@ -33,6 +35,7 @@ impl Datastore {
         let space_stmts = statements::SpaceStatements::new(&db).await;
         let user_space_stmts = statements::UsersSpacesStatements::new(&db).await;
         let storage_stmts = statements::StorageStatements::new(&db).await;
+        let native_app_stmts = statements::NativeAppStatements::new(&db).await;
 
         Self {
             db,
@@ -40,6 +43,7 @@ impl Datastore {
             space_stmts,
             user_space_stmts,
             storage_stmts,
+            native_app_stmts,
         }
     }
 }
@@ -86,7 +90,7 @@ mod statements {
                     .unwrap(),
                 update: db
                     .prepare_typed(
-                        r#"UPDATE users SET first_name = $2, last_name = $3, picture_url = $4 
+                        r#"UPDATE users SET first_name = $2, last_name = $3, picture_url = $4
                         WHERE id = $1"#,
                         &[Type::UUID, Type::VARCHAR, Type::VARCHAR, Type::VARCHAR],
                     )
@@ -175,7 +179,7 @@ mod statements {
                 get_all_spaces_for_user: db
                     .prepare_typed(
                         r#"SELECT us.*, spaces.*,
-                            (SELECT id FROM fs_node fs 
+                            (SELECT id FROM fs_node fs
                                 WHERE fs.space_id = spaces.id AND node_type = $2 AND parent_node IS NULL) AS root_node
                         FROM spaces
                         INNER JOIN (SELECT * FROM users_spaces WHERE user_id = $1) us
@@ -353,7 +357,7 @@ mod statements {
                 update_node: db
                     .prepare_typed(
                         r#"UPDATE fs_node
-                        SET node_name = $4, node_size = $5, node_type = $6, metadata = $7 
+                        SET node_name = $4, node_size = $5, node_type = $6, metadata = $7
                         WHERE id = $1 AND parent_node = $2 AND space_id = $3 RETURNING *"#,
                         &[Type::UUID, Type::UUID, Type::UUID, Type::VARCHAR, Type::INT8, Type::INT2, Type::JSONB],
                     )
@@ -379,6 +383,21 @@ mod statements {
                         r#"DELETE FROM fs_node WHERE id = $1 AND parent_node = $2 AND space_id = $3"#,
                         &[Type::UUID, Type::UUID, Type::UUID],
                     )
+                    .await
+                    .unwrap(),
+            }
+        }
+    }
+
+    pub struct NativeAppStatements {
+        /// SELECT * FROM native_app WHERE secure_identifier = $1
+        pub get_app_by_identifier: tokio_postgres::Statement,
+    }
+    impl NativeAppStatements {
+        pub async fn new(db: &tokio_postgres::Client) -> Self {
+            Self {
+                get_app_by_identifier: db
+                    .prepare_typed(r#"SELECT * FROM native_app WHERE secure_identifier = $1"#, &[Type::VARCHAR])
                     .await
                     .unwrap(),
             }

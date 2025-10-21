@@ -8,6 +8,7 @@ use utoipa::{
 use uuid::Uuid;
 
 pub mod cloud;
+pub mod native_app;
 pub mod space;
 pub mod user;
 

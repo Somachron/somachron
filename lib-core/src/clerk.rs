@@ -15,6 +15,7 @@ pub struct TokenClaims {
 pub struct ClerkAuth {
     rsa_key: DecodingKey,
     validation: Validation,
+    publishable_key: String,
 }
 
 impl Default for ClerkAuth {
@@ -36,7 +37,12 @@ impl ClerkAuth {
         Self {
             rsa_key: decoding_key,
             validation,
+            publishable_key: config.publishable_key,
         }
+    }
+
+    pub fn publishable_key(&self) -> &str {
+        &self.publishable_key
     }
 
     pub fn validate_token_for_claims(&self, token: &str) -> AppResult<TokenClaims> {

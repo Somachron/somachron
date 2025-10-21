@@ -44,6 +44,7 @@ impl R2Config {
 pub(crate) struct ClerkConfig {
     pub aud: String,
     pub pem: String,
+    pub publishable_key: String,
 }
 
 impl ClerkConfig {
@@ -51,6 +52,7 @@ impl ClerkConfig {
         Self {
             aud: std::env::var("CLERK_AUD").unwrap_or_default(),
             pem: std::env::var("CLERK_PEM").unwrap_or_default(),
+            publishable_key: std::env::var("CLERK_PUBLISHABLE_KEY").unwrap_or_default(),
         }
     }
 }
