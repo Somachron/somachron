@@ -428,11 +428,15 @@ impl StorageDs for Datastore {
             .map_err(|err| ErrType::DbError.err(err, "Failed to get folders"))?;
 
         let size = rows.len();
-        rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
+        let mut folders = rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
             let f = FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse listed files"))?;
             acc.push(f);
             Ok(acc)
-        })
+        })?;
+
+        folders.sort_by(|a, b| a.node_name.cmp(&b.node_name));
+
+        Ok(folders)
     }
 
     async fn get_inner_folder_paths(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<InnerFolder>> {
