@@ -23,6 +23,7 @@ use super::middleware;
 
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
+        .route("/lg", get(list_files_gallery))
         .route("/ls/{id}", get(list_files))
         .route("/lf/{id}", get(list_folders))
         .route("/rm/{id}", delete(delete_folder))
@@ -88,6 +89,20 @@ pub async fn list_files(
     Path(folder_id): Path<Uuid>,
 ) -> ApiResult<_FileMetaResponseVec> {
     app.service().list_files(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/media/lg",
+    responses((status=200, body=Vec<FileMetaResponse>)),
+    tag = "Cloud"
+)]
+pub async fn list_files_gallery(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+) -> ApiResult<_FileMetaResponseVec> {
+    app.service().list_files_gallery(space_ctx).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(

@@ -76,6 +76,7 @@ pub mod res {
         #[derive(ToSchema)]
         pub struct FileMetaResponse<FileMeta> {
             id: String = id => _IdRef,
+            updated_at: Datetime = updated_at,
 
             file_name: String = file_name,
             media_type: MediaType = media_type,

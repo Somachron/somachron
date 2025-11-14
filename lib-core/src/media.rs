@@ -122,6 +122,8 @@ pub struct MediaMetadata {
 
     #[serde(rename = "DateTimeOriginal")]
     pub date_time: Option<MediaDatetime>,
+    #[serde(rename = "FileModifyDate")]
+    pub fs_date_time: Option<MediaDatetime>,
     #[serde(rename = "Orientation")]
     pub orientation: Option<MediaOrientation>,
     #[serde(rename = "Rotation")]

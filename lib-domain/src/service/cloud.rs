@@ -115,6 +115,18 @@ impl<D: StorageDs> Service<D> {
         Ok(_FileMetaResponseVec(files))
     }
 
+    pub async fn list_files_gallery(
+        &self,
+        SpaceCtx {
+            space_id,
+            ..
+        }: SpaceCtx,
+    ) -> AppResult<_FileMetaResponseVec> {
+        let files = self.ds.list_files_gallery(&space_id).await?;
+        let files: Vec<_> = files.into_iter().map(|g| g.0).collect();
+        Ok(_FileMetaResponseVec(files))
+    }
+
     pub async fn list_folders(
         &self,
         SpaceCtx {

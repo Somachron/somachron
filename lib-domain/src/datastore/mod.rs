@@ -259,6 +259,12 @@ mod statements {
         /// SELECT * FROM fs_node WHERE node_type = $1 AND space_id = $2 AND parent_node = $3
         pub list_nodes: tokio_postgres::Statement,
 
+        /// SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type
+        /// FROM fs_node
+        /// WHERE node_type = $1 AND space_id = $2
+        /// ORDER BY update_at DESC
+        pub list_gallery_nodes: tokio_postgres::Statement,
+
         /// UPDATE fs_node
         /// SET node_name = $4, node_size = $5, node_type = $6, metadata = $7
         /// WHERE id = $1 AND parent_node = $2 AND space_id = $3
@@ -355,6 +361,16 @@ mod statements {
                     .prepare_typed(
                         r#"SELECT * FROM fs_node WHERE node_type = $1 AND space_id = $2 AND parent_node = $3"#,
                         &[Type::INT2, Type::UUID, Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                list_gallery_nodes: db
+                    .prepare_typed(
+                        r#"SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type
+                        FROM fs_node
+                        WHERE node_type = $1 AND space_id = $2
+                        ORDER BY updated_at DESC"#,
+                        &[Type::INT2, Type::UUID],
                     )
                     .await
                     .unwrap(),

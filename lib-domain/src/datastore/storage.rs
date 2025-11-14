@@ -46,7 +46,7 @@ impl From<MediaMetadata> for Metadata {
             duration: metadata.duration,
             media_duration: metadata.media_duration,
             frame_rate: metadata.frame_rate,
-            date_time: metadata.date_time.map(|dt| dt.0),
+            date_time: metadata.date_time.or(metadata.fs_date_time).map(|dt| dt.0),
             iso: metadata.iso.map(|u| u as u64),
             shutter_speed: metadata.shutter_speed.map(|v| match v {
                 lib_core::media::EitherValue::Either(s) => s,
@@ -179,6 +179,7 @@ impl TryFrom<tokio_postgres::Row> for FsNode {
 
 pub struct FileMeta {
     pub id: Uuid,
+    pub updated_at: DateTime<Utc>,
     pub file_name: String,
     pub media_type: MediaType,
     pub user: Option<Uuid>,
@@ -190,10 +191,27 @@ impl TryFrom<tokio_postgres::Row> for FileMeta {
         let meta: NodeMetadata = value.get(10);
         Ok(Self {
             id: value.try_get(0)?,
+            updated_at: value.try_get(2)?,
             file_name: value.try_get(8)?,
             media_type: meta.media_type.unwrap_or(MediaType::Image),
             user: value.try_get(3)?,
         })
+    }
+}
+
+pub struct GalleryFileMeta(pub FileMeta);
+impl TryFrom<tokio_postgres::Row> for GalleryFileMeta {
+    type Error = tokio_postgres::error::Error;
+
+    fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
+        let media_type: String = value.try_get(4)?;
+        Ok(Self(FileMeta {
+            id: value.try_get(0)?,
+            updated_at: value.try_get(1)?,
+            user: value.try_get(2)?,
+            file_name: value.try_get(3)?,
+            media_type: serde_json::from_value(serde_json::Value::String(media_type)).unwrap_or(MediaType::Image),
+        }))
     }
 }
 
@@ -237,6 +255,7 @@ pub trait StorageDs {
 
     fn get_file(&self, space_id: Uuid, file_id: Uuid) -> impl Future<Output = AppResult<Option<FsNode>>>;
     fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Vec<FileMeta>>>;
+    fn list_files_gallery(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<GalleryFileMeta>>>;
     fn get_file_stream_paths(
         &self,
         space_id: Uuid,
@@ -323,6 +342,22 @@ impl StorageDs for Datastore {
         let size = rows.len();
         rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
             let f = FileMeta::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse listed files"))?;
+            acc.push(f);
+            Ok(acc)
+        })
+    }
+
+    async fn list_files_gallery(&self, space_id: &Uuid) -> AppResult<Vec<GalleryFileMeta>> {
+        let rows = self
+            .db
+            .query(&self.storage_stmts.list_gallery_nodes, &[&NodeType::File.value(), &space_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get files"))?;
+
+        let size = rows.len();
+        rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
+            let f = GalleryFileMeta::try_from(row)
+                .map_err(|err| ErrType::DbError.err(err, "Failed to parse listed files"))?;
             acc.push(f);
             Ok(acc)
         })
