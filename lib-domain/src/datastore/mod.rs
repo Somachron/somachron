@@ -67,7 +67,7 @@ mod statements {
         pub insert: tokio_postgres::Statement,
 
         /// UPDATE users SET first_name = $2, last_name = $3, picture_url = $4
-        /// WHERE id = $1
+        /// WHERE id = $1 RETURNING *
         pub update: tokio_postgres::Statement,
     }
     impl UserStatements {
@@ -91,7 +91,7 @@ mod statements {
                 update: db
                     .prepare_typed(
                         r#"UPDATE users SET first_name = $2, last_name = $3, picture_url = $4
-                        WHERE id = $1"#,
+                        WHERE id = $1 RETURNING *"#,
                         &[Type::UUID, Type::VARCHAR, Type::VARCHAR, Type::VARCHAR],
                     )
                     .await
@@ -110,7 +110,7 @@ mod statements {
         pub insert: tokio_postgres::Statement,
 
         /// UPDATE spaces SET name = $2, description = $3
-        /// WHERE id = $1
+        /// WHERE id = $1 RETURNING *
         pub update: tokio_postgres::Statement,
     }
     impl SpaceStatements {
@@ -129,7 +129,7 @@ mod statements {
                 update: db
                     .prepare_typed(
                         r#"UPDATE spaces SET name = $2, description = $3
-                        WHERE id = $1"#,
+                        WHERE id = $1 RETURNING *"#,
                         &[Type::UUID, Type::VARCHAR, Type::VARCHAR],
                     )
                     .await
@@ -160,7 +160,7 @@ mod statements {
         /// VALUES ($1, $2, $3, $4) RETURNING *
         pub insert: tokio_postgres::Statement,
 
-        /// UPDATE users_spaces SET role = $2 WHERE id = $1
+        /// UPDATE users_spaces SET role = $2 WHERE id = $1 RETURNING *
         pub update: tokio_postgres::Statement,
 
         /// DELETE FROM users_spaces WHERE id = $1
@@ -206,7 +206,10 @@ mod statements {
                     .await
                     .unwrap(),
                 update: db
-                    .prepare_typed(r#"UPDATE users_spaces SET role = $2 WHERE id = $1"#, &[Type::UUID, Type::INT2])
+                    .prepare_typed(
+                        r#"UPDATE users_spaces SET role = $2 WHERE id = $1 RETURNING *"#,
+                        &[Type::UUID, Type::INT2],
+                    )
                     .await
                     .unwrap(),
                 delete: db.prepare_typed(r#"DELETE FROM users_spaces WHERE id = $1"#, &[Type::UUID]).await.unwrap(),
@@ -259,6 +262,7 @@ mod statements {
         /// UPDATE fs_node
         /// SET node_name = $4, node_size = $5, node_type = $6, metadata = $7
         /// WHERE id = $1 AND parent_node = $2 AND space_id = $3
+        /// RETURNING *
         pub update_node: tokio_postgres::Statement,
 
         /// DELETE FROM fs_link WHERE node_id = $1 AND child_node_id = $2
