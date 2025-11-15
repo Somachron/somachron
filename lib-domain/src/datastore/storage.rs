@@ -109,8 +109,8 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeType {
 #[derive(Default, Serialize, Deserialize)]
 pub struct ThumbnailMeta {
     pub file_name: String,
-    pub width: u32,
-    pub height: u32,
+    pub width: i32,
+    pub height: i32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -190,7 +190,7 @@ pub struct FileMeta {
     pub file_name: String,
     pub media_type: MediaType,
     pub user: Option<Uuid>,
-    pub folder: Uuid,
+    pub width: i32,
 }
 impl TryFrom<tokio_postgres::Row> for FileMeta {
     type Error = tokio_postgres::error::Error;
@@ -203,7 +203,7 @@ impl TryFrom<tokio_postgres::Row> for FileMeta {
             file_name: value.try_get(8)?,
             media_type: meta.media_type.unwrap_or(MediaType::Image),
             user: value.try_get(3)?,
-            folder: value.try_get(7)?,
+            width: meta.thumbnail_meta.map(|m| m.width).unwrap_or(0),
         })
     }
 }
@@ -220,7 +220,7 @@ impl TryFrom<tokio_postgres::Row> for GalleryFileMeta {
             user: value.try_get(2)?,
             file_name: value.try_get(3)?,
             media_type: serde_json::from_value(serde_json::Value::String(media_type)).unwrap_or(MediaType::Image),
-            folder: value.try_get(5)?,
+            width: value.try_get(5)?,
         }))
     }
 }
@@ -585,8 +585,8 @@ async fn update_file(
     let metadata = NodeMetadata::jsonb(
         ThumbnailMeta {
             file_name: thumbnail_file_name,
-            width: thumbnail_width,
-            height: thumbnail_height,
+            width: thumbnail_width as i32,
+            height: thumbnail_height as i32,
         },
         file_meta,
         media_type,
@@ -633,8 +633,8 @@ async fn create_file(
     let metadata = NodeMetadata::jsonb(
         ThumbnailMeta {
             file_name: thumbnail_file_name,
-            width: thumbnail_width,
-            height: thumbnail_height,
+            width: thumbnail_width as i32,
+            height: thumbnail_height as i32,
         },
         file_meta,
         media_type,

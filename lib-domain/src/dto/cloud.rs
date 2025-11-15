@@ -90,6 +90,7 @@ pub mod res {
             file_name: String = file_name,
             media_type: MediaType = media_type,
             user: Option<String> = user => _IdOptionRef,
+            width: u32 = width,
         }
     );
 

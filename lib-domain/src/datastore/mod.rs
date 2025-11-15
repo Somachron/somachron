@@ -237,7 +237,7 @@ mod statements {
         pub get_node_by_name: tokio_postgres::Statement,
 
         /// SELECT concat(path, '/', node_name) as og_path,
-        ///     concat(path, '/', metadata->'thumbnail'->>'file_name') as th_path
+        ///     concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path
         /// FROM fs_node WHERE id = $1 AND space_id = $2
         pub get_file_stream_paths: tokio_postgres::Statement,
 
@@ -259,7 +259,8 @@ mod statements {
         /// SELECT * FROM fs_node WHERE node_type = $1 AND space_id = $2 AND parent_node = $3
         pub list_nodes: tokio_postgres::Statement,
 
-        /// SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type, parent_node
+        /// SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type,
+        ///     metadata->'thumbnail_meta'->>'width' as width
         /// FROM fs_node
         /// WHERE node_type = $1 AND space_id = $2
         /// ORDER BY update_at DESC
@@ -330,7 +331,7 @@ mod statements {
                 get_file_stream_paths: db
                     .prepare_typed(
                         r#"SELECT concat(path, '/', node_name) as og_path,
-                        concat(path, '/', metadata->'thumbnail'->>'file_name') as th_path
+                        concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path
                         FROM fs_node WHERE id = $1 AND space_id = $2"#,
                         &[Type::UUID, Type::UUID],
                     )
@@ -367,7 +368,8 @@ mod statements {
                     .unwrap(),
                 list_gallery_nodes: db
                     .prepare_typed(
-                        r#"SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type, parent_node
+                        r#"SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type,
+                            (metadata->'thumbnail_meta'->>'width')::int4 as width
                         FROM fs_node
                         WHERE node_type = $1 AND space_id = $2
                         ORDER BY updated_at DESC"#,
