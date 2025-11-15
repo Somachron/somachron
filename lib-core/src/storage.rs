@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    os::unix::fs::MetadataExt,
+    path::{Path, PathBuf},
+};
 
 use aws_sdk_s3::primitives::ByteStream;
 use nanoid::nanoid;
@@ -24,6 +27,8 @@ pub struct FileData {
     pub metadata: media::MediaMetadata,
     pub size: i64,
     pub media_type: MediaType,
+    pub thumbnail_width: u32,
+    pub thumbnail_height: u32,
 }
 
 /// Manage storage operations
@@ -174,6 +179,12 @@ impl Storage {
         let bytes_stream = self.r2.download_media(r2_path).await?;
         let tmp_path = self.save_tmp_file(space_id, bytes_stream).await?;
 
+        let file_size = if file_size == 0 {
+            tmp_path.metadata().map(|m| m.size() as usize).unwrap_or(file_size)
+        } else {
+            file_size
+        };
+
         if media_type == infer::MatcherType::Video {
             r2_thumbnail.set_extension("jpeg");
         }
@@ -187,7 +198,7 @@ impl Storage {
 
         let all_metadata = paths
             .into_iter()
-            .map(|(processed_file_name, processed_thumbnail_file_name)| FileData {
+            .map(|(width, height, processed_file_name, processed_thumbnail_file_name)| FileData {
                 file_name: processed_file_name.unwrap_or(file_name.to_owned()),
                 thumbnail_file_name: processed_thumbnail_file_name.unwrap_or(thumbnail_file_name.clone()),
                 metadata: metadata.clone(),
@@ -196,6 +207,8 @@ impl Storage {
                     infer::MatcherType::Video => MediaType::Video,
                     _ => MediaType::Image,
                 },
+                thumbnail_width: width,
+                thumbnail_height: height,
             })
             .collect();
 
@@ -210,7 +223,7 @@ impl Storage {
         tmp_path: &PathBuf,
         r2_thumbnail: &Path,
         media_type: infer::MatcherType,
-    ) -> AppResult<(media::MediaMetadata, Vec<(Option<String>, Option<String>)>)> {
+    ) -> AppResult<(media::MediaMetadata, Vec<(u32, u32, Option<String>, Option<String>)>)> {
         let metadata = media::extract_metadata(tmp_path).await?;
 
         let path = PathBuf::from(file_path);
@@ -221,8 +234,8 @@ impl Storage {
         let mut media_data = Vec::new();
 
         // create thumbnail
-        let heif_paths = media::run_thumbnailer(tmp_path, media_type, &metadata).await?;
-        match heif_paths {
+        let thumb_op = media::run_thumbnailer(tmp_path, media_type, &metadata).await?;
+        match thumb_op.heif_paths {
             Some(paths) => {
                 for (i, tmp_path) in paths.into_iter().enumerate() {
                     let tmp_path = PathBuf::from(tmp_path);
@@ -247,13 +260,13 @@ impl Storage {
                     let _ = remove_file(&tmp_path).await;
                     let _ = remove_file(&tmp_thumbnail_path).await;
 
-                    media_data.push((Some(file_name), Some(thumbnail_file_name)));
+                    media_data.push((thumb_op.width, thumb_op.height, Some(file_name), Some(thumbnail_file_name)));
                 }
             }
             None => {
                 let r2_thumbnail = r2_thumbnail.to_str().unwrap();
                 self.r2.upload_photo(r2_thumbnail, tmp_path).await?;
-                media_data.push((None, None));
+                media_data.push((thumb_op.width, thumb_op.height, None, None));
             }
         };
 

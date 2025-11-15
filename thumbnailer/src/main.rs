@@ -35,13 +35,15 @@ fn main() {
 
     let result = match cli.media {
         MediaType::Image => media::handle_image(cli.src, cli.rotation),
-        MediaType::Video => media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|_| None),
+        MediaType::Video => media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|(w, h)| (w, h, None)),
     };
 
     match result {
-        Ok(heif_paths) => {
+        Ok((w, h, heif_paths)) => {
             let value = serde_json::json!({
                 "heif_paths": heif_paths,
+                "width": w,
+                "height": h,
             });
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }

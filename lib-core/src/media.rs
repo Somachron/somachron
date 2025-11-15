@@ -148,9 +148,11 @@ pub struct HeifPath {
     pub thumbnail_path: PathBuf,
 }
 
-#[derive(Deserialize)]
-struct ThumbnailOut {
-    heif_paths: Option<Vec<String>>,
+#[derive(Debug, Deserialize)]
+pub struct ThumbnailOut {
+    pub heif_paths: Option<Vec<String>>,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// Get media type [`infer::MatcherType::Image`] or [`infer::MatcherType::Video`]
@@ -260,7 +262,7 @@ pub(super) async fn run_thumbnailer(
     src: &Path,
     media_type: infer::MatcherType,
     metadata: &MediaMetadata,
-) -> AppResult<Option<Vec<String>>> {
+) -> AppResult<ThumbnailOut> {
     let mode = match media_type {
         infer::MatcherType::Image => "image",
         infer::MatcherType::Video => "video",
@@ -299,5 +301,5 @@ pub(super) async fn run_thumbnailer(
     let value: ThumbnailOut = serde_json::from_str(&stdout)
         .map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize heif paths"))?;
 
-    Ok(value.heif_paths)
+    Ok(value)
 }

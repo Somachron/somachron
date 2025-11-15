@@ -106,9 +106,16 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeType {
     }
 }
 
+#[derive(Default, Serialize, Deserialize)]
+pub struct ThumbnailMeta {
+    pub file_name: String,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct NodeMetadata {
-    pub thumbnail_file_name: Option<String>,
+    pub thumbnail_meta: Option<ThumbnailMeta>,
     pub file_meta: Option<Metadata>,
     pub media_type: Option<MediaType>,
 }
@@ -130,12 +137,12 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeMetadata {
 }
 impl NodeMetadata {
     pub fn jsonb(
-        thumbnail_file_name: String,
+        thumbnail_meta: ThumbnailMeta,
         file_meta: Metadata,
         media_type: MediaType,
     ) -> AppResult<serde_json::Value> {
         let meta = Self {
-            thumbnail_file_name: Some(thumbnail_file_name),
+            thumbnail_meta: Some(thumbnail_meta),
             file_meta: Some(file_meta),
             media_type: Some(media_type),
         };
@@ -183,6 +190,7 @@ pub struct FileMeta {
     pub file_name: String,
     pub media_type: MediaType,
     pub user: Option<Uuid>,
+    pub folder: Uuid,
 }
 impl TryFrom<tokio_postgres::Row> for FileMeta {
     type Error = tokio_postgres::error::Error;
@@ -195,6 +203,7 @@ impl TryFrom<tokio_postgres::Row> for FileMeta {
             file_name: value.try_get(8)?,
             media_type: meta.media_type.unwrap_or(MediaType::Image),
             user: value.try_get(3)?,
+            folder: value.try_get(7)?,
         })
     }
 }
@@ -211,6 +220,7 @@ impl TryFrom<tokio_postgres::Row> for GalleryFileMeta {
             user: value.try_get(2)?,
             file_name: value.try_get(3)?,
             media_type: serde_json::from_value(serde_json::Value::String(media_type)).unwrap_or(MediaType::Image),
+            folder: value.try_get(5)?,
         }))
     }
 }
@@ -259,7 +269,7 @@ pub trait StorageDs {
     fn list_files_gallery(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<GalleryFileMeta>>>;
     fn get_file_stream_paths(
         &self,
-        space_id: Uuid,
+        space_id: &Uuid,
         file_id: Uuid,
     ) -> impl Future<Output = AppResult<Option<StreamPaths>>>;
 
@@ -369,7 +379,7 @@ impl StorageDs for Datastore {
         })
     }
 
-    async fn get_file_stream_paths(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<StreamPaths>> {
+    async fn get_file_stream_paths(&self, space_id: &Uuid, file_id: Uuid) -> AppResult<Option<StreamPaths>> {
         let rows = self
             .db
             .query(&self.storage_stmts.get_file_stream_paths, &[&file_id, &space_id])
@@ -567,10 +577,20 @@ async fn update_file(
         metadata,
         size: file_size,
         media_type,
+        thumbnail_width,
+        thumbnail_height,
     }: FileData,
 ) -> AppResult<FsNode> {
     let file_meta = Metadata::from(metadata, updated_date);
-    let metadata = NodeMetadata::jsonb(thumbnail_file_name, file_meta, media_type)?;
+    let metadata = NodeMetadata::jsonb(
+        ThumbnailMeta {
+            file_name: thumbnail_file_name,
+            width: thumbnail_width,
+            height: thumbnail_height,
+        },
+        file_meta,
+        media_type,
+    )?;
 
     let row = db
         .query_one(
@@ -605,10 +625,20 @@ async fn create_file(
         metadata,
         size: file_size,
         media_type,
+        thumbnail_width,
+        thumbnail_height,
     }: FileData,
 ) -> AppResult<FsNode> {
-    let metadata = Metadata::from(metadata, updated_date);
-    let file_meta = NodeMetadata::jsonb(thumbnail_file_name, metadata, media_type)?;
+    let file_meta = Metadata::from(metadata, updated_date);
+    let metadata = NodeMetadata::jsonb(
+        ThumbnailMeta {
+            file_name: thumbnail_file_name,
+            width: thumbnail_width,
+            height: thumbnail_height,
+        },
+        file_meta,
+        media_type,
+    )?;
 
     let row = db
         .query_one(
@@ -623,7 +653,7 @@ async fn create_file(
                 &folder.id,
                 &file_name,
                 &folder.path,
-                &file_meta,
+                &metadata,
             ],
         )
         .await

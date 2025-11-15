@@ -21,6 +21,12 @@ impl App {
         Arc::new(app)
     }
 
+    pub async fn bootstrap(&self) {
+        if let Err(err) = self.service().update_thumbnail_sizes(&self.storage).await {
+            eprint!("Error bootstraping: {err:?}");
+        }
+    }
+
     pub fn auth(&self) -> &ClerkAuth {
         &self.auth
     }

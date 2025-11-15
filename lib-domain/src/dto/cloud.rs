@@ -5,7 +5,7 @@ pub mod res {
     use utoipa::ToSchema;
 
     use crate::{
-        datastore::storage::{FileMeta, FsNode, Metadata, NodeMetadata},
+        datastore::storage::{FileMeta, FsNode, Metadata, NodeMetadata, ThumbnailMeta},
         dto::{Datetime, _IdOptionRef, _IdRef},
     };
 
@@ -49,9 +49,18 @@ pub mod res {
 
     impl_dto!(
         #[derive(ToSchema)]
+        pub struct ThumbnailMetadataResponse<ThumbnailMeta> {
+            file_name: String = file_name,
+            width: u32 = width,
+            height: u32 = height,
+        }
+    );
+
+    impl_dto!(
+        #[derive(ToSchema)]
         pub struct FileMetadataResponse<NodeMetadata> {
-            thumbnail_file_name: Option<String> = thumbnail_file_name,
-            file_meta: MediaMetadataResponse = file_meta => _MediaMetadataResponseOptionRef,
+            thumbnail_meta: Option<ThumbnailMetadataResponse> = thumbnail_meta => _ThumbnailMetadataResponseOptionRef,
+            file_meta: Option<MediaMetadataResponse> = file_meta => _MediaMetadataResponseOptionRef,
             media_type: Option<MediaType> = media_type,
         }
     );

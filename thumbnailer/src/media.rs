@@ -15,11 +15,11 @@ enum ThumbnailType {
     Path(PathBuf),
 }
 
-pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<Option<Vec<String>>> {
+pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<(u32, u32, Option<Vec<String>>)> {
     match infer_to_image_format(&src)? {
         ImageFormat::General(image_format) => {
-            create_thumbnail(ThumbnailType::Path(src.clone()), image_format, src, rotation)?;
-            Ok(None)
+            let (w, h) = create_thumbnail(ThumbnailType::Path(src.clone()), image_format, src, rotation)?;
+            Ok((w, h, None))
         }
         ImageFormat::Heif => {
             let paths = convert_heif_to_jpeg(&src)?;
@@ -30,21 +30,24 @@ pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<Option<Vec
                 .ok_or(ErrType::FsError.msg(format!("Failed to get file name for {src:?}")))?;
 
             let mut heif_paths = Vec::with_capacity(paths.len());
+            let (mut w, mut h) = (0, 0);
             for (i, src) in paths.into_iter().enumerate() {
                 let mut dst = src.clone();
                 dst.set_file_name(format!("{file_name}_{i}.jpeg"));
 
                 heif_paths.push(src.to_str().unwrap().to_owned());
 
-                create_thumbnail(ThumbnailType::Path(src), image::ImageFormat::Jpeg, dst, rotation)?;
+                let (_w, _h) = create_thumbnail(ThumbnailType::Path(src), image::ImageFormat::Jpeg, dst, rotation)?;
+                w = w.max(_w);
+                h = h.max(_h);
             }
 
-            Ok(Some(heif_paths))
+            Ok((w, h, Some(heif_paths)))
         }
     }
 }
 
-pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppResult<()> {
+pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppResult<(u32, u32)> {
     ffmpeg::init().map_err(|err| ErrType::MediaError.err(err, "Failed to init ffmpeg"))?;
 
     let mut input = ffmpeg::format::input(&src).map_err(|err| ErrType::MediaError.err(err, "Failed to input bytes"))?;
@@ -124,7 +127,7 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
         }
     }
 
-    Ok(())
+    Ok((THUMBNAIL_DIM, THUMBNAIL_DIM))
 }
 
 fn create_thumbnail(
@@ -132,7 +135,7 @@ fn create_thumbnail(
     format: image::ImageFormat,
     dst: PathBuf,
     rotation: Option<u64>,
-) -> AppResult<()> {
+) -> AppResult<(u32, u32)> {
     let rotation = rotation.unwrap_or(0);
 
     let img = match data {
@@ -171,7 +174,9 @@ fn create_thumbnail(
         }
         _ => thumbnail.write_to(&mut file, format),
     }
-    .map_err(|err| ErrType::FsError.err(err, "Failed to write image to buffer"))
+    .map_err(|err| ErrType::FsError.err(err, "Failed to write image to buffer"))?;
+
+    Ok((thumbnail.width(), thumbnail.height()))
 }
 
 fn infer_to_image_format(path: &PathBuf) -> AppResult<ImageFormat> {

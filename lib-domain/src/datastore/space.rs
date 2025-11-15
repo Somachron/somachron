@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
 use lib_core::{AppResult, ErrType};
+use tokio_postgres::types::Type;
 use uuid::Uuid;
+
+use crate::datastore::storage::NodeType;
 
 use super::Datastore;
 
@@ -35,9 +38,40 @@ pub trait SpaceDs {
         name: &'static String,
         description: &'static String,
     ) -> impl Future<Output = AppResult<Space>>;
+
+    //--- MIG
+    fn get_all_spaces(&self) -> impl Future<Output = AppResult<Vec<Space>>>;
+    fn get_space_root(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Uuid>>;
 }
 
 impl SpaceDs for Datastore {
+    //--- MIG
+    async fn get_all_spaces(&self) -> AppResult<Vec<Space>> {
+        let st = self.db.prepare(r#"SELECT * FROM spaces"#).await.unwrap();
+        let rows =
+            self.db.query(&st, &[]).await.map_err(|err| ErrType::DbError.err(err, "Failed to get all spaces"))?;
+
+        Ok(rows.into_iter().map(Space::from).collect())
+    }
+    async fn get_space_root(&self, space_id: &Uuid) -> AppResult<Uuid> {
+        let st = self
+            .db
+            .prepare_typed(
+                r#"SELECT id FROM fs_node WHERE space_id = $1 AND node_type = $2 AND parent_node is null"#,
+                &[Type::UUID, Type::INT2],
+            )
+            .await
+            .unwrap();
+
+        let rows = self
+            .db
+            .query(&st, &[&space_id, &NodeType::Folder.value()])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get space root folder"))?;
+
+        Ok(rows.into_iter().nth(0).map(|r| r.get(0)).unwrap())
+    }
+
     async fn get_space_by_id(&self, id: &Uuid) -> AppResult<Option<Space>> {
         let rows = self
             .db

@@ -153,7 +153,7 @@ impl<D: StorageDs> Service<D> {
         storage: &Storage,
         file_id: Uuid,
     ) -> AppResult<StreamedUrlsResponse> {
-        let Some(stream_paths) = self.ds.get_file_stream_paths(space_id, file_id).await? else {
+        let Some(stream_paths) = self.ds.get_file_stream_paths(&space_id, file_id).await? else {
             return Err(ErrType::NotFound.msg("Requested file not found"));
         };
 
@@ -214,7 +214,7 @@ impl<D: StorageDs> Service<D> {
             storage
                 .delete_file(
                     format!("{}/{}", file.path, file.node_name),
-                    format!("{}/{}", file.path, file.metadata.thumbnail_file_name.unwrap_or_default()),
+                    format!("{}/{}", file.path, file.metadata.thumbnail_meta.unwrap_or_default().file_name),
                 )
                 .await?;
             self.ds.delete_file(file.id).await?;
