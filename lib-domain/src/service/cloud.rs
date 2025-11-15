@@ -1,3 +1,4 @@
+use chrono::DateTime;
 use lib_core::{storage::Storage, AppResult, ErrType};
 use uuid::Uuid;
 
@@ -80,6 +81,7 @@ impl<D: StorageDs> Service<D> {
             folder_id,
             file_name,
             file_size,
+            updated_millis,
         }: UploadCompleteRequest,
     ) -> AppResult<()> {
         if let SpaceRole::Read = role {
@@ -90,13 +92,17 @@ impl<D: StorageDs> Service<D> {
             return Err(ErrType::BadRequest.msg("Folder not found"));
         };
 
+        let Some(updated_date) = DateTime::from_timestamp_millis(updated_millis) else {
+            return Err(ErrType::BadRequest.msg("Invalid timestamp"));
+        };
+
         let file_path = std::path::PathBuf::from(&folder.path).join(file_name);
 
         let space_id_str = space_id.to_string();
         let file_data =
             storage.process_upload_completion(&space_id_str, file_path.to_str().unwrap(), file_size).await?;
         for data in file_data.into_iter() {
-            let _ = self.ds.upsert_file(&user_id, &space_id, &folder, data).await?;
+            let _ = self.ds.upsert_file(&user_id, &space_id, &folder, updated_date, data).await?;
         }
 
         Ok(())

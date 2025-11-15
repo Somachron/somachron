@@ -219,8 +219,8 @@ mod statements {
 
     pub struct StorageStatements {
         /// INSERT INTO fs_node
-        /// (id, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata)
-        /// VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
+        /// (id, updated_at, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata)
+        /// VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *
         pub insert_fs_node: tokio_postgres::Statement,
 
         /// INSERT INTO fs_link
@@ -266,7 +266,7 @@ mod statements {
         pub list_gallery_nodes: tokio_postgres::Statement,
 
         /// UPDATE fs_node
-        /// SET node_name = $4, node_size = $5, node_type = $6, metadata = $7
+        /// SET node_name = $4, node_size = $5, node_type = $6, metadata = $7, updated_at = $8
         /// WHERE id = $1 AND parent_node = $2 AND space_id = $3
         /// RETURNING *
         pub update_node: tokio_postgres::Statement,
@@ -289,10 +289,11 @@ mod statements {
                 insert_fs_node: db
                     .prepare_typed(
                         r#"INSERT INTO fs_node
-                        (id, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *"#,
+                        (id, updated_at, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *"#,
                         &[
                             Type::UUID,
+                            Type::TIMESTAMPTZ,
                             Type::UUID,
                             Type::UUID,
                             Type::INT2,
@@ -377,9 +378,9 @@ mod statements {
                 update_node: db
                     .prepare_typed(
                         r#"UPDATE fs_node
-                        SET node_name = $4, node_size = $5, node_type = $6, metadata = $7
+                        SET node_name = $4, node_size = $5, node_type = $6, metadata = $7, updated_at = $8
                         WHERE id = $1 AND parent_node = $2 AND space_id = $3 RETURNING *"#,
-                        &[Type::UUID, Type::UUID, Type::UUID, Type::VARCHAR, Type::INT8, Type::INT2, Type::JSONB],
+                        &[Type::UUID, Type::UUID, Type::UUID, Type::VARCHAR, Type::INT8, Type::INT2, Type::JSONB, Type::TIMESTAMPTZ],
                     )
                     .await
                     .unwrap(),

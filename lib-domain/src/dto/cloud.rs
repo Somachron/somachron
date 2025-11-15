@@ -118,6 +118,7 @@ pub mod req {
         #[validate(length(min = 3))]
         pub file_name: String,
         pub file_size: usize,
+        pub updated_millis: i64,
     }
 
     #[derive(Deserialize, ToSchema, Validate)]

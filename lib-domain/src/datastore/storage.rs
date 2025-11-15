@@ -32,8 +32,8 @@ pub struct Metadata {
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
 }
-impl From<MediaMetadata> for Metadata {
-    fn from(metadata: MediaMetadata) -> Self {
+impl Metadata {
+    fn from(metadata: MediaMetadata, updated_date: DateTime<Utc>) -> Self {
         Metadata {
             make: metadata.make,
             model: metadata.model,
@@ -46,7 +46,7 @@ impl From<MediaMetadata> for Metadata {
             duration: metadata.duration,
             media_duration: metadata.media_duration,
             frame_rate: metadata.frame_rate,
-            date_time: metadata.date_time.or(metadata.fs_date_time).map(|dt| dt.0),
+            date_time: metadata.date_time.map(|dt| dt.0).or(Some(updated_date)),
             iso: metadata.iso.map(|u| u as u64),
             shutter_speed: metadata.shutter_speed.map(|v| match v {
                 lib_core::media::EitherValue::Either(s) => s,
@@ -243,6 +243,7 @@ pub trait StorageDs {
         user_id: &Uuid,
         space_id: &Uuid,
         folder: &FsNode,
+        updated_date: DateTime<Utc>,
         file_data: FileData,
     ) -> impl Future<Output = AppResult<FsNode>>;
 
@@ -287,11 +288,16 @@ impl StorageDs for Datastore {
         user_id: &Uuid,
         space_id: &Uuid,
         folder: &FsNode,
+        updated_date: DateTime<Utc>,
         file_data: FileData,
     ) -> AppResult<FsNode> {
         let file = match self.get_file_from_fields(&space_id, &file_data.file_name, &folder.id).await? {
-            Some(file) => update_file(&self.db, &self.storage_stmts, file.id, folder, space_id, file_data).await,
-            None => create_file(&self.db, &self.storage_stmts, user_id, space_id, folder, file_data).await,
+            Some(file) => {
+                update_file(&self.db, &self.storage_stmts, file.id, folder, space_id, updated_date, file_data).await
+            }
+            None => {
+                create_file(&self.db, &self.storage_stmts, user_id, space_id, folder, updated_date, file_data).await
+            }
         }?;
 
         Ok(file)
@@ -386,6 +392,7 @@ impl StorageDs for Datastore {
                 &self.storage_stmts.insert_fs_node,
                 &[
                     &id,
+                    &Utc::now(),
                     &Option::<Uuid>::None,
                     &space_id,
                     &NodeType::Folder.value(),
@@ -419,6 +426,7 @@ impl StorageDs for Datastore {
                 &self.storage_stmts.insert_fs_node,
                 &[
                     &Uuid::now_v7(),
+                    &Utc::now(),
                     &Option::<Uuid>::None,
                     &space_id,
                     &NodeType::Folder.value(),
@@ -552,6 +560,7 @@ async fn update_file(
     file_id: Uuid,
     folder: &FsNode,
     space_id: &Uuid,
+    updated_date: DateTime<Utc>,
     FileData {
         file_name,
         thumbnail_file_name,
@@ -560,13 +569,22 @@ async fn update_file(
         media_type,
     }: FileData,
 ) -> AppResult<FsNode> {
-    let file_meta = Metadata::from(metadata);
+    let file_meta = Metadata::from(metadata, updated_date);
     let metadata = NodeMetadata::jsonb(thumbnail_file_name, file_meta, media_type)?;
 
     let row = db
         .query_one(
             &storage_stmts.update_node,
-            &[&file_id, &folder.id, &space_id, &file_name, &file_size, &NodeType::File.value(), &metadata],
+            &[
+                &file_id,
+                &folder.id,
+                &space_id,
+                &file_name,
+                &file_size,
+                &NodeType::File.value(),
+                &metadata,
+                &updated_date,
+            ],
         )
         .await
         .map_err(|err| ErrType::DbError.err(err, "Failed to update file"))?;
@@ -580,6 +598,7 @@ async fn create_file(
     user_id: &Uuid,
     space_id: &Uuid,
     folder: &FsNode,
+    updated_date: DateTime<Utc>,
     FileData {
         file_name,
         thumbnail_file_name,
@@ -588,7 +607,7 @@ async fn create_file(
         media_type,
     }: FileData,
 ) -> AppResult<FsNode> {
-    let metadata = Metadata::from(metadata);
+    let metadata = Metadata::from(metadata, updated_date);
     let file_meta = NodeMetadata::jsonb(thumbnail_file_name, metadata, media_type)?;
 
     let row = db
@@ -596,6 +615,7 @@ async fn create_file(
             &storage_stmts.insert_fs_node,
             &[
                 &Uuid::now_v7(),
+                &updated_date,
                 &user_id,
                 &space_id,
                 &NodeType::File.value(),
