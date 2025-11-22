@@ -102,6 +102,7 @@ pub mod res {
             updated_at: Datetime = updated_at,
 
             name: String = node_name,
+            path: String = path,
         }
     );
 }

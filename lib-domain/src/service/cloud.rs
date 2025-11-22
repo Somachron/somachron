@@ -6,7 +6,9 @@ use crate::{
     datastore::{storage::StorageDs, user_space::SpaceRole},
     dto::cloud::{
         req::UploadCompleteRequest,
-        res::{InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec, _FolderResponseVec},
+        res::{
+            InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec, _FolderResponse, _FolderResponseVec,
+        },
     },
     extension::{SpaceCtx, UserId},
 };
@@ -142,6 +144,21 @@ impl<D: StorageDs> Service<D> {
         folder_id: Uuid,
     ) -> AppResult<_FolderResponseVec> {
         self.ds.list_folder(space_id, folder_id).await.map(_FolderResponseVec)
+    }
+
+    pub async fn get_folder(
+        &self,
+        SpaceCtx {
+            space_id,
+            ..
+        }: SpaceCtx,
+        folder_id: Uuid,
+    ) -> AppResult<_FolderResponse> {
+        self.ds
+            .get_folder(&space_id, &folder_id)
+            .await?
+            .ok_or(ErrType::NotFound.msg("Folder not found"))
+            .map(_FolderResponse)
     }
 
     pub async fn generate_download_signed_url(

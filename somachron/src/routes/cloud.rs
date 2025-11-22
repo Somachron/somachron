@@ -10,7 +10,7 @@ use lib_domain::{
         req::{CreateFolderRequest, InitiateUploadRequest, UploadCompleteRequest},
         res::{
             FileMetaResponse, FolderResponse, InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec,
-            _FolderResponseVec,
+            _FolderResponse, _FolderResponseVec,
         },
     },
     extension::{SpaceCtx, UserId},
@@ -26,6 +26,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .route("/lg", get(list_files_gallery))
         .route("/ls/{id}", get(list_files))
         .route("/lf/{id}", get(list_folders))
+        .route("/d/{id}", get(get_folder))
         .route("/rm/{id}", delete(delete_folder))
         .route("/rmf/{id}", delete(delete_file))
         .route("/mkdir", post(create_folder))
@@ -118,6 +119,21 @@ pub async fn list_folders(
     Path(folder_id): Path<Uuid>,
 ) -> ApiResult<_FolderResponseVec> {
     app.service().list_folders(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/media/d/{id}",
+    responses((status=200, body=Vec<FolderResponse>)),
+    tag = "Cloud"
+)]
+pub async fn get_folder(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+    Path(folder_id): Path<Uuid>,
+) -> ApiResult<_FolderResponse> {
+    app.service().get_folder(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
