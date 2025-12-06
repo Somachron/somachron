@@ -162,7 +162,11 @@ fn create_thumbnail(
         _ => img, // No rotation needed
     };
 
-    let thumbnail = img.resize(THUMBNAIL_WIDTH, THUMNAIL_HEIGHT, image::imageops::FilterType::Lanczos3);
+    // calculate proportional width based on fixed height ratio
+    let hratio = f64::from(THUMNAIL_HEIGHT) / f64::from(img.height());
+    let width = (f64::from(img.width()) * hratio).round() as u32;
+
+    let thumbnail = img.resize(width, THUMNAIL_HEIGHT, image::imageops::FilterType::Gaussian);
     drop(img);
 
     let quality = 80;
