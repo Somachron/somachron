@@ -91,6 +91,7 @@ pub mod res {
             media_type: MediaType = media_type,
             user: Option<String> = user => _IdOptionRef,
             width: u32 = width,
+            height: u32 = height,
         }
     );
 

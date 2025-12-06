@@ -191,19 +191,22 @@ pub struct FileMeta {
     pub media_type: MediaType,
     pub user: Option<Uuid>,
     pub width: i32,
+    pub height: i32,
 }
 impl TryFrom<tokio_postgres::Row> for FileMeta {
     type Error = tokio_postgres::error::Error;
 
     fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
         let meta: NodeMetadata = value.get(10);
+        let (width, height) = meta.thumbnail_meta.map(|m| (m.width, m.height)).unwrap_or((0, 0));
         Ok(Self {
             id: value.try_get(0)?,
             updated_at: value.try_get(2)?,
             file_name: value.try_get(8)?,
             media_type: meta.media_type.unwrap_or(MediaType::Image),
             user: value.try_get(3)?,
-            width: meta.thumbnail_meta.map(|m| m.width).unwrap_or(0),
+            width,
+            height,
         })
     }
 }
@@ -221,6 +224,7 @@ impl TryFrom<tokio_postgres::Row> for GalleryFileMeta {
             file_name: value.try_get(3)?,
             media_type: serde_json::from_value(serde_json::Value::String(media_type)).unwrap_or(MediaType::Image),
             width: value.try_get(5)?,
+            height: value.try_get(6)?,
         }))
     }
 }

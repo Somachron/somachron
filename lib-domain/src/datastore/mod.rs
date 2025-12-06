@@ -260,7 +260,7 @@ mod statements {
         pub list_nodes: tokio_postgres::Statement,
 
         /// SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type,
-        ///     metadata->'thumbnail_meta'->>'width' as width
+        ///     metadata->'thumbnail_meta'->>'width' as width, metadata->'thumbnail_meta'->>'height' as height
         /// FROM fs_node
         /// WHERE node_type = $1 AND space_id = $2
         /// ORDER BY update_at DESC
@@ -369,7 +369,7 @@ mod statements {
                 list_gallery_nodes: db
                     .prepare_typed(
                         r#"SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type,
-                            (metadata->'thumbnail_meta'->>'width')::int4 as width
+                            (metadata->'thumbnail_meta'->>'width')::int4 as width, (metadata->'thumbnail_meta'->>'height')::int4 as height
                         FROM fs_node
                         WHERE node_type = $1 AND space_id = $2
                         ORDER BY updated_at DESC"#,
