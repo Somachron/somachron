@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 use super::err::{AppResult, ErrType};
 
-const THUMBNAIL_DIM: u32 = 256;
+const THUMBNAIL_WIDTH: u32 = 256;
+const THUMNAIL_HEIGHT: u32 = 176;
 
 enum ImageFormat {
     General(image::ImageFormat),
@@ -127,7 +128,7 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
         }
     }
 
-    Ok((THUMBNAIL_DIM, THUMBNAIL_DIM))
+    Ok((THUMBNAIL_WIDTH, THUMNAIL_HEIGHT))
 }
 
 fn create_thumbnail(
@@ -161,7 +162,7 @@ fn create_thumbnail(
         _ => img, // No rotation needed
     };
 
-    let thumbnail = img.resize(THUMBNAIL_DIM, THUMBNAIL_DIM, image::imageops::FilterType::Lanczos3);
+    let thumbnail = img.resize(THUMBNAIL_WIDTH, THUMNAIL_HEIGHT, image::imageops::FilterType::Lanczos3);
     drop(img);
 
     let quality = 80;
