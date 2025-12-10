@@ -21,7 +21,7 @@ pub mod clerk;
 pub mod config;
 pub mod interceptor;
 pub mod media;
-mod r2;
+mod s3;
 pub mod storage;
 
 #[repr(transparent)]

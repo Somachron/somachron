@@ -2,35 +2,18 @@ use std::path::PathBuf;
 
 use aws_config::Region;
 use aws_sdk_s3::{
-    config::{
-        endpoint::{Endpoint, EndpointFuture, Params, ResolveEndpoint},
-        Credentials,
-    },
+    config::Credentials,
     presigning::PresigningConfig,
     primitives::ByteStream,
     types::{Delete, ObjectIdentifier},
     Client, Config,
 };
 
-use crate::{config::R2Config, AppResult, ErrType};
-
-#[derive(Debug)]
-struct R2Endpoint {
-    account_id: String,
-    bucket_name: String,
-}
-
-impl ResolveEndpoint for R2Endpoint {
-    fn resolve_endpoint<'a>(&'a self, _params: &'a Params) -> EndpointFuture<'a> {
-        EndpointFuture::ready(Ok(Endpoint::builder()
-            .url(format!("https://{}.r2.cloudflarestorage.com/{}", self.account_id, self.bucket_name))
-            .build()))
-    }
-}
+use crate::{config::S3Config, AppResult, ErrType};
 
 /// Client for handling functions for R2
 /// storage providers
-pub(super) struct R2Storage {
+pub(super) struct S3Storage {
     /// R2 client
     client: Client,
 
@@ -38,19 +21,15 @@ pub(super) struct R2Storage {
     bucket_name: String,
 }
 
-impl R2Storage {
+impl S3Storage {
     pub(super) fn new() -> Self {
-        let config = R2Config::new();
+        let config = S3Config::new();
 
         let creds = Credentials::new(config.access_key, config.secret_key, None, None, "static");
-        let endpoint_resolver = R2Endpoint {
-            account_id: config.account_id,
-            bucket_name: config.bucket_name.clone(),
-        };
 
         let client_config = Config::builder()
-            .region(Region::from_static("auto"))
-            .endpoint_resolver(endpoint_resolver)
+            .region(Region::new(config.region))
+            .endpoint_url(config.endpoint)
             .credentials_provider(creds)
             .force_path_style(true)
             .build();
@@ -116,8 +95,7 @@ impl R2Storage {
 
     pub(super) async fn download_media(&self, path: &str) -> AppResult<ByteStream> {
         let builder = self.client.get_object().bucket(&self.bucket_name);
-        let result =
-            builder.clone().key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download media"))?;
+        let result = builder.key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download media"))?;
         Ok(result.body)
     }
 

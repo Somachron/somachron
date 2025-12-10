@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use utoipa::ToSchema;
 
-use super::{config, media, r2::R2Storage, AppResult, ErrType};
+use super::{config, media, s3::S3Storage, AppResult, ErrType};
 
 const ROOT_DATA: &str = "somachron-data";
 const SPACES_PATH: &str = "spaces";
@@ -42,7 +42,7 @@ pub struct Storage {
     r2_spaces: PathBuf,
 
     /// R2 client
-    r2: R2Storage,
+    r2: S3Storage,
 }
 
 async fn create_dir(dir: &PathBuf) -> AppResult<()> {
@@ -69,7 +69,7 @@ impl Storage {
         Self {
             root_path,
             r2_spaces: PathBuf::from(ROOT_DATA).join(SPACES_PATH),
-            r2: R2Storage::new(),
+            r2: S3Storage::new(),
         }
     }
 

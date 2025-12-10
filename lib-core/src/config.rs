@@ -23,20 +23,23 @@ impl DbConfig {
     }
 }
 
-pub(crate) struct R2Config {
-    pub account_id: String,
+#[derive(Debug)]
+pub(crate) struct S3Config {
     pub bucket_name: String,
     pub access_key: String,
     pub secret_key: String,
+    pub endpoint: String,
+    pub region: String,
 }
 
-impl R2Config {
+impl S3Config {
     pub(crate) fn new() -> Self {
         Self {
-            account_id: std::env::var("R2_ACCOUNT_ID").unwrap_or_default(),
-            bucket_name: std::env::var("R2_BUCKET").unwrap_or_default(),
-            access_key: std::env::var("R2_ACCESS_KEY").unwrap_or_default(),
-            secret_key: std::env::var("R2_SECRET_KEY").unwrap_or_default(),
+            bucket_name: std::env::var("S3_BUCKET").unwrap_or_default(),
+            access_key: std::env::var("S3_ACCESS_KEY_ID").unwrap_or_default(),
+            secret_key: std::env::var("S3_SECRET_ACCESS_KEY").unwrap_or_default(),
+            endpoint: std::env::var("S3_ENDPOINT").unwrap_or_default(),
+            region: std::env::var("S3_REGION").unwrap_or(String::from("auto")),
         }
     }
 }
