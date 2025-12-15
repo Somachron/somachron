@@ -227,7 +227,7 @@ fn create_preview(
     let preview = img.resize(width, PREVIEW_HEIGHT, image::imageops::FilterType::Lanczos3);
     drop(img);
 
-    let quality = 85;
+    let quality = 80;
     let file = std::fs::File::create(&dst).map_err(|err| ErrType::FsError.err(err, "Failed to open dest file"))?;
 
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, quality);
