@@ -21,6 +21,12 @@ impl App {
         Arc::new(app)
     }
 
+    pub async fn bootstrap(&self) {
+        if let Err(err) = self.service.migrate_previews(&self.storage).await {
+            dbg!(err);
+        }
+    }
+
     pub fn auth(&self) -> &ClerkAuth {
         &self.auth
     }
