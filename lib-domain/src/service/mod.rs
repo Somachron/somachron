@@ -33,27 +33,30 @@ impl Service<Datastore> {
 
         let total = files.len();
 
-        let tasks = files.into_iter().enumerate().map(|(i, file)| async move {
-            let folder = self.ds.get_folder(&file.space_id, &file.parent_node.unwrap()).await?.unwrap();
+        let tasks =
+            files.into_iter().filter(|f| f.metadata.preview_meta.is_none()).enumerate().map(|(i, file)| async move {
+                let folder = self.ds.get_folder(&file.space_id, &file.parent_node.unwrap()).await?.unwrap();
 
-            let file_path = std::path::PathBuf::from(&file.path).join(&file.node_name);
-            let space_id = file.space_id.to_string();
+                let file_path = std::path::PathBuf::from(&file.path).join(&file.node_name);
+                let space_id = file.space_id.to_string();
 
-            let file_data = storage
-                .process_upload_completion(space_id.as_str(), file_path.to_str().unwrap(), file.node_size as usize)
-                .await?;
+                let file_data = storage
+                    .process_upload_completion(space_id.as_str(), file_path.to_str().unwrap(), file.node_size as usize)
+                    .await?;
 
-            for data in file_data.into_iter() {
-                let _ =
-                    self.ds.upsert_file(&file.user_id.unwrap(), &file.space_id, &folder, file.updated_at, data).await?;
-            }
+                for data in file_data.into_iter() {
+                    let _ = self
+                        .ds
+                        .upsert_file(&file.user_id.unwrap(), &file.space_id, &folder, file.updated_at, data)
+                        .await?;
+                }
 
-            println!("{i}/{total}");
+                println!("{i}/{total}");
 
-            Ok::<_, AppError>(())
-        });
+                Ok::<_, AppError>(())
+            });
 
-        let results = futures::stream::iter(tasks).buffer_unordered(8).collect::<Vec<_>>().await;
+        let results = futures::stream::iter(tasks).buffer_unordered(2).collect::<Vec<_>>().await;
         dbg!(results);
 
         Ok(())
