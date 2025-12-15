@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use utoipa::ToSchema;
 
+use crate::ErrorContext;
+
 use super::{config, media, s3::S3Storage, AppResult, ErrType};
 
 const ROOT_DATA: &str = "somachron-data";
@@ -23,12 +25,11 @@ pub enum MediaType {
 
 pub struct FileData {
     pub file_name: String,
-    pub thumbnail_file_name: String,
+    pub thumbnail: media::ImageMeta,
+    pub preview: media::ImageMeta,
     pub metadata: media::MediaMetadata,
     pub size: i64,
     pub media_type: MediaType,
-    pub thumbnail_width: u32,
-    pub thumbnail_height: u32,
 }
 
 /// Manage storage operations
@@ -158,7 +159,9 @@ impl Storage {
 
         // prepare r2 path
         let r2_path = self.r2_spaces.join(space_id).join(file_path);
-        let mut r2_thumbnail = r2_path.clone();
+
+        let file_name =
+            r2_path.file_name().and_then(|s| s.to_str()).ok_or(ErrType::FsError.msg("No file name"))?.to_owned();
 
         // get file extension
         let ext = r2_path
@@ -168,11 +171,6 @@ impl Storage {
 
         let r2_path =
             r2_path.to_str().ok_or(ErrType::FsError.msg("Failed to get str from file path"))?.trim_matches('/');
-
-        // prepare path
-        let file_name =
-            r2_thumbnail.file_name().and_then(|s| s.to_str()).ok_or(ErrType::FsError.msg("No file name"))?.to_owned();
-        r2_thumbnail.set_file_name(format!("thumbnail_{file_name}"));
 
         // process thumbnail and metadata
         let media_type = media::get_media_type(ext);
@@ -185,30 +183,23 @@ impl Storage {
             file_size
         };
 
-        if media_type == infer::MatcherType::Video {
-            r2_thumbnail.set_extension("jpeg");
-        }
-
         // extract media metadata
-        let metadata_result = self.process_media(space_id, file_path, ext, &tmp_path, &r2_thumbnail, media_type).await;
+        let metadata_result = self.process_media(space_id, file_path, ext, &tmp_path, media_type).await;
         let _ = remove_file(&tmp_path).await;
-        let (metadata, paths) = metadata_result?;
+        let (metadata, processed_meta_list) = metadata_result?;
 
-        let thumbnail_file_name = r2_thumbnail.file_name().and_then(|s| s.to_str()).unwrap().to_owned();
-
-        let all_metadata = paths
+        let all_metadata = processed_meta_list
             .into_iter()
-            .map(|(width, height, processed_file_name, processed_thumbnail_file_name)| FileData {
-                file_name: processed_file_name.unwrap_or(file_name.to_owned()),
-                thumbnail_file_name: processed_thumbnail_file_name.unwrap_or(thumbnail_file_name.clone()),
+            .map(|processed_meta| FileData {
+                file_name: processed_meta.file_name.unwrap_or(file_name.to_owned()),
                 metadata: metadata.clone(),
                 size: file_size as i64,
                 media_type: match media_type {
                     infer::MatcherType::Video => MediaType::Video,
                     _ => MediaType::Image,
                 },
-                thumbnail_width: width,
-                thumbnail_height: height,
+                thumbnail: processed_meta.thumbnail,
+                preview: processed_meta.preview,
             })
             .collect();
 
@@ -221,52 +212,104 @@ impl Storage {
         file_path: &str,
         ext: &str,
         tmp_path: &PathBuf,
-        r2_thumbnail: &Path,
         media_type: infer::MatcherType,
-    ) -> AppResult<(media::MediaMetadata, Vec<(u32, u32, Option<String>, Option<String>)>)> {
+    ) -> AppResult<(media::MediaMetadata, Vec<media::ProcessedMeta>)> {
         let metadata = media::extract_metadata(tmp_path).await?;
 
-        let path = PathBuf::from(file_path);
-        let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap();
-        let thumbnail_file_name = r2_thumbnail.file_stem().and_then(|s| s.to_str()).unwrap();
         let r2_path = self.r2_spaces.join(space_id).join(file_path);
+        let src_file_stem = r2_path.file_stem().and_then(|s| s.to_str()).unwrap();
 
         let mut media_data = Vec::new();
 
         // create thumbnail
         let thumb_op = media::run_thumbnailer(tmp_path, media_type, &metadata).await?;
-        match thumb_op.heif_paths {
-            Some(paths) => {
-                for (i, tmp_path) in paths.into_iter().enumerate() {
-                    let tmp_path = PathBuf::from(tmp_path);
-                    let mut tmp_thumbnail_path = tmp_path.clone();
-                    let tmp_thumbnail_file =
-                        tmp_thumbnail_path.file_stem().and_then(|s| s.to_str()).unwrap().to_owned();
-                    tmp_thumbnail_path.set_file_name(format!("{tmp_thumbnail_file}.jpeg"));
+        match thumb_op {
+            thumbnail_output::ProcessedImage::General {
+                thumbnail,
+                preview,
+            } => {
+                let thumbnail_file_name = format!("thumbnail_{src_file_stem}.jpeg");
+                let mut r2_thumbnail = r2_path.clone();
+                r2_thumbnail.set_file_name(&thumbnail_file_name);
+                self.r2
+                    .upload_photo(r2_thumbnail.to_str().unwrap(), &thumbnail.path)
+                    .await
+                    .context("uploading thumbnail for general type")?;
 
-                    let (file_name, thumbnail_file_name) =
-                        (format!("{file_name}_{i}.{ext}"), format!("{thumbnail_file_name}_{i}.jpeg"));
+                let preview_file_name = format!("preview_{src_file_stem}.jpeg");
+                let mut r2_preview = r2_path.clone();
+                r2_preview.set_file_name(&preview_file_name);
+                self.r2
+                    .upload_photo(r2_preview.to_str().unwrap(), &preview.path)
+                    .await
+                    .context("uploading preview for general type")?;
 
-                    let mut r2_path = r2_path.clone();
-                    r2_path.set_file_name(&file_name);
-                    let r2_path = r2_path.to_str().unwrap();
-
-                    let mut r2_thumbnail = r2_thumbnail.to_path_buf();
-                    r2_thumbnail.set_file_name(&thumbnail_file_name);
-                    let r2_thumbnail = r2_thumbnail.to_str().unwrap();
-
-                    self.r2.upload_photo(r2_path, &tmp_path).await?;
-                    self.r2.upload_photo(r2_thumbnail, &tmp_thumbnail_path).await?;
-                    let _ = remove_file(&tmp_path).await;
-                    let _ = remove_file(&tmp_thumbnail_path).await;
-
-                    media_data.push((thumb_op.width, thumb_op.height, Some(file_name), Some(thumbnail_file_name)));
-                }
+                media_data.push(media::ProcessedMeta {
+                    thumbnail: media::ImageMeta {
+                        width: thumbnail.width as i32,
+                        height: thumbnail.height as i32,
+                        file_name: thumbnail_file_name,
+                    },
+                    preview: media::ImageMeta {
+                        width: preview.width as i32,
+                        height: preview.height as i32,
+                        file_name: preview_file_name,
+                    },
+                    file_name: None,
+                });
             }
-            None => {
-                let r2_thumbnail = r2_thumbnail.to_str().unwrap();
-                self.r2.upload_photo(r2_thumbnail, tmp_path).await?;
-                media_data.push((thumb_op.width, thumb_op.height, None, None));
+            thumbnail_output::ProcessedImage::Heif {
+                thumbnail,
+                preview,
+                heif_paths,
+            } => {
+                for (i, ((heif_path, thumbnail_data), preview_data)) in
+                    heif_paths.into_iter().zip(thumbnail).zip(preview).enumerate()
+                {
+                    let heif_path = PathBuf::from(heif_path);
+                    let file_name = format!("{src_file_stem}_{i}.{ext}");
+
+                    let mut r2_heif_path = r2_path.clone();
+                    r2_heif_path.set_file_name(&file_name);
+
+                    self.r2
+                        .upload_photo(r2_heif_path.to_str().unwrap(), &heif_path)
+                        .await
+                        .context("uploading heif src")?;
+                    let _ = remove_file(&heif_path).await;
+
+                    let thumbnail_file_name = thumbnail_data.path.file_name().unwrap();
+                    let mut r2_thumbnail = r2_path.clone();
+                    r2_thumbnail.set_file_name(thumbnail_file_name);
+                    self.r2
+                        .upload_photo(r2_thumbnail.to_str().unwrap(), &thumbnail_data.path)
+                        .await
+                        .context("uploading thumbnail for heif type")?;
+                    let _ = remove_file(&thumbnail_data.path).await;
+
+                    let preview_file_name = preview_data.path.file_name().unwrap();
+                    let mut r2_preview = r2_path.clone();
+                    r2_preview.set_file_name(preview_file_name);
+                    self.r2
+                        .upload_photo(r2_preview.to_str().unwrap(), &preview_data.path)
+                        .await
+                        .context("uploading preview for heif type")?;
+                    let _ = remove_file(&preview_data.path).await;
+
+                    media_data.push(media::ProcessedMeta {
+                        thumbnail: media::ImageMeta {
+                            width: thumbnail_data.width as i32,
+                            height: thumbnail_data.height as i32,
+                            file_name: thumbnail_file_name.to_str().map(|s| s.to_owned()).unwrap(),
+                        },
+                        preview: media::ImageMeta {
+                            width: preview_data.width as i32,
+                            height: preview_data.height as i32,
+                            file_name: preview_file_name.to_str().map(|s| s.to_owned()).unwrap(),
+                        },
+                        file_name: Some(file_name.to_owned()),
+                    });
+                }
             }
         };
 

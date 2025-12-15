@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use lib_core::{
-    media::MediaMetadata,
+    media::{ImageMeta, MediaMetadata},
     storage::{FileData, MediaType},
     AppError, AppResult, ErrType,
 };
@@ -106,16 +106,10 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeType {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
-pub struct ThumbnailMeta {
-    pub file_name: String,
-    pub width: i32,
-    pub height: i32,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct NodeMetadata {
-    pub thumbnail_meta: Option<ThumbnailMeta>,
+    pub thumbnail_meta: Option<ImageMeta>,
+    pub preview_meta: Option<ImageMeta>,
     pub file_meta: Option<Metadata>,
     pub media_type: Option<MediaType>,
 }
@@ -137,12 +131,14 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeMetadata {
 }
 impl NodeMetadata {
     pub fn jsonb(
-        thumbnail_meta: ThumbnailMeta,
+        thumbnail_meta: ImageMeta,
+        preivew_meta: ImageMeta,
         file_meta: Metadata,
         media_type: MediaType,
     ) -> AppResult<serde_json::Value> {
         let meta = Self {
             thumbnail_meta: Some(thumbnail_meta),
+            preview_meta: Some(preivew_meta),
             file_meta: Some(file_meta),
             media_type: Some(media_type),
         };
@@ -577,24 +573,15 @@ async fn update_file(
     updated_date: DateTime<Utc>,
     FileData {
         file_name,
-        thumbnail_file_name,
         metadata,
         size: file_size,
         media_type,
-        thumbnail_width,
-        thumbnail_height,
+        thumbnail,
+        preview,
     }: FileData,
 ) -> AppResult<FsNode> {
     let file_meta = Metadata::from(metadata, updated_date);
-    let metadata = NodeMetadata::jsonb(
-        ThumbnailMeta {
-            file_name: thumbnail_file_name,
-            width: thumbnail_width as i32,
-            height: thumbnail_height as i32,
-        },
-        file_meta,
-        media_type,
-    )?;
+    let metadata = NodeMetadata::jsonb(thumbnail, preview, file_meta, media_type)?;
 
     let row = db
         .query_one(
@@ -625,24 +612,15 @@ async fn create_file(
     updated_date: DateTime<Utc>,
     FileData {
         file_name,
-        thumbnail_file_name,
         metadata,
         size: file_size,
         media_type,
-        thumbnail_width,
-        thumbnail_height,
+        thumbnail,
+        preview,
     }: FileData,
 ) -> AppResult<FsNode> {
     let file_meta = Metadata::from(metadata, updated_date);
-    let metadata = NodeMetadata::jsonb(
-        ThumbnailMeta {
-            file_name: thumbnail_file_name,
-            width: thumbnail_width as i32,
-            height: thumbnail_height as i32,
-        },
-        file_meta,
-        media_type,
-    )?;
+    let metadata = NodeMetadata::jsonb(thumbnail, preview, file_meta, media_type)?;
 
     let row = db
         .query_one(

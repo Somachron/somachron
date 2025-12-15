@@ -1,4 +1,4 @@
-use lib_core::{storage::Storage, AppResult};
+use lib_core::{storage::Storage, AppResult, ErrorContext};
 
 use crate::{
     datastore::{space::SpaceDs, storage::StorageDs, user_space::UserSpaceDs},
@@ -15,13 +15,16 @@ impl<D: UserSpaceDs + SpaceDs + StorageDs> Service<D> {
         storage: &Storage,
         dto: SpaceCreateRequest,
     ) -> AppResult<_SpaceResponse> {
-        let space = self.ds.insert_space(&dto.name, &dto.description).await?;
+        let space = self.ds.insert_space(&dto.name, &dto.description).await.context("s:create_user_space")?;
 
-        let member =
-            self.ds.add_user_to_space(&user_id, &space.id, crate::datastore::user_space::SpaceRole::Owner).await?;
+        let member = self
+            .ds
+            .add_user_to_space(&user_id, &space.id, crate::datastore::user_space::SpaceRole::Owner)
+            .await
+            .context("s:create_user_space")?;
 
-        self.ds.create_root_folder(&space.id).await?;
-        storage.create_space_folder(&member.space_id.to_string()).await?;
+        self.ds.create_root_folder(&space.id).await.context("s:create_user_space")?;
+        storage.create_space_folder(&member.space_id.to_string()).await.context("s:create_user_space")?;
 
         Ok(_SpaceResponse(space))
     }

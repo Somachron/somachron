@@ -189,11 +189,17 @@ impl Display for ErrType {
 }
 
 #[derive(Debug)]
-pub struct AppError {
-    _type: ErrType,
+struct ErrContext {
     message: String,
     at: String,
+}
+
+#[derive(Debug)]
+pub struct AppError {
+    _type: ErrType,
+    err_ctx: ErrContext,
     err_msg: String,
+    contexts: Vec<ErrContext>,
 }
 
 impl AppError {
@@ -203,16 +209,40 @@ impl AppError {
         let at = format!("{}:{}:{}", location.file(), location.line(), location.column());
         AppError {
             _type,
+            err_ctx: ErrContext {
+                message: message.into(),
+                at,
+            },
+            err_msg: err.map(|e| e.to_string()).unwrap_or("".into()),
+            contexts: Vec::with_capacity(64),
+        }
+    }
+
+    #[track_caller]
+    fn ctx(mut self, location: &'static std::panic::Location<'static>, message: impl Into<String>) -> Self {
+        let at = format!("{}:{}:{}", location.file(), location.line(), location.column());
+        self.contexts.push(ErrContext {
             message: message.into(),
             at,
-            err_msg: err.map(|e| e.to_string()).unwrap_or("".into()),
-        }
+        });
+        self
+    }
+}
+
+pub trait ErrorContext<S, E> {
+    fn context(self, message: impl Into<String>) -> Result<S, E>;
+}
+impl<S> ErrorContext<S, AppError> for Result<S, AppError> {
+    #[track_caller]
+    fn context(self, message: impl Into<String>) -> Result<S, AppError> {
+        let location = std::panic::Location::caller();
+        self.map_err(|err| err.ctx(location, message))
     }
 }
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+        write!(f, "{}", self.err_ctx.message)
     }
 }
 
@@ -229,10 +259,16 @@ impl IntoResponse for ApiError {
         let req_id = self.1;
 
         let id: &str = &req_id.0;
-        let _type = err._type;
-        let err_msg = err.err_msg;
-        let message = format!("[{}]: {}", _type, err.message);
-        let at = err.at;
+        let AppError {
+            _type,
+            err_ctx,
+            err_msg,
+            contexts,
+        } = err;
+        let at = err_ctx.at;
+        let message = format!("[{}]: {}", _type, err_ctx.message);
+        let stack_trace = contexts.into_iter().map(|ctx| format!("{} - {}", ctx.at, ctx.message)).collect::<Vec<_>>();
+        let stack_trace = stack_trace.join("\n");
 
         let status = match _type {
             ErrType::InvalidBody => StatusCode::BAD_REQUEST,
@@ -250,9 +286,9 @@ impl IntoResponse for ApiError {
 
         match status {
             StatusCode::INTERNAL_SERVER_ERROR | StatusCode::FAILED_DEPENDENCY => {
-                tracing::error!(req_id = id, message = message, at = at, err = err_msg)
+                tracing::error!(req_id = id, message = message, at = at, err = err_msg, stack_trace)
             }
-            _ => tracing::warn!(req_id = id, message = message, at = at, err = err_msg),
+            _ => tracing::warn!(req_id = id, message = message, at = at, err = err_msg, stack_trace),
         };
 
         (

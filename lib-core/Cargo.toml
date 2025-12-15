@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+thumbnail-output = { path = "../thumbnail-output" }
+
 tokio = { workspace = true }
 tokio-util = { version = "0.7.15", features = ["io"] }
 

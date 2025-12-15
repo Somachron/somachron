@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
+use thumbnail_output::{ImageData, ProcessedImage};
+
 mod err;
 mod media;
 
@@ -35,17 +37,17 @@ fn main() {
 
     let result = match cli.media {
         MediaType::Image => media::handle_image(cli.src, cli.rotation),
-        MediaType::Video => media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|(w, h)| (w, h, None)),
+        MediaType::Video => {
+            media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|th| ProcessedImage::General {
+                thumbnail: th,
+                preview: ImageData::default(),
+            })
+        }
     };
 
     match result {
-        Ok((w, h, heif_paths)) => {
-            let value = serde_json::json!({
-                "heif_paths": heif_paths,
-                "width": w,
-                "height": h,
-            });
-            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+        Ok(data) => {
+            println!("{}", serde_json::to_string_pretty(&data).unwrap());
         }
         Err(err) => err.exit(),
     };

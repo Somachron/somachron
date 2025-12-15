@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["lib-core", "lib-domain", "lib-migrations", "somachron", "thumbnailer"]
+members = ["lib-core", "lib-domain", "lib-migrations", "somachron", "thumbnail-output", "thumbnailer", "thumbnail-output"]
 default-members = ["somachron"]
 
 [workspace.dependencies]

@@ -1,9 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use thumbnail_output::ProcessedImage;
 use utoipa::ToSchema;
 
 use super::{AppResult, ErrType};
@@ -142,19 +143,6 @@ pub struct MediaMetadata {
     pub longitude: Option<f64>,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct HeifPath {
-    pub tmp_path: String,
-    pub thumbnail_path: PathBuf,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ThumbnailOut {
-    pub heif_paths: Option<Vec<String>>,
-    pub width: u32,
-    pub height: u32,
-}
-
 /// Get media type [`infer::MatcherType::Image`] or [`infer::MatcherType::Video`]
 /// based on `ext` extension
 pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
@@ -257,12 +245,25 @@ fn parse_dms_decimal(dms: &str) -> f64 {
     }
 }
 
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ImageMeta {
+    pub width: i32,
+    pub height: i32,
+    pub file_name: String,
+}
+
+pub struct ProcessedMeta {
+    pub thumbnail: ImageMeta,
+    pub preview: ImageMeta,
+    pub file_name: Option<String>,
+}
+
 /// Spawn thumbnailer binary
 pub(super) async fn run_thumbnailer(
     src: &Path,
     media_type: infer::MatcherType,
     metadata: &MediaMetadata,
-) -> AppResult<ThumbnailOut> {
+) -> AppResult<ProcessedImage> {
     let mode = match media_type {
         infer::MatcherType::Image => "image",
         infer::MatcherType::Video => "video",
@@ -298,7 +299,7 @@ pub(super) async fn run_thumbnailer(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stdout = stdout.into_owned();
 
-    let value: ThumbnailOut = serde_json::from_str(&stdout)
+    let value: ProcessedImage = serde_json::from_str(&stdout)
         .map_err(|err| ErrType::MediaError.err(err, "Failed to deserialize heif paths"))?;
 
     Ok(value)

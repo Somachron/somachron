@@ -1,11 +1,11 @@
 pub mod res {
-    use lib_core::storage::MediaType;
+    use lib_core::{media::ImageMeta, storage::MediaType};
     use ser_mapper::impl_dto;
     use serde::Serialize;
     use utoipa::ToSchema;
 
     use crate::{
-        datastore::storage::{FileMeta, FsNode, Metadata, NodeMetadata, ThumbnailMeta},
+        datastore::storage::{FileMeta, FsNode, Metadata, NodeMetadata},
         dto::{Datetime, _IdOptionRef, _IdRef},
     };
 
@@ -49,7 +49,7 @@ pub mod res {
 
     impl_dto!(
         #[derive(ToSchema)]
-        pub struct ThumbnailMetadataResponse<ThumbnailMeta> {
+        pub struct ThumbnailMetadataResponse<ImageMeta> {
             file_name: String = file_name,
             width: u32 = width,
             height: u32 = height,

@@ -1,4 +1,4 @@
-use lib_core::{clerk::TokenClaims, AppResult, ErrType};
+use lib_core::{clerk::TokenClaims, AppResult, ErrType, ErrorContext};
 
 use crate::datastore::{native_app::NativeAppDs, user::UserDs};
 
@@ -9,12 +9,15 @@ impl<D: UserDs + NativeAppDs> Service<D> {
         match self.ds.get_user_by_clerk_id(&claims.sub).await? {
             Some(user) => {
                 if claims.updated_at > user.updated_at.timestamp() as f64 {
-                    self.ds.update_user(user.id, &claims.name, "", &claims.picture).await
+                    self.ds
+                        .update_user(user.id, &claims.name, "", &claims.picture)
+                        .await
+                        .context("claims timestamp was updated")
                 } else {
                     Ok(user)
                 }
             }
-            None => self.ds.insert_user(claims).await,
+            None => self.ds.insert_user(claims).await.context("user by clerk id was null"),
         }
         .and_then(|user| {
             if user.allowed {
