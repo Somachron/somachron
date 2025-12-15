@@ -185,7 +185,7 @@ impl Storage {
 
         // extract media metadata
         let metadata_result = self.process_media(space_id, file_path, ext, &tmp_path, media_type).await;
-        let _ = remove_file(&tmp_path).await;
+        remove_file(&tmp_path).await.context("after processing media to remote downloaded tmp media")?;
         let (metadata, processed_meta_list) = metadata_result?;
 
         let all_metadata = processed_meta_list
@@ -276,7 +276,7 @@ impl Storage {
                         .upload_photo(r2_heif_path.to_str().unwrap(), &heif_path)
                         .await
                         .context("uploading heif src")?;
-                    let _ = remove_file(&heif_path).await;
+                    remove_file(&heif_path).await.context("after uploading src heif file")?;
 
                     let thumbnail_file_name = thumbnail_data.path.file_name().unwrap();
                     let mut r2_thumbnail = r2_path.clone();
@@ -285,7 +285,7 @@ impl Storage {
                         .upload_photo(r2_thumbnail.to_str().unwrap(), &thumbnail_data.path)
                         .await
                         .context("uploading thumbnail for heif type")?;
-                    let _ = remove_file(&thumbnail_data.path).await;
+                    remove_file(&thumbnail_data.path).await.context("after uploading thumbnail for heif type")?;
 
                     let preview_file_name = preview_data.path.file_name().unwrap();
                     let mut r2_preview = r2_path.clone();
@@ -294,7 +294,7 @@ impl Storage {
                         .upload_photo(r2_preview.to_str().unwrap(), &preview_data.path)
                         .await
                         .context("uploading preview for heif type")?;
-                    let _ = remove_file(&preview_data.path).await;
+                    remove_file(&preview_data.path).await.context("after uploading preview for heif type")?;
 
                     media_data.push(media::ProcessedMeta {
                         thumbnail: media::ImageMeta {
