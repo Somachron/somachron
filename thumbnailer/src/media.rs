@@ -31,7 +31,7 @@ pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedI
             preview_dst.set_file_name(format!("preview_{file_name}.jpeg"));
 
             let mut thumbnail_dst = src.clone();
-            thumbnail_dst.set_file_name(format!("thubmnail_{file_name}.jpeg"));
+            thumbnail_dst.set_file_name(format!("thumbnail_{file_name}.jpeg"));
 
             let preview = create_preview(&src, image_format, preview_dst, rotation)?;
             let thumbnail = create_thumbnail(ImageType::Path(src), image_format, thumbnail_dst, rotation)?;
@@ -57,7 +57,7 @@ pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedI
                 preview_dst.set_file_name(format!("preview_{file_name}_{i}.jpeg"));
 
                 let mut thumbnail_dst = src.clone();
-                thumbnail_dst.set_file_name(format!("thubmnail_{file_name}_{i}.jpeg"));
+                thumbnail_dst.set_file_name(format!("thumbnail_{file_name}_{i}.jpeg"));
 
                 heif_paths.push(src.clone());
 
