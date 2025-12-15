@@ -278,18 +278,18 @@ impl Storage {
                         .context("uploading heif src")?;
                     remove_file(&heif_path).await.context("after uploading src heif file")?;
 
-                    let thumbnail_file_name = thumbnail_data.path.file_name().unwrap();
+                    let thumbnail_file_name = format!("thumbnail_{src_file_stem}_{i}.jpeg");
                     let mut r2_thumbnail = r2_path.clone();
-                    r2_thumbnail.set_file_name(thumbnail_file_name);
+                    r2_thumbnail.set_file_name(&thumbnail_file_name);
                     self.r2
                         .upload_photo(r2_thumbnail.to_str().unwrap(), &thumbnail_data.path)
                         .await
                         .context("uploading thumbnail for heif type")?;
                     remove_file(&thumbnail_data.path).await.context("after uploading thumbnail for heif type")?;
 
-                    let preview_file_name = preview_data.path.file_name().unwrap();
+                    let preview_file_name = format!("preview_{src_file_stem}_{i}.jpeg");
                     let mut r2_preview = r2_path.clone();
-                    r2_preview.set_file_name(preview_file_name);
+                    r2_preview.set_file_name(&preview_file_name);
                     self.r2
                         .upload_photo(r2_preview.to_str().unwrap(), &preview_data.path)
                         .await
@@ -300,12 +300,12 @@ impl Storage {
                         thumbnail: media::ImageMeta {
                             width: thumbnail_data.width as i32,
                             height: thumbnail_data.height as i32,
-                            file_name: thumbnail_file_name.to_str().map(|s| s.to_owned()).unwrap(),
+                            file_name: thumbnail_file_name,
                         },
                         preview: media::ImageMeta {
                             width: preview_data.width as i32,
                             height: preview_data.height as i32,
-                            file_name: preview_file_name.to_str().map(|s| s.to_owned()).unwrap(),
+                            file_name: preview_file_name,
                         },
                         file_name: Some(file_name.to_owned()),
                     });
