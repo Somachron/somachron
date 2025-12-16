@@ -247,23 +247,6 @@ pub struct InnerFolder {
     pub path: String,
 }
 
-impl Datastore {
-    pub async fn get_all_files(&self) -> AppResult<Vec<FsNode>> {
-        let rows = self
-            .db
-            .query("SELECT * FROM fs_node WHERE node_type = 1", &[])
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to query all files"))?;
-
-        let size = rows.len();
-        rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
-            let f = FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse listed files"))?;
-            acc.push(f);
-            Ok(acc)
-        })
-    }
-}
-
 pub trait StorageDs {
     fn upsert_file(
         &self,
