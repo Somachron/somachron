@@ -235,6 +235,7 @@ impl Storage {
                     .upload_photo(r2_thumbnail.to_str().unwrap(), &thumbnail.path)
                     .await
                     .context("uploading thumbnail for general type")?;
+                remove_file(&thumbnail.path).await?;
 
                 let preview_file_name = format!("preview_{src_file_stem}.jpeg");
                 let mut r2_preview = r2_path.clone();
@@ -243,6 +244,11 @@ impl Storage {
                     .upload_photo(r2_preview.to_str().unwrap(), &preview.path)
                     .await
                     .context("uploading preview for general type")?;
+                // because video or any other type won't have preview
+                // so removing "it's" file would give error
+                if media_type == infer::MatcherType::Image {
+                    remove_file(&preview.path).await?;
+                }
 
                 media_data.push(media::ProcessedMeta {
                     thumbnail: media::ImageMeta {
