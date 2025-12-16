@@ -185,7 +185,7 @@ impl Storage {
 
         // extract media metadata
         let metadata_result = self.process_media(space_id, file_path, ext, &tmp_path, media_type).await;
-        remove_file(&tmp_path).await.context("after processing media to remote downloaded tmp media")?;
+        let _ = remove_file(&tmp_path).await;
         let (metadata, processed_meta_list) = metadata_result?;
 
         let all_metadata = processed_meta_list
