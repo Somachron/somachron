@@ -227,7 +227,7 @@ impl TryFrom<tokio_postgres::Row> for GalleryFileMeta {
 
 pub struct StreamPaths {
     pub thumbnail_path: String,
-    pub original_path: String,
+    pub preview_path: String,
 }
 impl TryFrom<tokio_postgres::Row> for StreamPaths {
     type Error = tokio_postgres::error::Error;
@@ -235,7 +235,7 @@ impl TryFrom<tokio_postgres::Row> for StreamPaths {
     fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
         Ok(Self {
             thumbnail_path: value.try_get(1)?,
-            original_path: value.try_get(0)?,
+            preview_path: value.try_get(0)?,
         })
     }
 }

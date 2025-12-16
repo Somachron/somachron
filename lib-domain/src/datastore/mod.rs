@@ -236,7 +236,7 @@ mod statements {
         /// WHERE space_id = $1 AND parent_node = $2 AND node_name = $3
         pub get_node_by_name: tokio_postgres::Statement,
 
-        /// SELECT concat(path, '/', node_name) as og_path,
+        /// SELECT concat(path, '/', metadata->'preview_meta'->>'file_name') as pw_path,
         ///     concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path
         /// FROM fs_node WHERE id = $1 AND space_id = $2
         pub get_file_stream_paths: tokio_postgres::Statement,
@@ -330,7 +330,7 @@ mod statements {
                     .unwrap(),
                 get_file_stream_paths: db
                     .prepare_typed(
-                        r#"SELECT concat(path, '/', node_name) as og_path,
+                        r#"SELECT concat(path, '/', metadata->'preview_meta'->>'file_name') as pw_path,
                         concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path
                         FROM fs_node WHERE id = $1 AND space_id = $2"#,
                         &[Type::UUID, Type::UUID],

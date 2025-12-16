@@ -175,12 +175,12 @@ impl<D: StorageDs> Service<D> {
         };
 
         let space_id_str = space_id.to_string();
-        let original_stream = storage.generate_download_signed_url(&space_id_str, &stream_paths.original_path).await?;
+        let preview_stream = storage.generate_download_signed_url(&space_id_str, &stream_paths.preview_path).await?;
         let thumbnail_stream =
             storage.generate_download_signed_url(&space_id_str, &stream_paths.thumbnail_path).await?;
 
         Ok(StreamedUrlsResponse {
-            original_stream,
+            preview_stream,
             thumbnail_stream,
         })
     }

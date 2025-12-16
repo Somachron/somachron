@@ -17,7 +17,7 @@ pub mod res {
 
     #[derive(Serialize, ToSchema)]
     pub struct StreamedUrlsResponse {
-        pub original_stream: String,
+        pub preview_stream: String,
         pub thumbnail_stream: String,
     }
 
