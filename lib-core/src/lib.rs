@@ -192,6 +192,7 @@ impl Display for ErrType {
 struct ErrContext {
     message: String,
     at: String,
+    cause: String,
 }
 
 #[derive(Debug)]
@@ -212,6 +213,7 @@ impl AppError {
             err_ctx: ErrContext {
                 message: message.into(),
                 at,
+                cause: err.as_ref().and_then(|e| e.source()).map(|e| e.to_string()).unwrap_or_default(),
             },
             err_msg: err.map(|e| e.to_string()).unwrap_or("".into()),
             contexts: Vec::with_capacity(64),
@@ -224,6 +226,7 @@ impl AppError {
         self.contexts.push(ErrContext {
             message: message.into(),
             at,
+            cause: String::from(""),
         });
         self
     }
@@ -267,7 +270,8 @@ impl IntoResponse for ApiError {
         } = err;
         let at = err_ctx.at;
         let message = format!("[{}]: {}", _type, err_ctx.message);
-        let stack_trace = contexts.into_iter().map(|ctx| format!("{} - {}", ctx.at, ctx.message)).collect::<Vec<_>>();
+        let stack_trace =
+            contexts.into_iter().map(|ctx| format!("{} - {}: {}", ctx.at, ctx.message, ctx.cause)).collect::<Vec<_>>();
         let stack_trace = stack_trace.join("\n");
 
         let status = match _type {
