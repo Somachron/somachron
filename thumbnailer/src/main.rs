@@ -39,8 +39,8 @@ fn main() {
         MediaType::Image => media::handle_image(cli.src, cli.rotation),
         MediaType::Video => {
             media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|th| ProcessedImage::General {
-                thumbnail: th,
-                preview: ImageData::default(),
+                thumbnail: th.clone(),
+                preview: th,
             })
         }
     };
