@@ -6,9 +6,7 @@ use crate::{
     datastore::{storage::StorageDs, user_space::SpaceRole},
     dto::cloud::{
         req::UploadCompleteRequest,
-        res::{
-            InitiateUploadResponse, StreamedUrlsResponse, _FileMetaResponseVec, _FolderResponse, _FolderResponseVec,
-        },
+        res::{InitiateUploadResponse, StreamedUrlResponse, _FileMetaResponseVec, _FolderResponse, _FolderResponseVec},
     },
     extension::{SpaceCtx, UserId},
 };
@@ -161,7 +159,7 @@ impl<D: StorageDs> Service<D> {
             .map(_FolderResponse)
     }
 
-    pub async fn generate_download_signed_url(
+    pub async fn generate_thumbnail_signed_url(
         &self,
         SpaceCtx {
             space_id,
@@ -169,19 +167,37 @@ impl<D: StorageDs> Service<D> {
         }: SpaceCtx,
         storage: &Storage,
         file_id: Uuid,
-    ) -> AppResult<StreamedUrlsResponse> {
-        let Some(stream_paths) = self.ds.get_file_stream_paths(&space_id, file_id).await? else {
+    ) -> AppResult<StreamedUrlResponse> {
+        let Some(stream_path) = self.ds.get_thumbnail_stream_path(&space_id, file_id).await? else {
             return Err(ErrType::NotFound.msg("Requested file not found"));
         };
 
         let space_id_str = space_id.to_string();
-        let preview_stream = storage.generate_download_signed_url(&space_id_str, &stream_paths.preview_path).await?;
-        let thumbnail_stream =
-            storage.generate_download_signed_url(&space_id_str, &stream_paths.thumbnail_path).await?;
+        let thumbnail_stream = storage.generate_download_signed_url(&space_id_str, &stream_path).await?;
 
-        Ok(StreamedUrlsResponse {
-            preview_stream,
-            thumbnail_stream,
+        Ok(StreamedUrlResponse {
+            url: thumbnail_stream,
+        })
+    }
+
+    pub async fn generate_preview_signed_url(
+        &self,
+        SpaceCtx {
+            space_id,
+            ..
+        }: SpaceCtx,
+        storage: &Storage,
+        file_id: Uuid,
+    ) -> AppResult<StreamedUrlResponse> {
+        let Some(stream_path) = self.ds.get_preview_stream_path(&space_id, file_id).await? else {
+            return Err(ErrType::NotFound.msg("Requested file not found"));
+        };
+
+        let space_id_str = space_id.to_string();
+        let preview_stream = storage.generate_download_signed_url(&space_id_str, &stream_path).await?;
+
+        Ok(StreamedUrlResponse {
+            url: preview_stream,
         })
     }
 

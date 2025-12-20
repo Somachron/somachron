@@ -225,17 +225,15 @@ impl TryFrom<tokio_postgres::Row> for GalleryFileMeta {
     }
 }
 
-pub struct StreamPaths {
-    pub thumbnail_path: String,
-    pub preview_path: String,
+pub struct StreamPath {
+    pub path: String,
 }
-impl TryFrom<tokio_postgres::Row> for StreamPaths {
+impl TryFrom<tokio_postgres::Row> for StreamPath {
     type Error = tokio_postgres::error::Error;
 
     fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
         Ok(Self {
-            thumbnail_path: value.try_get(1)?,
-            preview_path: value.try_get(0)?,
+            path: value.try_get(0)?,
         })
     }
 }
@@ -267,11 +265,16 @@ pub trait StorageDs {
     fn get_file(&self, space_id: Uuid, file_id: Uuid) -> impl Future<Output = AppResult<Option<FsNode>>>;
     fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Vec<FileMeta>>>;
     fn list_files_gallery(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<GalleryFileMeta>>>;
-    fn get_file_stream_paths(
+    fn get_thumbnail_stream_path(
         &self,
         space_id: &Uuid,
         file_id: Uuid,
-    ) -> impl Future<Output = AppResult<Option<StreamPaths>>>;
+    ) -> impl Future<Output = AppResult<Option<String>>>;
+    fn get_preview_stream_path(
+        &self,
+        space_id: &Uuid,
+        file_id: Uuid,
+    ) -> impl Future<Output = AppResult<Option<String>>>;
 
     fn create_root_folder(&self, space_id: &Uuid) -> impl Future<Output = AppResult<()>>;
     fn create_folder(
@@ -379,17 +382,32 @@ impl StorageDs for Datastore {
         })
     }
 
-    async fn get_file_stream_paths(&self, space_id: &Uuid, file_id: Uuid) -> AppResult<Option<StreamPaths>> {
+    async fn get_thumbnail_stream_path(&self, space_id: &Uuid, file_id: Uuid) -> AppResult<Option<String>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.get_file_stream_paths, &[&file_id, &space_id])
+            .query(&self.storage_stmts.get_thumbnail_stream_path, &[&file_id, &space_id])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get file stream paths"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get file thumbnail path"))?;
 
         match rows.into_iter().next() {
-            Some(row) => StreamPaths::try_from(row)
-                .map(Some)
-                .map_err(|err| ErrType::DbError.err(err, "Failed to parse stream paths for file")),
+            Some(row) => StreamPath::try_from(row)
+                .map(|p| Some(p.path))
+                .map_err(|err| ErrType::DbError.err(err, "Failed to parse thumbnail path for file")),
+            None => Ok(None),
+        }
+    }
+
+    async fn get_preview_stream_path(&self, space_id: &Uuid, file_id: Uuid) -> AppResult<Option<String>> {
+        let rows = self
+            .db
+            .query(&self.storage_stmts.get_preview_stream_path, &[&file_id, &space_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get file preview path"))?;
+
+        match rows.into_iter().next() {
+            Some(row) => StreamPath::try_from(row)
+                .map(|p| Some(p.path))
+                .map_err(|err| ErrType::DbError.err(err, "Failed to parse preview path for file")),
             None => Ok(None),
         }
     }
