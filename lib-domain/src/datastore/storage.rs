@@ -292,7 +292,7 @@ pub trait StorageDs {
     ) -> impl Future<Output = AppResult<Vec<InnerFolder>>>;
 
     fn delete_folder(&self, space_id: &Uuid, inner_folders: Vec<InnerFolder>) -> impl Future<Output = AppResult<()>>;
-    fn delete_file(&self, file_id: Uuid) -> impl Future<Output = AppResult<()>>;
+    fn delete_file(&self, file_id: &Uuid, space_id: &Uuid) -> impl Future<Output = AppResult<()>>;
 }
 
 impl StorageDs for Datastore {
@@ -549,15 +549,12 @@ impl StorageDs for Datastore {
 
             // delete files
             for file in files.iter() {
-                self.db
-                    .query(&self.storage_stmts.delete_node, &[&file.id, &inner.id, &space_id])
-                    .await
-                    .map_err(|err| ErrType::DbError.err(err, "Failed to delete file node"))?;
+                self.delete_file(&file.id, &space_id).await?;
             }
 
             // delete folder
             self.db
-                .query(&self.storage_stmts.delete_node, &[&inner.id, &inner.parent, &space_id])
+                .query(&self.storage_stmts.delete_node, &[&inner.id, &space_id])
                 .await
                 .map_err(|err| ErrType::DbError.err(err, "Failed to delete node"))?;
         }
@@ -565,18 +562,18 @@ impl StorageDs for Datastore {
         Ok(())
     }
 
-    async fn delete_file(&self, file_id: Uuid) -> AppResult<()> {
+    async fn delete_file(&self, file_id: &Uuid, space_id: &Uuid) -> AppResult<()> {
         let _ = self
             .db
-            .query(&self.storage_stmts.unlink_fs_node, &[&file_id])
+            .query(&self.storage_stmts.drop_child_fs_link, &[&file_id])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to unlink file"));
+            .map_err(|err| ErrType::DbError.err(err, "Failed to unlink file"))?;
 
         let _ = self
             .db
-            .query(&self.storage_stmts.delete_node, &[&file_id])
+            .query(&self.storage_stmts.delete_node, &[&file_id, &space_id])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to delete file"));
+            .map_err(|err| ErrType::DbError.err(err, "Failed to delete file"))?;
 
         Ok(())
     }

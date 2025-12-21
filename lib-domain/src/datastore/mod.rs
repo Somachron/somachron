@@ -277,16 +277,13 @@ mod statements {
         /// RETURNING *
         pub update_node: tokio_postgres::Statement,
 
-        /// DELETE FROM fs_link WHERE node_id = $1 AND child_node_id = $2
-        pub unlink_fs_node: tokio_postgres::Statement,
-
         /// DELETE FROM fs_link WHERE node_id = $1
         pub drop_parent_fs_link: tokio_postgres::Statement,
 
         /// DELETE FROM fs_link WHERE child_node_id = $1
         pub drop_child_fs_link: tokio_postgres::Statement,
 
-        /// DELETE FROM fs_node WHERE id = $1 AND parent_node = $2 AND space_id = $3
+        /// DELETE FROM fs_node WHERE id = $1 AND space_id = $2
         pub delete_node: tokio_postgres::Statement,
     }
     impl StorageStatements {
@@ -401,13 +398,6 @@ mod statements {
                     )
                     .await
                     .unwrap(),
-                unlink_fs_node: db
-                    .prepare_typed(
-                        r#"DELETE FROM fs_link WHERE node_id = $1 AND child_node_id = $2"#,
-                        &[Type::UUID, Type::UUID],
-                    )
-                    .await
-                    .unwrap(),
                 drop_parent_fs_link: db
                     .prepare_typed(r#"DELETE FROM fs_link WHERE node_id = $1"#, &[Type::UUID])
                     .await
@@ -418,8 +408,8 @@ mod statements {
                     .unwrap(),
                 delete_node: db
                     .prepare_typed(
-                        r#"DELETE FROM fs_node WHERE id = $1 AND parent_node = $2 AND space_id = $3"#,
-                        &[Type::UUID, Type::UUID, Type::UUID],
+                        r#"DELETE FROM fs_node WHERE id = $1 AND space_id = $2"#,
+                        &[Type::UUID, Type::UUID],
                     )
                     .await
                     .unwrap(),

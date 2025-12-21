@@ -341,9 +341,26 @@ impl Storage {
         self.r2.delete_folder(r2_path).await
     }
 
-    pub async fn delete_file(&self, r2_file: String, r2_thumbnail: String) -> AppResult<()> {
-        self.r2.delete_key(&r2_file).await?;
-        self.r2.delete_key(&r2_thumbnail).await?;
+    pub async fn delete_file(
+        &self,
+        space_id: &str,
+        r2_file: String,
+        r2_thumbnail: String,
+        r2_preview: Option<String>,
+    ) -> AppResult<()> {
+        let r2_file = self.clean_path(&r2_file)?;
+        let r2_file = self.r2_spaces.join(space_id).join(r2_file);
+        self.r2.delete_key(r2_file.to_str().unwrap()).await?;
+
+        let r2_thumbnail = self.clean_path(&r2_thumbnail)?;
+        let r2_thumbnail = self.r2_spaces.join(space_id).join(r2_thumbnail);
+        self.r2.delete_key(r2_thumbnail.to_str().unwrap()).await?;
+
+        if let Some(r2_preview) = r2_preview {
+            let r2_preview = self.clean_path(&r2_preview)?;
+            let r2_preview = self.r2_spaces.join(space_id).join(r2_preview);
+            self.r2.delete_key(r2_preview.to_str().unwrap()).await?;
+        }
         Ok(())
     }
 }

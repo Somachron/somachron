@@ -246,12 +246,25 @@ impl<D: StorageDs> Service<D> {
         if let Some(file) = self.ds.get_file(space_id, file_id).await? {
             storage
                 .delete_file(
+                    &space_id.to_string(),
                     format!("{}/{}", file.path, file.node_name),
-                    format!("{}/{}", file.path, file.metadata.thumbnail_meta.unwrap_or_default().file_name),
+                    format!("{}/{}", file.path, file.metadata.thumbnail_meta.map(|m| m.file_name).unwrap_or_default()),
+                    file.metadata.media_type.and_then(|ty| match ty {
+                        lib_core::storage::MediaType::Image => Some(format!(
+                            "{}/{}",
+                            file.path,
+                            file.metadata.preview_meta.map(|m| m.file_name).unwrap_or_default()
+                        )),
+                        lib_core::storage::MediaType::Video => None,
+                    }),
                 )
                 .await?;
-            self.ds.delete_file(file.id).await?;
+
+            self.ds.delete_file(&file.id, &space_id).await?;
+
+            return Ok(());
         }
-        Ok(())
+
+        Err(ErrType::NotFound.msg("File not found for deletion"))
     }
 }
