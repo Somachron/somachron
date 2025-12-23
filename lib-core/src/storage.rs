@@ -136,7 +136,7 @@ impl Storage {
     /// Generate presigned URL for steaming media
     ///
     /// To be used by frontend
-    pub async fn generate_download_signed_url(&self, space_id: &str, path: &str) -> AppResult<String> {
+    pub async fn generate_signed_url(&self, space_id: &str, path: &str) -> AppResult<String> {
         let path = self.clean_path(path)?;
         let path = self.r2_spaces.join(space_id).join(path);
         self.r2.generate_download_signed_url(path.to_str().unwrap()).await

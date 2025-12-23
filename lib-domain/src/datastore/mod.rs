@@ -246,6 +246,10 @@ mod statements {
         /// FROM fs_node WHERE id = $1 AND space_id = $2
         pub get_preview_stream_path: tokio_postgres::Statement,
 
+        /// SELECT concat(path, '/', node_name) as d_path
+        /// FROM fs_node WHERE id = $1 AND space_id = $2
+        pub get_download_stream_path: tokio_postgres::Statement,
+
         /// WITH RECURSIVE child_folders AS (
         ///     SELECT * FROM fs_node WHERE id = $1 AND space_id = $2
         ///     UNION ALL
@@ -344,6 +348,14 @@ mod statements {
                         WHEN metadata->>'media_type' = 'image'
                             THEN concat(path, '/', metadata->'preview_meta'->>'file_name')
                             ELSE concat(path, '/', node_name) END
+                        FROM fs_node WHERE id = $1 AND space_id = $2"#,
+                        &[Type::UUID, Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                get_download_stream_path: db
+                    .prepare_typed(
+                        r#"SELECT concat(path, '/', node_name) as d_path
                         FROM fs_node WHERE id = $1 AND space_id = $2"#,
                         &[Type::UUID, Type::UUID],
                     )

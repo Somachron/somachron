@@ -275,6 +275,11 @@ pub trait StorageDs {
         space_id: &Uuid,
         file_id: Uuid,
     ) -> impl Future<Output = AppResult<Option<String>>>;
+    fn get_download_stream_path(
+        &self,
+        space_id: &Uuid,
+        file_id: Uuid,
+    ) -> impl Future<Output = AppResult<Option<String>>>;
 
     fn create_root_folder(&self, space_id: &Uuid) -> impl Future<Output = AppResult<()>>;
     fn create_folder(
@@ -401,6 +406,21 @@ impl StorageDs for Datastore {
         let rows = self
             .db
             .query(&self.storage_stmts.get_preview_stream_path, &[&file_id, &space_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get file preview path"))?;
+
+        match rows.into_iter().next() {
+            Some(row) => StreamPath::try_from(row)
+                .map(|p| Some(p.path))
+                .map_err(|err| ErrType::DbError.err(err, "Failed to parse preview path for file")),
+            None => Ok(None),
+        }
+    }
+
+    async fn get_download_stream_path(&self, space_id: &Uuid, file_id: Uuid) -> AppResult<Option<String>> {
+        let rows = self
+            .db
+            .query(&self.storage_stmts.get_download_stream_path, &[&file_id, &space_id])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get file preview path"))?;
 

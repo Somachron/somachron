@@ -173,7 +173,7 @@ impl<D: StorageDs> Service<D> {
         };
 
         let space_id_str = space_id.to_string();
-        let thumbnail_stream = storage.generate_download_signed_url(&space_id_str, &stream_path).await?;
+        let thumbnail_stream = storage.generate_signed_url(&space_id_str, &stream_path).await?;
 
         Ok(StreamedUrlResponse {
             url: thumbnail_stream,
@@ -194,10 +194,30 @@ impl<D: StorageDs> Service<D> {
         };
 
         let space_id_str = space_id.to_string();
-        let preview_stream = storage.generate_download_signed_url(&space_id_str, &stream_path).await?;
+        let preview_stream = storage.generate_signed_url(&space_id_str, &stream_path).await?;
 
         Ok(StreamedUrlResponse {
             url: preview_stream,
+        })
+    }
+    pub async fn generate_download_signed_url(
+        &self,
+        SpaceCtx {
+            space_id,
+            ..
+        }: SpaceCtx,
+        storage: &Storage,
+        file_id: Uuid,
+    ) -> AppResult<StreamedUrlResponse> {
+        let Some(stream_path) = self.ds.get_download_stream_path(&space_id, file_id).await? else {
+            return Err(ErrType::NotFound.msg("Requested file not found"));
+        };
+
+        let space_id_str = space_id.to_string();
+        let download_stream = storage.generate_signed_url(&space_id_str, &stream_path).await?;
+
+        Ok(StreamedUrlResponse {
+            url: download_stream,
         })
     }
 

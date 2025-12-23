@@ -32,6 +32,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .route("/mkdir", post(create_folder))
         .route("/stream/th/{id}", get(generate_thumbnail_signed_url))
         .route("/stream/{id}", get(generate_preview_signed_url))
+        .route("/download/{id}", get(generate_download_signed_url))
         .route("/upload", post(initiate_upload))
         .route("/upload/complete", post(upload_completion))
         .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
@@ -182,6 +183,25 @@ pub async fn generate_thumbnail_signed_url(
     tag = "Cloud"
 )]
 pub async fn generate_preview_signed_url(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+    Path(file_id): Path<Uuid>,
+) -> ApiResult<StreamedUrlResponse> {
+    app.service()
+        .generate_preview_signed_url(space_ctx, app.storage(), file_id)
+        .await
+        .map(Json)
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/media/download/{id}",
+    responses((status=200, body=StreamedUrlResponse)),
+    tag = "Cloud"
+)]
+pub async fn generate_download_signed_url(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
