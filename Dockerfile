@@ -1,4 +1,4 @@
-FROM rust:1.88-bookworm AS builder
+FROM rust:1.92-bookworm AS builder
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
