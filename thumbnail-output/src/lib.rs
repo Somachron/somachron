@@ -10,14 +10,7 @@ pub struct ImageData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum ProcessedImage {
-    General {
-        thumbnail: ImageData,
-        preview: ImageData,
-    },
-    Heif {
-        thumbnail: Vec<ImageData>,
-        preview: Vec<ImageData>,
-        heif_paths: Vec<PathBuf>,
-    },
+pub struct ProcessedImage {
+    pub thumbnail: ImageData,
+    pub preview: ImageData,
 }

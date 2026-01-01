@@ -37,12 +37,10 @@ fn main() {
 
     let result = match cli.media {
         MediaType::Image => media::handle_image(cli.src, cli.rotation),
-        MediaType::Video => {
-            media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|th| ProcessedImage::General {
-                thumbnail: th,
-                preview: ImageData::default(),
-            })
-        }
+        MediaType::Video => media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|th| ProcessedImage {
+            thumbnail: th,
+            preview: ImageData::default(),
+        }),
     };
 
     match result {

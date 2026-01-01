@@ -101,9 +101,7 @@ impl<D: StorageDs> Service<D> {
         let space_id_str = space_id.to_string();
         let file_data =
             storage.process_upload_completion(&space_id_str, file_path.to_str().unwrap(), file_size).await?;
-        for data in file_data.into_iter() {
-            let _ = self.ds.upsert_file(&user_id, &space_id, &folder, updated_date, data).await?;
-        }
+        let _ = self.ds.upsert_file(&user_id, &space_id, &folder, updated_date, file_data).await?;
 
         Ok(())
     }
