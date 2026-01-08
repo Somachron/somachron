@@ -66,7 +66,7 @@ pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedI
     })
 }
 
-pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppResult<ImageData> {
+pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedImage> {
     ffmpeg::init().map_err(|err| ErrType::MediaError.err(err, "Failed to init ffmpeg"))?;
 
     let mut input = ffmpeg::format::input(&src).map_err(|err| ErrType::MediaError.err(err, "Failed to input bytes"))?;
@@ -126,11 +126,11 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
                     .send_frame(&scaled_frame)
                     .map_err(|err| ErrType::MediaError.err(err, "Failed to send scaled frame to encoder"))?;
 
-                let mut thumbnail = Vec::<u8>::new();
+                let mut bytes = Vec::<u8>::new();
                 let mut encoded_packet = ffmpeg::Packet::empty();
                 while encoder.receive_packet(&mut encoded_packet).is_ok() {
                     let data = encoded_packet.data().ok_or(ErrType::MediaError.msg("Empty encoded packet data"))?;
-                    thumbnail.extend_from_slice(data);
+                    bytes.extend_from_slice(data);
                 }
 
                 encoder.send_eof().map_err(|err| ErrType::MediaError.err(err, "Failed to send EOF to encoder"))?;
@@ -138,20 +138,31 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
                 while encoder.receive_packet(&mut encoded_packet).is_ok() {
                     let data =
                         encoded_packet.data().ok_or(ErrType::MediaError.msg("Empty draining encoded packet data"))?;
-                    thumbnail.extend_from_slice(data);
+                    bytes.extend_from_slice(data);
                 }
 
-                return create_thumbnail(
-                    ImageType::Bytes(thumbnail),
+                let thumbnail = create_thumbnail(
+                    ImageType::Bytes(bytes.clone()),
+                    image::ImageFormat::Jpeg,
+                    dst.clone(),
+                    rotation.unwrap_or_default(),
+                )?;
+                let preview = create_preview(
+                    ImageType::Bytes(bytes),
                     image::ImageFormat::Jpeg,
                     dst,
                     rotation.unwrap_or_default(),
-                );
+                )?;
+
+                return Ok(ProcessedImage {
+                    thumbnail,
+                    preview,
+                });
             }
         }
     }
 
-    Ok(ImageData::default())
+    Err(ErrType::MediaError.msg("No frames found to process"))
 }
 
 fn create_thumbnail(data: ImageType, format: image::ImageFormat, dst: PathBuf, rotation: u64) -> AppResult<ImageData> {
@@ -223,28 +234,27 @@ fn convert_heif_to_jpeg(path: &PathBuf) -> AppResult<DynamicImage> {
     // heif contains multiple images
     let image_handles = ctx.top_level_image_handles();
 
-    let handle = ctx.primary_image_handle().ok().or(image_handles.into_iter().next());
+    let handle = ctx
+        .primary_image_handle()
+        .ok()
+        .or(image_handles.into_iter().next())
+        .ok_or(ErrType::MediaError.msg("No image handle found for heif"))?;
 
-    match handle {
-        Some(handle) => {
-            // get image
-            let image = heif
-                .decode(&handle, libheif_rs::ColorSpace::Rgb(libheif_rs::RgbChroma::Rgb), None)
-                .map_err(|err| ErrType::MediaError.err(err, "Failed to decode from heif handle"))?;
-            let planes = image.planes();
-            let interleaved =
-                planes.interleaved.ok_or(ErrType::MediaError.msg("Interleaved planes not found in heif image"))?;
+    // get image
+    let image = heif
+        .decode(&handle, libheif_rs::ColorSpace::Rgb(libheif_rs::RgbChroma::Rgb), None)
+        .map_err(|err| ErrType::MediaError.err(err, "Failed to decode from heif handle"))?;
+    let planes = image.planes();
+    let interleaved =
+        planes.interleaved.ok_or(ErrType::MediaError.msg("Interleaved planes not found in heif image"))?;
 
-            // get buffer
-            let img_buffer: image::RgbImage =
-                image::ImageBuffer::from_raw(interleaved.width, interleaved.height, interleaved.data.to_vec()).unwrap();
+    // get buffer
+    let img_buffer: image::RgbImage =
+        image::ImageBuffer::from_raw(interleaved.width, interleaved.height, interleaved.data.to_vec()).unwrap();
 
-            // create dynamic image
-            let img = image::DynamicImage::ImageRgb8(img_buffer);
-            Ok(img)
-        }
-        None => Err(ErrType::MediaError.msg("No image handle found for heif")),
-    }
+    // create dynamic image
+    let img = image::DynamicImage::ImageRgb8(img_buffer);
+    Ok(img)
 }
 
 fn rotate_image(img: DynamicImage, rotation: u64) -> DynamicImage {

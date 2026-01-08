@@ -13,8 +13,8 @@ image = "0.25.6"
 serde_json = { workspace = true }
 serde = { workspace = true }
 
-ffmpeg-next = { version = "8" }
-libheif-rs = { version = "2.3.0", features = ["v1_20"] }
+ffmpeg-next = { version = "8", features = ["build"] }
+libheif-rs = { version = "2.5.2", features = ["v1_20", "embedded-libheif"] }
 
 [profile.release]
 codegen-units = 1

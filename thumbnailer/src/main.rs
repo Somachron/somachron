@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
-use thumbnail_output::{ImageData, ProcessedImage};
-
 mod err;
 mod media;
 
@@ -37,10 +35,7 @@ fn main() {
 
     let result = match cli.media {
         MediaType::Image => media::handle_image(cli.src, cli.rotation),
-        MediaType::Video => media::handle_video(cli.src.clone(), cli.src, cli.rotation).map(|th| ProcessedImage {
-            thumbnail: th,
-            preview: ImageData::default(),
-        }),
+        MediaType::Video => media::handle_video(cli.src.clone(), cli.src, cli.rotation),
     };
 
     match result {
