@@ -1,5 +1,5 @@
 pub mod res {
-    use lib_core::{media::ImageMeta, storage::MediaType};
+    use lib_core::storage::media::{ImageMeta, MediaType};
     use ser_mapper::impl_dto;
     use serde::Serialize;
     use utoipa::ToSchema;

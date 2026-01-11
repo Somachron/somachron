@@ -4,8 +4,8 @@ use aws_sdk_s3::{
     config::http::HttpResponse,
     error::SdkError,
     operation::{
-        delete_object::DeleteObjectError, get_object::GetObjectError, list_objects_v2::ListObjectsV2Error,
-        put_object::PutObjectError,
+        delete_object::DeleteObjectError, get_object::GetObjectError, head_object::HeadObjectError,
+        list_objects_v2::ListObjectsV2Error, put_object::PutObjectError,
     },
 };
 use axum::{
@@ -20,8 +20,6 @@ use validator::Validate;
 pub mod clerk;
 pub mod config;
 pub mod interceptor;
-pub mod media;
-mod s3;
 pub mod storage;
 
 #[repr(transparent)]
@@ -104,14 +102,14 @@ pub enum ErrType {
 
     DbError,
     FsError,
-    R2Error,
+    S3Error,
     MediaError,
 }
 impl ErrType {
     #[track_caller]
-    pub fn r2_put(err: SdkError<PutObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
+    pub fn s3_put(err: SdkError<PutObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
         AppError::init(
-            ErrType::R2Error,
+            ErrType::S3Error,
             match err.into_service_error() {
                 PutObjectError::EncryptionTypeMismatch(encryption_type_mismatch) => {
                     Some(encryption_type_mismatch.into())
@@ -126,9 +124,9 @@ impl ErrType {
     }
 
     #[track_caller]
-    pub fn r2_get(err: SdkError<GetObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
+    pub fn s3_get(err: SdkError<GetObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
         AppError::init(
-            ErrType::R2Error,
+            ErrType::S3Error,
             match err.into_service_error() {
                 GetObjectError::InvalidObjectState(invalid_object_state) => Some(invalid_object_state.into()),
                 GetObjectError::NoSuchKey(no_such_key) => Some(no_such_key.into()),
@@ -139,15 +137,27 @@ impl ErrType {
     }
 
     #[track_caller]
-    pub fn r2_delete(err: SdkError<DeleteObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
+    pub fn s3_delete(err: SdkError<DeleteObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
         let err = err.into_service_error();
-        AppError::init(ErrType::R2Error, Some(err.into()), message)
+        AppError::init(ErrType::S3Error, Some(err.into()), message)
     }
 
     #[track_caller]
-    pub fn r2_list_err(err: SdkError<ListObjectsV2Error, HttpResponse>, message: impl Into<String>) -> AppError {
+    pub fn s3_head(err: SdkError<HeadObjectError, HttpResponse>, message: impl Into<String>) -> AppError {
         AppError::init(
-            ErrType::R2Error,
+            ErrType::S3Error,
+            match err.into_service_error() {
+                HeadObjectError::NotFound(not_found) => Some(not_found.into()),
+                err => Some(err.into()),
+            },
+            message,
+        )
+    }
+
+    #[track_caller]
+    pub fn s3_list_err(err: SdkError<ListObjectsV2Error, HttpResponse>, message: impl Into<String>) -> AppError {
+        AppError::init(
+            ErrType::S3Error,
             match err.into_service_error() {
                 ListObjectsV2Error::NoSuchBucket(no_such_bucket) => Some(no_such_bucket.into()),
                 err => Some(err.into()),
@@ -181,7 +191,7 @@ impl Display for ErrType {
 
                 ErrType::DbError => "DbError",
                 ErrType::FsError => "FileSystemError",
-                ErrType::R2Error => "R2Error",
+                ErrType::S3Error => "R2Error",
                 ErrType::MediaError => "MediaError",
             }
         )
@@ -284,7 +294,7 @@ impl IntoResponse for ApiError {
 
             ErrType::DbError => StatusCode::INTERNAL_SERVER_ERROR,
             ErrType::FsError => StatusCode::FAILED_DEPENDENCY,
-            ErrType::R2Error => StatusCode::FAILED_DEPENDENCY,
+            ErrType::S3Error => StatusCode::FAILED_DEPENDENCY,
             ErrType::MediaError => StatusCode::UNPROCESSABLE_ENTITY,
         };
 

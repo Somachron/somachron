@@ -171,7 +171,7 @@ impl<D: StorageDs> Service<D> {
         };
 
         let space_id_str = space_id.to_string();
-        let thumbnail_stream = storage.generate_signed_url(&space_id_str, &stream_path).await?;
+        let thumbnail_stream = storage.generate_stream_signed_url(&space_id_str, &stream_path).await?;
 
         Ok(StreamedUrlResponse {
             url: thumbnail_stream,
@@ -192,7 +192,7 @@ impl<D: StorageDs> Service<D> {
         };
 
         let space_id_str = space_id.to_string();
-        let preview_stream = storage.generate_signed_url(&space_id_str, &stream_path).await?;
+        let preview_stream = storage.generate_stream_signed_url(&space_id_str, &stream_path).await?;
 
         Ok(StreamedUrlResponse {
             url: preview_stream,
@@ -212,7 +212,7 @@ impl<D: StorageDs> Service<D> {
         };
 
         let space_id_str = space_id.to_string();
-        let download_stream = storage.generate_signed_url(&space_id_str, &stream_path).await?;
+        let download_stream = storage.generate_stream_signed_url(&space_id_str, &stream_path).await?;
 
         Ok(StreamedUrlResponse {
             url: download_stream,
@@ -268,12 +268,12 @@ impl<D: StorageDs> Service<D> {
                     format!("{}/{}", file.path, file.node_name),
                     format!("{}/{}", file.path, file.metadata.thumbnail_meta.map(|m| m.file_name).unwrap_or_default()),
                     file.metadata.media_type.and_then(|ty| match ty {
-                        lib_core::storage::MediaType::Image => Some(format!(
+                        lib_core::storage::media::MediaType::Image => Some(format!(
                             "{}/{}",
                             file.path,
                             file.metadata.preview_meta.map(|m| m.file_name).unwrap_or_default()
                         )),
-                        lib_core::storage::MediaType::Video => None,
+                        lib_core::storage::media::MediaType::Video => None,
                     }),
                 )
                 .await?;

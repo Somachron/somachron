@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -10,6 +10,7 @@ use utoipa::ToSchema;
 use super::{AppResult, ErrType};
 
 const THUMBNAIL_EXE: &str = "thumbnailer";
+const EXIFTOOL_EXE: &str = "exiftool";
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(untagged)]
@@ -143,42 +144,90 @@ pub struct MediaMetadata {
     pub longitude: Option<f64>,
 }
 
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaType {
+    Image,
+    Video,
+}
+
+pub enum MediaProcessType {
+    Image {
+        path: PathBuf,
+        file_size: i64,
+    },
+    Video {
+        url: String,
+        name: String,
+        tmp_path: PathBuf,
+        file_size: i64,
+    },
+}
+
 /// Get media type [`infer::MatcherType::Image`] or [`infer::MatcherType::Video`]
 /// based on `ext` extension
-pub(super) fn get_media_type(ext: &str) -> infer::MatcherType {
+pub(super) fn get_media_type(ext: &str) -> AppResult<MediaType> {
     match ext {
         // images
-        "jpg" | "jpeg" | "JPG" | "JPEG" => infer::MatcherType::Image,
-        "png" | "PNG" => infer::MatcherType::Image,
-        "gif" | "GIF" => infer::MatcherType::Image,
-        "bmp" | "BMP" => infer::MatcherType::Image,
-        "heif" | "HEIF" => infer::MatcherType::Image,
-        "heic" | "HEIC" => infer::MatcherType::Image,
-        "avif" | "AVIF" => infer::MatcherType::Image,
+        "jpg" | "jpeg" | "JPG" | "JPEG" => Ok(MediaType::Image),
+        "png" | "PNG" => Ok(MediaType::Image),
+        "gif" | "GIF" => Ok(MediaType::Image),
+        "bmp" | "BMP" => Ok(MediaType::Image),
+        "heif" | "HEIF" => Ok(MediaType::Image),
+        "heic" | "HEIC" => Ok(MediaType::Image),
+        "avif" | "AVIF" => Ok(MediaType::Image),
 
         // videos
-        "mp4" | "MP4" => infer::MatcherType::Video,
-        "m4v" | "M4V" => infer::MatcherType::Video,
-        "mkv" | "MKV" => infer::MatcherType::Video,
-        "mov" | "MOV" => infer::MatcherType::Video,
-        "avi" | "AVI" => infer::MatcherType::Video,
-        "mpg" | "MPG" | "mpeg" | "MPEG" => infer::MatcherType::Video,
+        "mp4" | "MP4" => Ok(MediaType::Video),
+        "m4v" | "M4V" => Ok(MediaType::Video),
+        "mkv" | "MKV" => Ok(MediaType::Video),
+        "mov" | "MOV" => Ok(MediaType::Video),
+        "avi" | "AVI" => Ok(MediaType::Video),
+        "mpg" | "MPG" | "mpeg" | "MPEG" => Ok(MediaType::Video),
 
         // unknown
-        _ => infer::MatcherType::Custom,
+        ext => Err(ErrType::MediaError.msg(format!("Invalid media format: {ext}"))),
     }
 }
 
 /// Extract metadata from image path
-pub(super) async fn extract_metadata(tmp_path: &Path) -> AppResult<MediaMetadata> {
-    let output = tokio::process::Command::new("exiftool")
-        .args(["-j", tmp_path.to_str().unwrap()])
-        .kill_on_drop(true)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
-        .map_err(|err| ErrType::MediaError.err(err, "Failed to get exif data"))?;
+pub(super) async fn extract_metadata(process_type: &MediaProcessType) -> AppResult<MediaMetadata> {
+    let file_name = match process_type {
+        MediaProcessType::Image {
+            path,
+            ..
+        } => path.file_name().and_then(|o| o.to_str()).unwrap_or_default(),
+        MediaProcessType::Video {
+            name,
+            ..
+        } => name.as_str(),
+    };
+
+    let output = match process_type {
+        MediaProcessType::Image {
+            path,
+            ..
+        } => tokio::process::Command::new(EXIFTOOL_EXE)
+            .args(["-j", path.to_str().unwrap()])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+            .map_err(|err| ErrType::MediaError.err(err, "Failed to get exif data"))?,
+        MediaProcessType::Video {
+            url,
+            ..
+        } => {
+            let cmd = format!("curl -s {} | {} -j -", url, EXIFTOOL_EXE);
+            tokio::process::Command::new("sh")
+                .args(["-c", cmd.as_str()])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output()
+                .await
+                .map_err(|err| ErrType::MediaError.err(err, "Failed to get exif data"))?
+        }
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -199,9 +248,8 @@ pub(super) async fn extract_metadata(tmp_path: &Path) -> AppResult<MediaMetadata
 
     let gps_info = extract_gps_info(&data);
 
-    let mut metadata: MediaMetadata = serde_json::from_value(data).map_err(|err| {
-        ErrType::MediaError.err(err, format!("Failed to deserialize media data: {:?}", tmp_path.file_name()))
-    })?;
+    let mut metadata: MediaMetadata = serde_json::from_value(data)
+        .map_err(|err| ErrType::MediaError.err(err, format!("Failed to deserialize media data: {}", file_name)))?;
 
     if let Some((lat, lng)) = gps_info {
         metadata.latitude = Some(lat);
@@ -255,21 +303,14 @@ pub struct ImageMeta {
 pub struct ProcessedMeta {
     pub thumbnail: ImageMeta,
     pub preview: ImageMeta,
-    pub file_name: Option<String>,
+    pub file_name: String,
 }
 
 /// Spawn thumbnailer binary
 pub(super) async fn run_thumbnailer(
-    src: &Path,
-    media_type: infer::MatcherType,
+    process_type: &MediaProcessType,
     metadata: &MediaMetadata,
 ) -> AppResult<ProcessedImage> {
-    let mode = match media_type {
-        infer::MatcherType::Image => "image",
-        infer::MatcherType::Video => "video",
-        _ => "",
-    };
-
     let rotation = metadata
         .orientation
         .map(|o| o.get_value())
@@ -279,11 +320,23 @@ pub(super) async fn run_thumbnailer(
                 EitherValue::Or(i) => MediaOrientation::from_rotation(*i).get_value(),
             })
         })
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .to_string();
 
-    let mut command = tokio::process::Command::new(THUMBNAIL_EXE);
-    let output = command
-        .args(["-m", mode, "-r", &rotation.to_string(), src.to_str().unwrap()])
+    let args: &[&str] = match process_type {
+        MediaProcessType::Image {
+            path,
+            ..
+        } => &["-r", rotation.as_str(), "image", path.to_str().unwrap()],
+        MediaProcessType::Video {
+            url,
+            name,
+            ..
+        } => &["-r", rotation.as_str(), "video", url, name.as_str()],
+    };
+
+    let output = tokio::process::Command::new(THUMBNAIL_EXE)
+        .args(args)
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

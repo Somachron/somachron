@@ -13,7 +13,7 @@ use crate::{config::S3Config, AppResult, ErrType};
 
 /// Client for handling functions for R2
 /// storage providers
-pub(super) struct S3Storage {
+pub struct S3Storage {
     /// R2 client
     client: Client,
 
@@ -22,7 +22,7 @@ pub(super) struct S3Storage {
 }
 
 impl S3Storage {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         let config = S3Config::new();
 
         let creds = Credentials::new(config.access_key, config.secret_key, None, None, "static");
@@ -40,17 +40,17 @@ impl S3Storage {
         }
     }
 
-    pub(super) async fn create_folder(&self, path: &str) -> AppResult<()> {
+    pub async fn create_folder(&self, path: &str) -> AppResult<()> {
         let stream = ByteStream::from("fd".as_bytes().to_vec());
         let builder = self.client.put_object().bucket(&self.bucket_name);
         let result = builder.key(format!("{path}/fd.dat")).body(stream).send().await;
-        result.map_err(|err| ErrType::r2_put(err, "Failed to create dir"))?;
+        result.map_err(|err| ErrType::s3_put(err, "Failed to create dir"))?;
         Ok(())
     }
 
-    pub(super) async fn generate_upload_signed_url(&self, path: &str) -> AppResult<String> {
+    pub async fn generate_upload_signed_url(&self, path: &str) -> AppResult<String> {
         let config = PresigningConfig::expires_in(std::time::Duration::from_secs(60 * 60))
-            .map_err(|err| ErrType::R2Error.err(err, "Failed to generate presign config"))?;
+            .map_err(|err| ErrType::S3Error.err(err, "Failed to generate presign config"))?;
 
         let request = self
             .client
@@ -59,14 +59,14 @@ impl S3Storage {
             .key(path)
             .presigned(config)
             .await
-            .map_err(|err| ErrType::r2_put(err, "Failed to generate upload presigned URL"))?;
+            .map_err(|err| ErrType::s3_put(err, "Failed to generate upload presigned URL"))?;
 
         Ok(request.uri().to_string())
     }
 
-    pub(super) async fn generate_download_signed_url(&self, path: &str) -> AppResult<String> {
+    pub async fn generate_stream_signed_url(&self, path: &str) -> AppResult<String> {
         let config = PresigningConfig::expires_in(std::time::Duration::from_secs(3 * 60 * 60))
-            .map_err(|err| ErrType::R2Error.err(err, "Failed to generate presign config"))?;
+            .map_err(|err| ErrType::S3Error.err(err, "Failed to generate presign config"))?;
 
         let request = self
             .client
@@ -75,12 +75,12 @@ impl S3Storage {
             .key(path)
             .presigned(config)
             .await
-            .map_err(|err| ErrType::r2_get(err, "Faiedl to generate download presigned URL"))?;
+            .map_err(|err| ErrType::s3_get(err, "Failed to generate stream presigned URL"))?;
 
         Ok(request.uri().to_string())
     }
 
-    pub(super) async fn upload_photo(&self, path_key: &str, from_path: &PathBuf) -> AppResult<()> {
+    pub async fn upload_photo(&self, path_key: &str, from_path: &PathBuf) -> AppResult<()> {
         let stream = ByteStream::read_from()
             .path(from_path)
             .buffer_size(4096)
@@ -89,17 +89,30 @@ impl S3Storage {
             .map_err(|err| ErrType::FsError.err(err, "Failed from create byte stream from path"))?;
         let builder = self.client.put_object().bucket(&self.bucket_name);
         let result = builder.key(path_key).body(stream).send().await;
-        result.map_err(|err| ErrType::r2_put(err, "Failed to upload photo"))?;
+        result.map_err(|err| ErrType::s3_put(err, "Failed to upload photo"))?;
         Ok(())
     }
 
-    pub(super) async fn download_media(&self, path: &str) -> AppResult<ByteStream> {
+    pub async fn download_media(&self, path: &str) -> AppResult<ByteStream> {
         let builder = self.client.get_object().bucket(&self.bucket_name);
-        let result = builder.key(path).send().await.map_err(|err| ErrType::r2_get(err, "Failed to download media"))?;
+        let result = builder.key(path).send().await.map_err(|err| ErrType::s3_get(err, "Failed to download media"))?;
         Ok(result.body)
     }
 
-    pub(super) async fn delete_folder(&self, path: &str) -> AppResult<()> {
+    pub async fn head_object(&self, path: &str) -> AppResult<i64> {
+        let res = self
+            .client
+            .head_object()
+            .bucket(&self.bucket_name)
+            .key(path)
+            .send()
+            .await
+            .map_err(|err| ErrType::s3_head(err, "Failed to head object"))?;
+
+        res.content_length().ok_or(ErrType::S3Error.msg("No length found for media: {path}"))
+    }
+
+    pub async fn delete_folder(&self, path: &str) -> AppResult<()> {
         let objects = self
             .client
             .list_objects_v2()
@@ -107,7 +120,7 @@ impl S3Storage {
             .prefix(path)
             .send()
             .await
-            .map_err(|err| ErrType::r2_list_err(err, "Failed to list objects"))?;
+            .map_err(|err| ErrType::s3_list_err(err, "Failed to list objects"))?;
 
         let mut delete_objects = Vec::<ObjectIdentifier>::new();
         for obj in objects.contents().iter() {
@@ -115,7 +128,7 @@ impl S3Storage {
                 let id = ObjectIdentifier::builder()
                     .key(key)
                     .build()
-                    .map_err(|err| ErrType::R2Error.err(err, "Failed to build object identifier"))?;
+                    .map_err(|err| ErrType::S3Error.err(err, "Failed to build object identifier"))?;
                 delete_objects.push(id);
             }
         }
@@ -124,7 +137,7 @@ impl S3Storage {
             let delete = Delete::builder()
                 .set_objects(Some(delete_objects))
                 .build()
-                .map_err(|err| ErrType::R2Error.err(err, "Failed to create delete param"))?;
+                .map_err(|err| ErrType::S3Error.err(err, "Failed to create delete param"))?;
             let _ = self
                 .client
                 .delete_objects()
@@ -132,14 +145,14 @@ impl S3Storage {
                 .delete(delete)
                 .send()
                 .await
-                .map_err(|err| ErrType::R2Error.err(err.into_service_error(), "Failed to delete folder objects"))?;
+                .map_err(|err| ErrType::S3Error.err(err.into_service_error(), "Failed to delete folder objects"))?;
         }
         Ok(())
     }
 
-    pub(super) async fn delete_key(&self, path: &str) -> AppResult<()> {
+    pub async fn delete_key(&self, path: &str) -> AppResult<()> {
         let builder = self.client.delete_object().bucket(&self.bucket_name);
-        let _ = builder.key(path).send().await.map_err(|err| ErrType::r2_delete(err, "Failed to delete object"))?;
+        let _ = builder.key(path).send().await.map_err(|err| ErrType::s3_delete(err, "Failed to delete object"))?;
         Ok(())
     }
 }

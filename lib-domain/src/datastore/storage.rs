@@ -1,7 +1,9 @@
 use chrono::{DateTime, Utc};
 use lib_core::{
-    media::{ImageMeta, MediaMetadata},
-    storage::{FileData, MediaType},
+    storage::{
+        media::{ImageMeta, MediaMetadata, MediaType},
+        FileData,
+    },
     AppError, AppResult, ErrType,
 };
 use serde::{Deserialize, Serialize};
@@ -38,8 +40,8 @@ impl Metadata {
             make: metadata.make,
             model: metadata.model,
             software: metadata.software.map(|v| match v {
-                lib_core::media::EitherValue::Either(s) => s,
-                lib_core::media::EitherValue::Or(f) => f.to_string(),
+                lib_core::storage::media::EitherValue::Either(s) => s,
+                lib_core::storage::media::EitherValue::Or(f) => f.to_string(),
             }),
             image_height: metadata.image_height as u64,
             image_width: metadata.image_width as u64,
@@ -49,14 +51,14 @@ impl Metadata {
             date_time: metadata.date_time.map(|dt| dt.0).or(Some(updated_date)),
             iso: metadata.iso.map(|u| u as u64),
             shutter_speed: metadata.shutter_speed.map(|v| match v {
-                lib_core::media::EitherValue::Either(s) => s,
-                lib_core::media::EitherValue::Or(f) => f.to_string(),
+                lib_core::storage::media::EitherValue::Either(s) => s,
+                lib_core::storage::media::EitherValue::Or(f) => f.to_string(),
             }),
             aperture: metadata.aperture,
             f_number: metadata.f_number,
             exposure_time: metadata.exposure_time.map(|v| match v {
-                lib_core::media::EitherValue::Either(s) => s,
-                lib_core::media::EitherValue::Or(f) => f.to_string(),
+                lib_core::storage::media::EitherValue::Either(s) => s,
+                lib_core::storage::media::EitherValue::Or(f) => f.to_string(),
             }),
             latitude: metadata.latitude,
             longitude: metadata.longitude,
