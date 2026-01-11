@@ -1,41 +1,50 @@
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
 mod err;
 mod media;
 
-#[derive(Debug, ValueEnum, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Subcommand, Clone, Serialize, Deserialize)]
 #[clap(rename_all = "kebab_case")]
 enum MediaType {
-    Image,
-    Video,
+    Image {
+        path: PathBuf,
+    },
+    Video {
+        url: String,
+        tmp_path: PathBuf,
+    },
 }
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
-    #[arg(short, long)]
+    #[clap(subcommand)]
     media: MediaType,
 
     #[arg(short, long)]
     rotation: Option<u64>,
-
-    src: PathBuf,
 }
 
 fn main() {
     let cli = Cli::parse();
 
-    if !cli.src.exists() {
-        eprintln!("Provided path doesn't exist: {:?}", cli.src);
-        std::process::exit(1);
-    }
-
     let result = match cli.media {
-        MediaType::Image => media::handle_image(cli.src, cli.rotation),
-        MediaType::Video => media::handle_video(cli.src.clone(), cli.src, cli.rotation),
+        MediaType::Image {
+            path,
+        } => {
+            if !path.exists() {
+                eprintln!("Provided path doesn't exist: {:?}", path);
+                std::process::exit(1);
+            }
+            media::handle_image(path, cli.rotation)
+        }
+        MediaType::Video {
+            url,
+            tmp_path,
+        } => media::handle_video(url, tmp_path, cli.rotation),
     };
 
     match result {

@@ -38,16 +38,7 @@ impl ImageType {
 }
 
 pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedImage> {
-    let file_name = src
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or(ErrType::FsError.msg(format!("Failed to get file name for {src:?}")))?;
-
-    let mut preview_dst = src.clone();
-    preview_dst.set_file_name(format!("preview_{file_name}.jpeg"));
-
-    let mut thumbnail_dst = src.clone();
-    thumbnail_dst.set_file_name(format!("thumbnail_{file_name}.jpeg"));
+    let (preview_dst, thumbnail_dst) = get_dst_paths(src.clone())?;
 
     let (image_format, img_ty, rotation) = match infer_to_image_format(&src)? {
         ImageFormat::General(image_format) => (image_format, ImageType::Path(src), rotation.unwrap_or_default()),
@@ -66,7 +57,9 @@ pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedI
     })
 }
 
-pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedImage> {
+pub fn handle_video(src: String, tmp_path: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedImage> {
+    let (preview_dst, thumbnail_dst) = get_dst_paths(tmp_path)?;
+
     ffmpeg::init().map_err(|err| ErrType::MediaError.err(err, "Failed to init ffmpeg"))?;
 
     let mut input = ffmpeg::format::input(&src).map_err(|err| ErrType::MediaError.err(err, "Failed to input bytes"))?;
@@ -144,13 +137,13 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
                 let thumbnail = create_thumbnail(
                     ImageType::Bytes(bytes.clone()),
                     image::ImageFormat::Jpeg,
-                    dst.clone(),
+                    thumbnail_dst,
                     rotation.unwrap_or_default(),
                 )?;
                 let preview = create_preview(
                     ImageType::Bytes(bytes),
                     image::ImageFormat::Jpeg,
-                    dst,
+                    preview_dst,
                     rotation.unwrap_or_default(),
                 )?;
 
@@ -163,6 +156,21 @@ pub fn handle_video(src: PathBuf, dst: PathBuf, rotation: Option<u64>) -> AppRes
     }
 
     Err(ErrType::MediaError.msg("No frames found to process"))
+}
+
+fn get_dst_paths(path: PathBuf) -> AppResult<(PathBuf, PathBuf)> {
+    let file_name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or(ErrType::FsError.msg(format!("Failed to get file name for {path:?}")))?;
+
+    let mut preview_dst = path.clone();
+    preview_dst.set_file_name(format!("preview_{file_name}.jpeg"));
+
+    let mut thumbnail_dst = path.clone();
+    thumbnail_dst.set_file_name(format!("thumbnail_{file_name}.jpeg"));
+
+    Ok((preview_dst, thumbnail_dst))
 }
 
 fn create_thumbnail(data: ImageType, format: image::ImageFormat, dst: PathBuf, rotation: u64) -> AppResult<ImageData> {
