@@ -236,15 +236,10 @@ mod statements {
         /// WHERE space_id = $1 AND parent_node = $2 AND node_name = $3
         pub get_node_by_name: tokio_postgres::Statement,
 
-        /// SELECT concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path
+        /// SELECT concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path,
+        ///     concat(path, '/', metadata->'preview_meta'->>'file_name') as p_path
         /// FROM fs_node WHERE id = $1 AND space_id = $2
-        pub get_thumbnail_stream_path: tokio_postgres::Statement,
-
-        /// SELECT CASE
-        ///     WHEN metadata->>'media_type' = 'image' THEN concat(path, '/', metadata->'preview_meta'->>'file_name')
-        ///     ELSE concat(path, '/', node_name) END
-        /// FROM fs_node WHERE id = $1 AND space_id = $2
-        pub get_preview_stream_path: tokio_postgres::Statement,
+        pub get_thumnail_preview_stream_paths: tokio_postgres::Statement,
 
         /// SELECT concat(path, '/', node_name) as d_path
         /// FROM fs_node WHERE id = $1 AND space_id = $2
@@ -334,20 +329,10 @@ mod statements {
                     )
                     .await
                     .unwrap(),
-                get_thumbnail_stream_path: db
+                get_thumnail_preview_stream_paths: db
                     .prepare_typed(
-                        r#"SELECT concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path
-                        FROM fs_node WHERE id = $1 AND space_id = $2"#,
-                        &[Type::UUID, Type::UUID],
-                    )
-                    .await
-                    .unwrap(),
-                get_preview_stream_path: db
-                    .prepare_typed(
-                        r#"SELECT CASE
-                        WHEN metadata->>'media_type' = 'image'
-                            THEN concat(path, '/', metadata->'preview_meta'->>'file_name')
-                            ELSE concat(path, '/', node_name) END
+                        r#"SELECT concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path,
+                        concat(path, '/', metadata->'preview_meta'->>'file_name') as p_path
                         FROM fs_node WHERE id = $1 AND space_id = $2"#,
                         &[Type::UUID, Type::UUID],
                     )

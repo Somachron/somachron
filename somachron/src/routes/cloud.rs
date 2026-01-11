@@ -9,8 +9,8 @@ use lib_domain::{
     dto::cloud::{
         req::{CreateFolderRequest, InitiateUploadRequest, UploadCompleteRequest},
         res::{
-            FileMetaResponse, FolderResponse, InitiateUploadResponse, StreamedUrlResponse, _FileMetaResponseVec,
-            _FolderResponse, _FolderResponseVec,
+            DownloadUrlResponse, FileMetaResponse, FolderResponse, InitiateUploadResponse, StreamedUrlResponse,
+            _FileMetaResponseVec, _FolderResponse, _FolderResponseVec,
         },
     },
     extension::{SpaceCtx, UserId},
@@ -30,8 +30,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .route("/rm/{id}", delete(delete_folder))
         .route("/rmf/{id}", delete(delete_file))
         .route("/mkdir", post(create_folder))
-        .route("/stream/th/{id}", get(generate_thumbnail_signed_url))
-        .route("/stream/{id}", get(generate_preview_signed_url))
+        .route("/stream/{id}", get(generate_thumbnail_preview_signed_urls))
         .route("/download/{id}", get(generate_download_signed_url))
         .route("/upload", post(initiate_upload))
         .route("/upload/complete", post(upload_completion))
@@ -159,37 +158,18 @@ pub async fn initiate_upload(
 
 #[utoipa::path(
     get,
-    path = "/v1/media/stream/th/{id}",
-    responses((status=200, body=StreamedUrlResponse)),
-    tag = "Cloud"
-)]
-pub async fn generate_thumbnail_signed_url(
-    State(app): State<AppState>,
-    Extension(req_id): Extension<ReqId>,
-    Extension(space_ctx): Extension<SpaceCtx>,
-    Path(file_id): Path<Uuid>,
-) -> ApiResult<StreamedUrlResponse> {
-    app.service()
-        .generate_thumbnail_signed_url(space_ctx, app.storage(), file_id)
-        .await
-        .map(Json)
-        .map_err(|err| ApiError(err, req_id))
-}
-
-#[utoipa::path(
-    get,
     path = "/v1/media/stream/{id}",
     responses((status=200, body=StreamedUrlResponse)),
     tag = "Cloud"
 )]
-pub async fn generate_preview_signed_url(
+pub async fn generate_thumbnail_preview_signed_urls(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(file_id): Path<Uuid>,
 ) -> ApiResult<StreamedUrlResponse> {
     app.service()
-        .generate_preview_signed_url(space_ctx, app.storage(), file_id)
+        .generate_thumbnail_preview_signed_urls(space_ctx, app.storage(), file_id)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))
@@ -198,7 +178,7 @@ pub async fn generate_preview_signed_url(
 #[utoipa::path(
     get,
     path = "/v1/media/download/{id}",
-    responses((status=200, body=StreamedUrlResponse)),
+    responses((status=200, body=DownloadUrlResponse)),
     tag = "Cloud"
 )]
 pub async fn generate_download_signed_url(
@@ -206,9 +186,9 @@ pub async fn generate_download_signed_url(
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(file_id): Path<Uuid>,
-) -> ApiResult<StreamedUrlResponse> {
+) -> ApiResult<DownloadUrlResponse> {
     app.service()
-        .generate_preview_signed_url(space_ctx, app.storage(), file_id)
+        .generate_download_signed_url(space_ctx, app.storage(), file_id)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))

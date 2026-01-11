@@ -49,8 +49,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         space::get_user_spaces,
 
         cloud::initiate_upload,
-        cloud::generate_thumbnail_signed_url,
-        cloud::generate_preview_signed_url,
+        cloud::generate_thumbnail_preview_signed_urls,
         cloud::upload_completion,
         cloud::list_files,
         cloud::create_folder,
