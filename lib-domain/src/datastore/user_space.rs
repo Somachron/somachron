@@ -50,10 +50,7 @@ impl<'a> tokio_postgres::types::FromSql<'a> for SpaceRole {
     }
 
     fn accepts(ty: &tokio_postgres::types::Type) -> bool {
-        match *ty {
-            tokio_postgres::types::Type::INT2 => true,
-            _ => false,
-        }
+        matches!(*ty, tokio_postgres::types::Type::INT2)
     }
 }
 

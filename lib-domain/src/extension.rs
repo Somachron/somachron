@@ -11,7 +11,7 @@ pub struct Claims(pub TokenClaims);
 pub struct UserId(pub Uuid);
 impl Clone for UserId {
     fn clone(&self) -> Self {
-        Self(self.0.clone())
+        Self(self.0)
     }
 }
 
@@ -23,8 +23,8 @@ pub struct SpaceCtx {
 impl Clone for SpaceCtx {
     fn clone(&self) -> Self {
         Self {
-            membership_id: self.membership_id.clone(),
-            space_id: self.space_id.clone(),
+            membership_id: self.membership_id,
+            space_id: self.space_id,
             role: self.role,
         }
     }

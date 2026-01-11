@@ -101,10 +101,7 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeType {
     }
 
     fn accepts(ty: &tokio_postgres::types::Type) -> bool {
-        match *ty {
-            tokio_postgres::types::Type::INT2 => true,
-            _ => false,
-        }
+        matches!(*ty, tokio_postgres::types::Type::INT2)
     }
 }
 
@@ -125,10 +122,7 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeMetadata {
     }
 
     fn accepts(ty: &tokio_postgres::types::Type) -> bool {
-        match *ty {
-            tokio_postgres::types::Type::JSONB => true,
-            _ => false,
-        }
+        matches!(*ty, tokio_postgres::types::Type::JSONB)
     }
 }
 impl NodeMetadata {
@@ -311,7 +305,7 @@ impl StorageDs for Datastore {
         updated_date: DateTime<Utc>,
         file_data: FileData,
     ) -> AppResult<FsNode> {
-        let file = match self.get_file_from_fields(&space_id, &file_data.file_name, &folder.id).await? {
+        let file = match self.get_file_from_fields(space_id, &file_data.file_name, &folder.id).await? {
             Some(file) => {
                 update_file(&self.db, &self.storage_stmts, file.id, folder, space_id, updated_date, file_data).await
             }
@@ -571,7 +565,7 @@ impl StorageDs for Datastore {
 
             // delete files
             for file in files.iter() {
-                self.delete_file(&file.id, &space_id).await?;
+                self.delete_file(&file.id, space_id).await?;
             }
 
             // delete folder
@@ -668,7 +662,7 @@ async fn create_file(
                 &user_id,
                 &space_id,
                 &NodeType::File.value(),
-                &(file_size as i64),
+                &file_size,
                 &folder.id,
                 &file_name,
                 &folder.path,

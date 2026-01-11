@@ -42,7 +42,7 @@ impl<'de> Deserialize<'de> for MediaDatetime {
                 let dt = s.split('+').next().unwrap_or(&s);
 
                 let naive_dt =
-                    NaiveDateTime::parse_from_str(&dt, "%Y:%m:%d %H:%M:%S").map_err(serde::de::Error::custom)?;
+                    NaiveDateTime::parse_from_str(dt, "%Y:%m:%d %H:%M:%S").map_err(serde::de::Error::custom)?;
                 Ok::<_, D::Error>(DateTime::from_naive_utc_and_offset(naive_dt, Utc))
             })
             .map(MediaDatetime)

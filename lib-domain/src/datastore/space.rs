@@ -32,8 +32,8 @@ pub trait SpaceDs {
     fn update_space(
         &self,
         id: Uuid,
-        name: &'static String,
-        description: &'static String,
+        name: &'static str,
+        description: &'static str,
     ) -> impl Future<Output = AppResult<Space>>;
 }
 
@@ -58,7 +58,7 @@ impl SpaceDs for Datastore {
         Ok(Space::from(row))
     }
 
-    async fn update_space(&self, id: Uuid, name: &'static String, description: &'static String) -> AppResult<Space> {
+    async fn update_space(&self, id: Uuid, name: &'static str, description: &'static str) -> AppResult<Space> {
         let row = self
             .db
             .query_one(&self.space_stmts.update, &[&id, &name, &description])

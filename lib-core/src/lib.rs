@@ -208,9 +208,8 @@ struct ErrContext {
 #[derive(Debug)]
 pub struct AppError {
     _type: ErrType,
-    err_ctx: ErrContext,
-    err_msg: String,
     contexts: Vec<ErrContext>,
+    err_msg: String,
 }
 
 impl AppError {
@@ -218,15 +217,16 @@ impl AppError {
     fn init(_type: ErrType, err: Option<Box<dyn Error>>, message: impl Into<String>) -> Self {
         let location = std::panic::Location::caller();
         let at = format!("{}:{}:{}", location.file(), location.line(), location.column());
+        let mut contexts = Vec::with_capacity(64);
+        contexts.push(ErrContext {
+            message: message.into(),
+            at,
+            cause: err.as_ref().and_then(|e| e.source()).map(|e| e.to_string()).unwrap_or_default(),
+        });
         AppError {
             _type,
-            err_ctx: ErrContext {
-                message: message.into(),
-                at,
-                cause: err.as_ref().and_then(|e| e.source()).map(|e| e.to_string()).unwrap_or_default(),
-            },
+            contexts,
             err_msg: err.map(|e| e.to_string()).unwrap_or("".into()),
-            contexts: Vec::with_capacity(64),
         }
     }
 
@@ -255,7 +255,7 @@ impl<S> ErrorContext<S, AppError> for Result<S, AppError> {
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.err_ctx.message)
+        write!(f, "{}", self.contexts.first().map(|ctx| ctx.message.as_str()).unwrap_or_default())
     }
 }
 
@@ -274,14 +274,18 @@ impl IntoResponse for ApiError {
         let id: &str = &req_id.0;
         let AppError {
             _type,
-            err_ctx,
             err_msg,
             contexts,
         } = err;
-        let at = err_ctx.at;
+        let err_ctx = contexts.first().unwrap();
+        let at = err_ctx.at.clone();
         let message = format!("[{}]: {}", _type, err_ctx.message);
-        let stack_trace =
-            contexts.into_iter().map(|ctx| format!("{} - {}: {}", ctx.at, ctx.message, ctx.cause)).collect::<Vec<_>>();
+
+        let stack_trace = contexts
+            .into_iter()
+            .skip(1)
+            .map(|ctx| format!("{} - {}: {}", ctx.at, ctx.message, ctx.cause))
+            .collect::<Vec<_>>();
         let stack_trace = stack_trace.join("\n");
 
         let status = match _type {
