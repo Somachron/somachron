@@ -218,7 +218,7 @@ pub(super) async fn extract_metadata(process_type: &MediaProcessType) -> AppResu
             url,
             ..
         } => {
-            let cmd = format!("curl -s {} | {} -j -", url, EXIFTOOL_EXE);
+            let cmd = format!("curl -s '{}' | {} -j -", url, EXIFTOOL_EXE);
             tokio::process::Command::new("sh")
                 .args(["-c", cmd.as_str()])
                 .stdout(std::process::Stdio::piped())
