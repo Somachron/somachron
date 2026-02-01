@@ -1,4 +1,4 @@
-use axum::routing::Router;
+use axum::{http::header::AUTHORIZATION, routing::Router};
 use utoipa::{
     openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
     Modify, OpenApi,
@@ -50,7 +50,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 
         cloud::initiate_upload,
         cloud::generate_thumbnail_preview_signed_urls,
-        cloud::upload_completion,
+        cloud::media_queue,
         cloud::list_files,
         cloud::create_folder,
         cloud::delete_folder,
@@ -68,7 +68,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         lib_domain::dto::space::res::UserSpaceResponse,
 
         lib_domain::dto::cloud::req::InitiateUploadRequest,
-        lib_domain::dto::cloud::req::UploadCompleteRequest,
+        lib_domain::dto::cloud::req::QueueMediaProcessRequest,
         lib_domain::dto::cloud::res::InitiateUploadResponse,
         lib_domain::dto::cloud::res::FileResponse,
         lib_domain::dto::cloud::res::FileMetadataResponse,
@@ -91,7 +91,7 @@ impl Modify for ApiSecurity {
         if let Some(components) = openapi.components.as_mut() {
             components.add_security_scheme(
                 "api_key",
-                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new(middleware::AUTHORIZATION_HEADER))),
+                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new(AUTHORIZATION.as_str()))),
             )
         }
     }

@@ -1,6 +1,6 @@
 use axum::{
     extract::{Request, State},
-    http::HeaderMap,
+    http::{header::AUTHORIZATION, HeaderMap},
     middleware::Next,
     response::Response,
     Extension,
@@ -15,7 +15,7 @@ use crate::app::AppState;
 
 fn extract_bearer(headers: &HeaderMap) -> AppResult<&str> {
     let bearer_value = headers
-        .get(super::AUTHORIZATION_HEADER)
+        .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .ok_or(ErrType::Unauthorized.msg("Missing authorization token"))?;
@@ -48,6 +48,20 @@ pub async fn authenticate(
     let user_id = UserId(user.id);
 
     req.extensions_mut().insert(user_id);
+
+    Ok(next.run(req).await)
+}
+
+pub async fn authenticate_interconnect(
+    headers: HeaderMap,
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    req: Request,
+    next: Next,
+) -> Result<Response, ApiError> {
+    let token = extract_bearer(&headers).map_err(|err| ApiError(err, req_id.clone()))?;
+
+    app.interconnect().validate_token(token).map_err(|err| ApiError(err, req_id))?;
 
     Ok(next.run(req).await)
 }

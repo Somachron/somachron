@@ -9,6 +9,7 @@ lib-migrations = { path = "../lib-migrations" }
 
 tokio = { workspace = true }
 futures = "*"
+reqwest = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

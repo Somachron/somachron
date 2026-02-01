@@ -1,4 +1,4 @@
-FROM rust:1.92-bookworm AS builder
+FROM rust:1.93-bookworm AS builder
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -56,23 +56,10 @@ RUN git clone https://github.com/strukturag/libheif . && \
 WORKDIR /app
 COPY . .
 
-ARG R2_ACCOUNT_ID
-ARG R2_BUCKET
-ARG R2_ACCESS_KEY
-ARG R2_SECRET_KEY
-
-ARG CLERK_PEM
-ARG CLERK_AUD
-ARG CLERK_PUBLISHABLE_KEY
-
-ARG DATABASE_URL
-ARG VOLUME_PATH
-
-RUN cargo install --path somachron && \
-    cargo install --path thumbnailer
+RUN cargo install --path somachron-media-queue
 
 EXPOSE 8080
 
 ENV MALLOC_MMAP_THRESHOLD_=65536
 
-CMD [ "somachron" ]
+CMD [ "somachron-media-queue" ]

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-thumbnail-output = { path = "../thumbnail-output" }
+smq-dto = { path = "../smq-dto" }
 
 tokio = { workspace = true }
 tokio-util = { version = "0.7.15", features = ["io"] }
@@ -22,6 +22,9 @@ utoipa = { workspace = true }
 nanoid = { workspace = true }
 jsonwebtoken = "9.3.0"
 chrono = { workspace = true }
+openssl = { version = "0.10", features = ["vendored"] }
+base64 = "0.22.1"
+uuid = { workspace = true }
 
 # storage
 aws-sdk-s3 = { version = "=1.91.0", features = [

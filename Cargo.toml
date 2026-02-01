@@ -1,15 +1,18 @@
 [workspace]
 resolver = "3"
-members = ["lib-core", "lib-domain", "lib-migrations", "somachron", "thumbnail-output", "thumbnailer", "thumbnail-output"]
+members = ["lib-core", "lib-domain", "lib-migrations", "somachron", "somachron-media-queue", "smq-dto"]
 default-members = ["somachron"]
 
 [workspace.dependencies]
 tokio = { version = "=1.45.1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 axum = { version = "0.8.4", features = ["macros", "multipart"] }
 tracing = "0.1.40"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
 
-utoipa = { version = "5.4.0", features = ["axum_extras"] }
+utoipa = { version = "5.4.0", features = ["axum_extras", "uuid"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 serde_json = "1.0.141"

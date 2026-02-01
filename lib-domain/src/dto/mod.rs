@@ -51,18 +51,18 @@ impl PartialSchema for Id {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[repr(transparent)]
-pub struct DtoUuid(pub Uuid);
-
-impl ToSchema for DtoUuid {
-    fn name() -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::from("Uuid")
-    }
-}
-
-impl PartialSchema for DtoUuid {
-    fn schema() -> RefOr<Schema> {
-        RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)).build()))
-    }
-}
+// #[derive(Serialize, Deserialize)]
+// #[repr(transparent)]
+// pub struct DtoUuid(pub Uuid);
+//
+// impl ToSchema for DtoUuid {
+//     fn name() -> std::borrow::Cow<'static, str> {
+//         std::borrow::Cow::from("Uuid")
+//     }
+// }
+//
+// impl PartialSchema for DtoUuid {
+//     fn schema() -> RefOr<Schema> {
+//         RefOr::T(Schema::Object(ObjectBuilder::new().schema_type(SchemaType::Type(Type::String)).build()))
+//     }
+// }

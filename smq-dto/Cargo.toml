@@ -1,0 +1,13 @@
+[package]
+name = "smq-dto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+validator = { workspace = true }
+
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+utoipa = { workspace = true }

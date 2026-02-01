@@ -7,7 +7,7 @@ use axum::{
     response::Response,
     Extension,
 };
-use lib_core::{ApiError, ErrType, ReqId};
+use lib_core::{ApiError, ErrType, ReqId, X_SPACE_HEADER};
 use lib_domain::{
     datastore::user_space::UserSpaceDs,
     extension::{SpaceCtx, UserId},
@@ -25,7 +25,7 @@ pub async fn validate_user_space(
     next: Next,
 ) -> Result<Response, ApiError> {
     let space_id = headers
-        .get(super::X_SPACE_HEADER)
+        .get(X_SPACE_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .ok_or(ApiError(ErrType::BadRequest.msg("Missing space ID"), req_id.clone()))?;

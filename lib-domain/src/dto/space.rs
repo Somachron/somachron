@@ -55,9 +55,10 @@ pub mod res {
 pub mod req {
     use serde::Deserialize;
     use utoipa::ToSchema;
+    use uuid::Uuid;
     use validator::Validate;
 
-    use crate::{datastore::user_space::SpaceRole, dto::DtoUuid};
+    use crate::datastore::user_space::SpaceRole;
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct SpaceCreateRequest {
@@ -68,12 +69,12 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct SpaceMemberRequest {
-        pub user_id: DtoUuid,
+        pub user_id: Uuid,
     }
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct UpdateSpaceMemberRoleRequest {
-        pub user_id: DtoUuid,
+        pub user_id: Uuid,
 
         pub role: SpaceRole,
     }

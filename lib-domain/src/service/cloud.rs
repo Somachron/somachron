@@ -1,11 +1,21 @@
 use chrono::DateTime;
-use lib_core::{storage::Storage, AppResult, ErrType};
+use lib_core::{
+    interconnect::ServiceInterconnect,
+    smq_dto::{
+        self,
+        req::ProcessMediaRequest,
+        res::{FileData, ImageData, MediaData},
+        MediaDatetime, MediaMetadata,
+    },
+    storage::Storage,
+    AppResult, ErrType,
+};
 use uuid::Uuid;
 
 use crate::{
     datastore::{storage::StorageDs, user_space::SpaceRole},
     dto::cloud::{
-        req::UploadCompleteRequest,
+        req::QueueMediaProcessRequest,
         res::{
             DownloadUrlResponse, InitiateUploadResponse, StreamedUrlResponse, _FileMetaResponseVec, _FolderResponse,
             _FolderResponseVec,
@@ -71,7 +81,7 @@ impl<D: StorageDs> Service<D> {
         })
     }
 
-    pub async fn process_upload_completion(
+    pub async fn queue_media_process(
         &self,
         UserId(user_id): UserId,
         SpaceCtx {
@@ -80,18 +90,19 @@ impl<D: StorageDs> Service<D> {
             ..
         }: SpaceCtx,
         storage: &Storage,
-        UploadCompleteRequest {
+        interconnect: &ServiceInterconnect,
+        QueueMediaProcessRequest {
             folder_id,
             file_name,
-            file_size,
             updated_millis,
-        }: UploadCompleteRequest,
+            ..
+        }: QueueMediaProcessRequest,
     ) -> AppResult<()> {
         if let SpaceRole::Read = role {
-            return Err(ErrType::Unauthorized.msg("Cannot complete upload: Unauthorized read role"));
+            return Err(ErrType::Unauthorized.msg("Cannot queue media: Unauthorized read role"));
         }
 
-        let Some(folder) = self.ds.get_folder(&space_id, &folder_id.0).await? else {
+        let Some(folder) = self.ds.get_folder(&space_id, &folder_id).await? else {
             return Err(ErrType::BadRequest.msg("Folder not found"));
         };
 
@@ -99,12 +110,66 @@ impl<D: StorageDs> Service<D> {
             return Err(ErrType::BadRequest.msg("Invalid timestamp"));
         };
 
-        let file_path = std::path::PathBuf::from(&folder.path).join(file_name);
+        let file_path = std::path::PathBuf::from(&folder.path).join(&file_name);
+        let file_path = file_path.to_str().ok_or(ErrType::ServerError.msg("Failed to get string for file_path"))?;
 
         let space_id_str = space_id.to_string();
-        let file_data =
-            storage.process_upload_completion(&space_id_str, file_path.to_str().unwrap(), file_size).await?;
-        let _ = self.ds.upsert_file(&user_id, &space_id, &folder, updated_date, file_data).await?;
+        let remote_path = storage.get_remote_path(&space_id_str, file_path)?;
+        let file = self
+            .ds
+            .upsert_file(
+                &user_id,
+                &space_id,
+                &folder,
+                updated_date,
+                FileData {
+                    file_name,
+                    thumbnail: ImageData::default(),
+                    preview: ImageData::default(),
+                    metadata: MediaMetadata::default(),
+                    size: 0,
+                    media_type: smq_dto::MediaType::Image,
+                },
+            )
+            .await?;
+
+        let payload_token = interconnect.get_sending_token()?;
+        let mq_url = interconnect.mq_uri("/v1/queue");
+
+        let response = reqwest::Client::new()
+            .post(mq_url)
+            .bearer_auth(payload_token)
+            .json(&ProcessMediaRequest {
+                file_id: file.id,
+                updated_date: MediaDatetime(updated_date),
+                space_id,
+                folder_id: folder.id,
+                s3_file_path: remote_path,
+            })
+            .send()
+            .await
+            .map_err(|err| ErrType::ServerError.err(err, "Failed to request media queue"))?;
+
+        let status = response.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            Err(ErrType::ServerError
+                .msg(format!("Unable to queue media for processing: {:?}", status.canonical_reason())))
+        }
+    }
+
+    pub async fn complete_media_queue(
+        &self,
+        space_id: Uuid,
+        MediaData {
+            file_id,
+            folder_id,
+            updated_date,
+            file_data,
+        }: MediaData,
+    ) -> AppResult<()> {
+        self.ds.update_file(file_id, &folder_id, &space_id, updated_date.0, file_data).await?;
 
         Ok(())
     }
@@ -253,12 +318,12 @@ impl<D: StorageDs> Service<D> {
                     format!("{}/{}", file.path, file.node_name),
                     format!("{}/{}", file.path, file.metadata.thumbnail_meta.map(|m| m.file_name).unwrap_or_default()),
                     file.metadata.media_type.and_then(|ty| match ty {
-                        lib_core::storage::media::MediaType::Image => Some(format!(
+                        smq_dto::MediaType::Image => Some(format!(
                             "{}/{}",
                             file.path,
                             file.metadata.preview_meta.map(|m| m.file_name).unwrap_or_default()
                         )),
-                        lib_core::storage::media::MediaType::Video => None,
+                        smq_dto::MediaType::Video => None,
                     }),
                 )
                 .await?;

@@ -5,11 +5,6 @@ mod app;
 mod routes;
 mod server;
 
-#[cfg(target_os = "linux")]
-unsafe extern "C" {
-    fn malloc_trim(__pad: libc::size_t) -> libc::c_int;
-}
-
 async fn run() {
     // initialize tracing
     tracing_subscriber::registry()
@@ -21,20 +16,7 @@ async fn run() {
     dotenv::dotenv().ok();
 
     // serve app
-    tokio::join!(server::serve(), async {
-        tokio::runtime::Handle::current().spawn(async move {
-            {
-                #[cfg(target_os = "linux")]
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-                    unsafe {
-                        malloc_trim(0);
-                    }
-                }
-            }
-        });
-    });
+    server::serve().await;
 
     tracing::info!("Server has stopped.");
 }

@@ -7,13 +7,11 @@ edition = "2024"
 lib-core = { path = "../lib-core" }
 lib-domain = { path = "../lib-domain" }
 
-libc = "0.2.174"
 tokio = { workspace = true }
 
 axum = { workspace = true }
-tower-http = { version = "0.6.6", features = ["fs"] }
 tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { workspace = true }
 
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }

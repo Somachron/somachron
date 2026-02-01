@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use lib_core::{
-    storage::{
-        media::{ImageMeta, MediaMetadata, MediaType},
-        FileData,
+    smq_dto::{
+        res::{FileData, ImageData, MediaData},
+        MediaMetadata, MediaType,
     },
     AppError, AppResult, ErrType,
 };
@@ -40,8 +40,8 @@ impl Metadata {
             make: metadata.make,
             model: metadata.model,
             software: metadata.software.map(|v| match v {
-                lib_core::storage::media::EitherValue::Either(s) => s,
-                lib_core::storage::media::EitherValue::Or(f) => f.to_string(),
+                lib_core::smq_dto::EitherValue::Either(s) => s,
+                lib_core::smq_dto::EitherValue::Or(f) => f.to_string(),
             }),
             image_height: metadata.image_height as u64,
             image_width: metadata.image_width as u64,
@@ -51,14 +51,14 @@ impl Metadata {
             date_time: metadata.date_time.map(|dt| dt.0).or(Some(updated_date)),
             iso: metadata.iso.map(|u| u as u64),
             shutter_speed: metadata.shutter_speed.map(|v| match v {
-                lib_core::storage::media::EitherValue::Either(s) => s,
-                lib_core::storage::media::EitherValue::Or(f) => f.to_string(),
+                lib_core::smq_dto::EitherValue::Either(s) => s,
+                lib_core::smq_dto::EitherValue::Or(f) => f.to_string(),
             }),
             aperture: metadata.aperture,
             f_number: metadata.f_number,
             exposure_time: metadata.exposure_time.map(|v| match v {
-                lib_core::storage::media::EitherValue::Either(s) => s,
-                lib_core::storage::media::EitherValue::Or(f) => f.to_string(),
+                lib_core::smq_dto::EitherValue::Either(s) => s,
+                lib_core::smq_dto::EitherValue::Or(f) => f.to_string(),
             }),
             latitude: metadata.latitude,
             longitude: metadata.longitude,
@@ -107,8 +107,8 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeType {
 
 #[derive(Serialize, Deserialize)]
 pub struct NodeMetadata {
-    pub thumbnail_meta: Option<ImageMeta>,
-    pub preview_meta: Option<ImageMeta>,
+    pub thumbnail_meta: Option<ImageData>,
+    pub preview_meta: Option<ImageData>,
     pub file_meta: Option<Metadata>,
     pub media_type: Option<MediaType>,
 }
@@ -127,8 +127,8 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeMetadata {
 }
 impl NodeMetadata {
     pub fn jsonb(
-        thumbnail_meta: ImageMeta,
-        preivew_meta: ImageMeta,
+        thumbnail_meta: ImageData,
+        preivew_meta: ImageData,
         file_meta: Metadata,
         media_type: MediaType,
     ) -> AppResult<serde_json::Value> {
@@ -266,6 +266,15 @@ pub trait StorageDs {
         file_data: FileData,
     ) -> impl Future<Output = AppResult<FsNode>>;
 
+    fn update_file(
+        &self,
+        file_id: Uuid,
+        folder_id: &Uuid,
+        space_id: &Uuid,
+        updated_date: DateTime<Utc>,
+        file_data: FileData,
+    ) -> impl Future<Output = AppResult<FsNode>>;
+
     fn get_file_from_fields(
         &self,
         space_id: &Uuid,
@@ -316,15 +325,52 @@ impl StorageDs for Datastore {
         file_data: FileData,
     ) -> AppResult<FsNode> {
         let file = match self.get_file_from_fields(space_id, &file_data.file_name, &folder.id).await? {
-            Some(file) => {
-                update_file(&self.db, &self.storage_stmts, file.id, folder, space_id, updated_date, file_data).await
-            }
+            Some(file) => self.update_file(file.id, &folder.id, space_id, updated_date, file_data).await,
             None => {
                 create_file(&self.db, &self.storage_stmts, user_id, space_id, folder, updated_date, file_data).await
             }
         }?;
 
         Ok(file)
+    }
+
+    async fn update_file(
+        &self,
+        file_id: Uuid,
+        folder_id: &Uuid,
+        space_id: &Uuid,
+        updated_date: DateTime<Utc>,
+        FileData {
+            file_name,
+            metadata,
+            size: file_size,
+            media_type,
+            thumbnail,
+            preview,
+        }: FileData,
+    ) -> AppResult<FsNode> {
+        let file_meta = Metadata::from(metadata, updated_date);
+        let metadata = NodeMetadata::jsonb(thumbnail, preview, file_meta, media_type)?;
+
+        let row = self
+            .db
+            .query_one(
+                &self.storage_stmts.update_node,
+                &[
+                    &file_id,
+                    &folder_id,
+                    &space_id,
+                    &file_name,
+                    &file_size,
+                    &NodeType::File.value(),
+                    &metadata,
+                    &updated_date,
+                ],
+            )
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to update file"))?;
+
+        FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse updated file"))
     }
 
     async fn get_file_from_fields(
@@ -592,45 +638,6 @@ impl StorageDs for Datastore {
 
         Ok(())
     }
-}
-
-async fn update_file(
-    db: &tokio_postgres::Client,
-    storage_stmts: &StorageStatements,
-    file_id: Uuid,
-    folder: &FsNode,
-    space_id: &Uuid,
-    updated_date: DateTime<Utc>,
-    FileData {
-        file_name,
-        metadata,
-        size: file_size,
-        media_type,
-        thumbnail,
-        preview,
-    }: FileData,
-) -> AppResult<FsNode> {
-    let file_meta = Metadata::from(metadata, updated_date);
-    let metadata = NodeMetadata::jsonb(thumbnail, preview, file_meta, media_type)?;
-
-    let row = db
-        .query_one(
-            &storage_stmts.update_node,
-            &[
-                &file_id,
-                &folder.id,
-                &space_id,
-                &file_name,
-                &file_size,
-                &NodeType::File.value(),
-                &metadata,
-                &updated_date,
-            ],
-        )
-        .await
-        .map_err(|err| ErrType::DbError.err(err, "Failed to update file"))?;
-
-    FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse updated file"))
 }
 
 async fn create_file(

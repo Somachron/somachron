@@ -1,9 +1,6 @@
 use ffmpeg_next as ffmpeg;
 use image::DynamicImage;
-use std::path::PathBuf;
-use thumbnail_output::{ImageData, ProcessedImage};
-
-use super::err::{AppResult, ErrType};
+use lib_core::{AppResult, ErrType};
 
 const THUMNAIL_HEIGHT: u32 = 176;
 const PREVIEW_HEIGHT: u32 = 1080;
@@ -16,7 +13,7 @@ enum ImageFormat {
 #[derive(Debug, Clone)]
 enum ImageType {
     Bytes(Vec<u8>),
-    Path(PathBuf),
+    // Path(PathBuf),
     Img(DynamicImage),
 }
 
@@ -25,41 +22,48 @@ impl ImageType {
         match self {
             ImageType::Bytes(bytes) => image::load_from_memory_with_format(&bytes, format)
                 .map_err(|err| ErrType::MediaError.err(err, "Failed to load image from bytes")),
-            ImageType::Path(path) => {
-                let mut rd = image::ImageReader::open(path)
-                    .map_err(|err| ErrType::FsError.err(err, "Failed to load image from path"))?;
-                rd.set_format(format);
+            // ImageType::Path(path) => {
+            //     let mut rd = image::ImageReader::open(path)
+            //         .map_err(|err| ErrType::FsError.err(err, "Failed to load image from path"))?;
+            //     rd.set_format(format);
 
-                rd.decode().map_err(|err| ErrType::MediaError.err(err, "Failed to decode image"))
-            }
+            //     rd.decode().map_err(|err| ErrType::MediaError.err(err, "Failed to decode image"))
+            // }
             ImageType::Img(img) => Ok(img),
         }
     }
 }
 
-pub fn handle_image(src: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedImage> {
-    let (preview_dst, thumbnail_dst) = get_dst_paths(src.clone())?;
+pub struct ImageMeta {
+    pub width: u32,
+    pub height: u32,
+    pub buf: Vec<u8>,
+}
 
-    let (image_format, img_ty, rotation) = match infer_to_image_format(&src)? {
-        ImageFormat::General(image_format) => (image_format, ImageType::Path(src), rotation.unwrap_or_default()),
+pub struct ProcessedBytes {
+    pub thumbnail: ImageMeta,
+    pub preview: ImageMeta,
+}
+
+pub fn handle_image(bytes: Vec<u8>, rotation: Option<u64>) -> AppResult<ProcessedBytes> {
+    let (image_format, img_ty, rotation) = match infer_to_image_format(&bytes)? {
+        ImageFormat::General(image_format) => (image_format, ImageType::Bytes(bytes), rotation.unwrap_or_default()),
         ImageFormat::Heif => {
-            let heif_img = convert_heif_to_jpeg(&src)?;
+            let heif_img = convert_heif_to_jpeg(&bytes)?;
             (image::ImageFormat::Jpeg, ImageType::Img(heif_img), 0)
         }
     };
 
-    let preview = create_preview(img_ty.clone(), image_format, preview_dst, rotation)?;
-    let thumbnail = create_thumbnail(img_ty, image_format, thumbnail_dst, rotation)?;
+    let preview = create_preview(img_ty.clone(), image_format, rotation)?;
+    let thumbnail = create_thumbnail(img_ty, image_format, rotation)?;
 
-    Ok(ProcessedImage {
+    Ok(ProcessedBytes {
         thumbnail,
         preview,
     })
 }
 
-pub fn handle_video(src: String, tmp_path: PathBuf, rotation: Option<u64>) -> AppResult<ProcessedImage> {
-    let (preview_dst, thumbnail_dst) = get_dst_paths(tmp_path)?;
-
+pub fn handle_video(src: String, rotation: Option<u64>) -> AppResult<ProcessedBytes> {
     ffmpeg::init().map_err(|err| ErrType::MediaError.err(err, "Failed to init ffmpeg"))?;
 
     let mut input = ffmpeg::format::input(&src).map_err(|err| ErrType::MediaError.err(err, "Failed to input bytes"))?;
@@ -137,17 +141,12 @@ pub fn handle_video(src: String, tmp_path: PathBuf, rotation: Option<u64>) -> Ap
                 let thumbnail = create_thumbnail(
                     ImageType::Bytes(bytes.clone()),
                     image::ImageFormat::Jpeg,
-                    thumbnail_dst,
                     rotation.unwrap_or_default(),
                 )?;
-                let preview = create_preview(
-                    ImageType::Bytes(bytes),
-                    image::ImageFormat::Jpeg,
-                    preview_dst,
-                    rotation.unwrap_or_default(),
-                )?;
+                let preview =
+                    create_preview(ImageType::Bytes(bytes), image::ImageFormat::Jpeg, rotation.unwrap_or_default())?;
 
-                return Ok(ProcessedImage {
+                return Ok(ProcessedBytes {
                     thumbnail,
                     preview,
                 });
@@ -158,32 +157,32 @@ pub fn handle_video(src: String, tmp_path: PathBuf, rotation: Option<u64>) -> Ap
     Err(ErrType::MediaError.msg("No frames found to process"))
 }
 
-fn get_dst_paths(path: PathBuf) -> AppResult<(PathBuf, PathBuf)> {
-    let file_name = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or(ErrType::FsError.msg(format!("Failed to get file name for {path:?}")))?;
+// fn get_dst_paths(path: PathBuf) -> AppResult<(PathBuf, PathBuf)> {
+//     let file_name = path
+//         .file_stem()
+//         .and_then(|s| s.to_str())
+//         .ok_or(ErrType::FsError.msg(format!("Failed to get file name for {path:?}")))?;
 
-    let mut preview_dst = path.clone();
-    preview_dst.set_file_name(format!("preview_{file_name}.jpeg"));
+//     let mut preview_dst = path.clone();
+//     preview_dst.set_file_name(format!("preview_{file_name}.jpeg"));
 
-    let mut thumbnail_dst = path.clone();
-    thumbnail_dst.set_file_name(format!("thumbnail_{file_name}.jpeg"));
+//     let mut thumbnail_dst = path.clone();
+//     thumbnail_dst.set_file_name(format!("thumbnail_{file_name}.jpeg"));
 
-    Ok((preview_dst, thumbnail_dst))
-}
+//     Ok((preview_dst, thumbnail_dst))
+// }
 
-fn create_thumbnail(data: ImageType, format: image::ImageFormat, dst: PathBuf, rotation: u64) -> AppResult<ImageData> {
+fn create_thumbnail(data: ImageType, format: image::ImageFormat, rotation: u64) -> AppResult<ImageMeta> {
     let img = data.get_img(format)?;
-    process_image(img, dst, THUMNAIL_HEIGHT, rotation, 60)
+    process_image(img, THUMNAIL_HEIGHT, rotation, 60)
 }
 
-fn create_preview(data: ImageType, format: image::ImageFormat, dst: PathBuf, rotation: u64) -> AppResult<ImageData> {
+fn create_preview(data: ImageType, format: image::ImageFormat, rotation: u64) -> AppResult<ImageMeta> {
     let img = data.get_img(format)?;
-    process_image(img, dst, PREVIEW_HEIGHT, rotation, 80)
+    process_image(img, PREVIEW_HEIGHT, rotation, 80)
 }
 
-fn process_image(img: DynamicImage, dst: PathBuf, height: u32, rotation: u64, quality: u8) -> AppResult<ImageData> {
+fn process_image(img: DynamicImage, height: u32, rotation: u64, quality: u8) -> AppResult<ImageMeta> {
     let img = rotate_image(img, rotation);
 
     // calculate proportional width based on fixed height ratio
@@ -193,22 +192,21 @@ fn process_image(img: DynamicImage, dst: PathBuf, height: u32, rotation: u64, qu
     let p_image = img.resize(width, height, image::imageops::FilterType::Lanczos3);
     drop(img);
 
-    let file = std::fs::File::create(&dst).map_err(|err| ErrType::FsError.err(err, "Failed to open dest file"))?;
+    let mut buffer = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut buffer);
 
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, quality);
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
     p_image.write_with_encoder(encoder).map_err(|err| ErrType::FsError.err(err, "Failed to write image to buffer"))?;
 
-    Ok(ImageData {
+    Ok(ImageMeta {
         width: p_image.width(),
         height: p_image.height(),
-        path: dst,
+        buf: buffer,
     })
 }
 
-fn infer_to_image_format(path: &PathBuf) -> AppResult<ImageFormat> {
-    let kind = infer::get_from_path(path)
-        .map_err(|err| ErrType::FsError.err(err, "Failed to process path"))?
-        .ok_or(ErrType::MediaError.msg("Could not detect file type from magic bytes"))?;
+fn infer_to_image_format(bytes: &[u8]) -> AppResult<ImageFormat> {
+    let kind = infer::get(bytes).ok_or(ErrType::MediaError.msg("Could not detect file type from magic bytes"))?;
 
     if kind.matcher_type() != infer::MatcherType::Image {
         return Err(ErrType::MediaError.msg(format!(
@@ -232,11 +230,11 @@ fn infer_to_image_format(path: &PathBuf) -> AppResult<ImageFormat> {
     }
 }
 
-fn convert_heif_to_jpeg(path: &PathBuf) -> AppResult<DynamicImage> {
+fn convert_heif_to_jpeg(bytes: &[u8]) -> AppResult<DynamicImage> {
     let heif =
         libheif_rs::LibHeif::new_checked().map_err(|err| ErrType::MediaError.err(err, "Failed to init libheif"))?;
 
-    let ctx = libheif_rs::HeifContext::read_from_file(path.to_str().unwrap())
+    let ctx = libheif_rs::HeifContext::read_from_bytes(bytes)
         .map_err(|err| ErrType::MediaError.err(err, "Failed to create HeifContext"))?;
 
     // heif contains multiple images

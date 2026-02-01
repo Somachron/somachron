@@ -1,5 +1,5 @@
 pub mod res {
-    use lib_core::storage::media::{ImageMeta, MediaType};
+    use lib_core::smq_dto::{res::ImageData, MediaType};
     use ser_mapper::impl_dto;
     use serde::Serialize;
     use utoipa::ToSchema;
@@ -54,7 +54,7 @@ pub mod res {
 
     impl_dto!(
         #[derive(ToSchema)]
-        pub struct ThumbnailMetadataResponse<ImageMeta> {
+        pub struct ThumbnailMetadataResponse<ImageData> {
             file_name: String = file_name,
             width: u32 = width,
             height: u32 = height,
@@ -116,21 +116,20 @@ pub mod res {
 pub mod req {
     use serde::Deserialize;
     use utoipa::ToSchema;
+    use uuid::Uuid;
     use validator::Validate;
-
-    use crate::dto::DtoUuid;
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct InitiateUploadRequest {
-        pub folder_id: DtoUuid,
+        pub folder_id: Uuid,
 
         #[validate(length(min = 3))]
         pub file_name: String,
     }
 
     #[derive(Deserialize, ToSchema, Validate)]
-    pub struct UploadCompleteRequest {
-        pub folder_id: DtoUuid,
+    pub struct QueueMediaProcessRequest {
+        pub folder_id: Uuid,
 
         #[validate(length(min = 3))]
         pub file_name: String,
@@ -140,7 +139,7 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct CreateFolderRequest {
-        pub parent_folder_id: DtoUuid,
+        pub parent_folder_id: Uuid,
 
         #[validate(length(min = 3))]
         pub folder_name: String,

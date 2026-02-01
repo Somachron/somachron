@@ -1,13 +1,15 @@
+use std::str::FromStr;
+
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{delete, get, post, Router},
     Extension,
 };
-use lib_core::{ApiError, ApiResult, EmptyResponse, Json, ReqId};
+use lib_core::{smq_dto::res::MediaData, ApiError, ApiResult, EmptyResponse, ErrType, Json, ReqId, X_SPACE_HEADER};
 use lib_domain::{
     dto::cloud::{
-        req::{CreateFolderRequest, InitiateUploadRequest, UploadCompleteRequest},
+        req::{CreateFolderRequest, InitiateUploadRequest, QueueMediaProcessRequest},
         res::{
             DownloadUrlResponse, FileMetaResponse, FolderResponse, InitiateUploadResponse, StreamedUrlResponse,
             _FileMetaResponseVec, _FolderResponse, _FolderResponseVec,
@@ -33,11 +35,15 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .route("/stream/{id}", get(generate_thumbnail_preview_signed_urls))
         .route("/download/{id}", get(generate_download_signed_url))
         .route("/upload", post(initiate_upload))
-        .route("/upload/complete", post(upload_completion))
+        .route("/queue", post(media_queue))
         .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
-        .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate));
+        .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::auth::authenticate));
 
-    router.nest("/media", routes)
+    let interconnect_routes = Router::new()
+        .route("/queue/complete", post(complete_media_queue))
+        .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate_interconnect));
+
+    router.nest("/media", routes).nest("/media", interconnect_routes)
 }
 
 #[utoipa::path(
@@ -150,7 +156,7 @@ pub async fn initiate_upload(
     Json(body): Json<InitiateUploadRequest>,
 ) -> ApiResult<InitiateUploadResponse> {
     app.service()
-        .initiate_upload(space_ctx, app.storage(), body.folder_id.0, body.file_name)
+        .initiate_upload(space_ctx, app.storage(), body.folder_id, body.file_name)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))
@@ -196,19 +202,47 @@ pub async fn generate_download_signed_url(
 
 #[utoipa::path(
     post,
-    path = "/v1/media/upload/complete",
+    path = "/v1/media/queue",
     responses((status=200, body=EmptyResponse)),
     tag = "Cloud"
 )]
-pub async fn upload_completion(
+pub async fn media_queue(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(user_id): Extension<UserId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Json(body): Json<UploadCompleteRequest>,
+    Json(body): Json<QueueMediaProcessRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .process_upload_completion(user_id, space_ctx, app.storage(), body)
+        .queue_media_process(user_id, space_ctx, app.storage(), app.interconnect(), body)
+        .await
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Media queued")))
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/media/queue/complete",
+    responses((status=200, body=EmptyResponse)),
+    tag = "Cloud"
+)]
+pub async fn complete_media_queue(
+    headers: HeaderMap,
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Json(body): Json<MediaData>,
+) -> ApiResult<EmptyResponse> {
+    let space_id = headers
+        .get(X_SPACE_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .ok_or(ApiError(ErrType::BadRequest.msg("Missing space ID"), req_id.clone()))?;
+
+    let space_id = Uuid::from_str(space_id)
+        .map_err(|err| ApiError(ErrType::BadRequest.err(err, "Invalid space id format"), req_id.clone()))?;
+
+    app.service()
+        .complete_media_queue(space_id, body)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Processing completion")))
         .map_err(|err| ApiError(err, req_id))
@@ -227,7 +261,7 @@ pub async fn create_folder(
     Json(body): Json<CreateFolderRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .create_folder(space_ctx, body.parent_folder_id.0, body.folder_name)
+        .create_folder(space_ctx, body.parent_folder_id, body.folder_name)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))
         .map_err(|err| ApiError(err, req_id))

@@ -7,6 +7,24 @@ pub fn get_volume_path() -> String {
     std::env::var("VOLUME_PATH").unwrap_or_default()
 }
 
+#[derive(Debug)]
+pub struct SIConfig {
+    pub pub_pem: String,
+    pub priv_pem: String,
+    pub backend_url: String,
+    pub mq_url: String,
+}
+impl SIConfig {
+    pub fn new() -> Self {
+        Self {
+            pub_pem: std::env::var("SI_PUB").unwrap_or_default(),
+            priv_pem: std::env::var("SI_PRIV").unwrap_or_default(),
+            backend_url: std::env::var("SI_BACKEND_URL").unwrap_or_default(),
+            mq_url: std::env::var("SI_MQ_URL").unwrap_or_default(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct DbConfig {
     pub url: String,

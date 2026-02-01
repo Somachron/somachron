@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use lib_core::{clerk::ClerkAuth, storage::Storage};
+use lib_core::{clerk::ClerkAuth, interconnect::ServiceInterconnect, storage::Storage};
 use lib_domain::service::AppService;
 
 pub struct App {
     auth: ClerkAuth,
     storage: Storage,
     service: AppService,
+    interconnect: ServiceInterconnect,
 }
 
 pub type AppState = Arc<App>;
@@ -17,6 +18,7 @@ impl App {
             auth: ClerkAuth::new(),
             storage: Storage::new().await,
             service: AppService::new().await,
+            interconnect: ServiceInterconnect::new(),
         };
         Arc::new(app)
     }
@@ -31,5 +33,9 @@ impl App {
 
     pub fn service(&self) -> &AppService {
         &self.service
+    }
+
+    pub fn interconnect(&self) -> &ServiceInterconnect {
+        &self.interconnect
     }
 }

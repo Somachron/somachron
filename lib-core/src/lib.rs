@@ -13,14 +13,18 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
+pub use smq_dto;
 pub mod clerk;
 pub mod config;
 pub mod interceptor;
+pub mod interconnect;
 pub mod storage;
+
+pub const X_SPACE_HEADER: &str = "X-Space-ID";
 
 #[repr(transparent)]
 pub struct ReqId(pub String);
@@ -30,7 +34,7 @@ impl Clone for ReqId {
     }
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct EmptyResponse {
     status: u16,
     message: String,
@@ -91,7 +95,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ErrType {
     Unauthorized,
     BadRequest,
@@ -198,14 +202,14 @@ impl Display for ErrType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ErrContext {
     message: String,
     at: String,
     cause: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AppError {
     _type: ErrType,
     contexts: Vec<ErrContext>,
@@ -213,6 +217,10 @@ pub struct AppError {
 }
 
 impl AppError {
+    pub fn err_message(&self) -> &str {
+        &self.err_msg
+    }
+
     #[track_caller]
     fn init(_type: ErrType, err: Option<Box<dyn Error>>, message: impl Into<String>) -> Self {
         let location = std::panic::Location::caller();
@@ -255,7 +263,11 @@ impl<S> ErrorContext<S, AppError> for Result<S, AppError> {
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.contexts.first().map(|ctx| ctx.message.as_str()).unwrap_or_default())
+        write!(
+            f,
+            "{}",
+            self.contexts.first().map(|ctx| format!("{} - {}: {}", ctx.at, ctx.message, ctx.cause)).unwrap_or_default()
+        )
     }
 }
 

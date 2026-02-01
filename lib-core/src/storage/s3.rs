@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use aws_config::Region;
 use aws_sdk_s3::{
     config::Credentials,
+    operation::head_object::HeadObjectOutput,
     presigning::PresigningConfig,
     primitives::ByteStream,
     types::{Delete, ObjectIdentifier},
@@ -11,10 +12,10 @@ use aws_sdk_s3::{
 
 use crate::{config::S3Config, AppResult, ErrType};
 
-/// Client for handling functions for R2
+/// Client for handling functions for S3
 /// storage providers
 pub struct S3Storage {
-    /// R2 client
+    /// S3 client
     client: Client,
 
     /// Bucket name - user configured from secrets
@@ -80,13 +81,8 @@ impl S3Storage {
         Ok(request.uri().to_string())
     }
 
-    pub async fn upload_photo(&self, path_key: &str, from_path: &PathBuf) -> AppResult<()> {
-        let stream = ByteStream::read_from()
-            .path(from_path)
-            .buffer_size(4096)
-            .build()
-            .await
-            .map_err(|err| ErrType::FsError.err(err, "Failed from create byte stream from path"))?;
+    pub async fn upload_photo(&self, path_key: &str, bytes: Vec<u8>) -> AppResult<()> {
+        let stream = ByteStream::from(bytes);
         let builder = self.client.put_object().bucket(&self.bucket_name);
         let result = builder.key(path_key).body(stream).send().await;
         result.map_err(|err| ErrType::s3_put(err, "Failed to upload photo"))?;
@@ -99,17 +95,14 @@ impl S3Storage {
         Ok(result.body)
     }
 
-    pub async fn head_object(&self, path: &str) -> AppResult<i64> {
-        let res = self
-            .client
+    pub async fn head_object(&self, path: &str) -> AppResult<HeadObjectOutput> {
+        self.client
             .head_object()
             .bucket(&self.bucket_name)
             .key(path)
             .send()
             .await
-            .map_err(|err| ErrType::s3_head(err, "Failed to head object"))?;
-
-        res.content_length().ok_or(ErrType::S3Error.msg("No length found for media: {path}"))
+            .map_err(|err| ErrType::s3_head(err, "Failed to head object"))
     }
 
     pub async fn delete_folder(&self, path: &str) -> AppResult<()> {

@@ -95,7 +95,7 @@ pub async fn add_user_to_space(
     Json(dto): Json<SpaceMemberRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .add_user_to_space(space_ctx, dto.user_id.0)
+        .add_user_to_space(space_ctx, dto.user_id)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "User added to space")))
         .map_err(|err| ApiError(err, req_id))
@@ -116,7 +116,7 @@ pub async fn update_user_space_role(
     Json(dto): Json<UpdateSpaceMemberRoleRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .update_user_space_role(user_id, space_ctx, dto.user_id.0, dto.role)
+        .update_user_space_role(user_id, space_ctx, dto.user_id, dto.role)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "User role updated")))
         .map_err(|err| ApiError(err, req_id))
@@ -136,7 +136,7 @@ pub async fn remove_user_from_space(
     Json(dto): Json<SpaceMemberRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.service()
-        .remove_user_from_space(space_ctx, dto.user_id.0)
+        .remove_user_from_space(space_ctx, dto.user_id)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "User removed from space")))
         .map_err(|err| ApiError(err, req_id))
