@@ -17,12 +17,12 @@ pub struct ServiceInterconnect {
 impl ServiceInterconnect {
     pub fn new() -> Self {
         let config = SIConfig::new();
-        let pub_key = bas64_decode(config.pub_pem.as_bytes()).expect("Failed to decode pub key pem");
-        let priv_key = bas64_decode(config.priv_pem.as_bytes()).expect("Failed to decode priv key pem");
+        let pub_key = config.pub_pem;
+        let priv_key = config.priv_pem;
 
-        let rsa_pub = Rsa::public_key_from_pem(&pub_key).expect("Failed to generate rsa from public key");
-
-        let rsa_priv = Rsa::private_key_from_pem(&priv_key).expect("Failed to generate rsa from private key");
+        let rsa_pub = Rsa::public_key_from_pem(&pub_key.as_bytes()).expect("Failed to generate rsa from public key");
+        let rsa_priv =
+            Rsa::private_key_from_pem(&priv_key.as_bytes()).expect("Failed to generate rsa from private key");
 
         Self {
             rsa_pub,

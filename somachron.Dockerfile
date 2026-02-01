@@ -10,7 +10,7 @@ RUN cargo install --path somachron
 FROM alpine:3.22
 
 COPY --from=builder /usr/local/cargo/bin/somachron /usr/local/bin/somachron
-COPY --from=builder /usr/src/app/lib-migrations/migrations /usr/local/bin/migrations
+COPY --from=builder /app/lib-migrations/migrations /usr/local/bin/migrations
 
 EXPOSE 8080
 
