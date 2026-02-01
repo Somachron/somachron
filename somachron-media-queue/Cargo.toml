@@ -30,7 +30,7 @@ serde = { workspace = true }
 
 libc = "0.2.174"
 ffmpeg-next = { version = "8" }
-libheif-rs = { version = "2.5.2", features = ["v1_20"] }
+libheif-rs = { version = "2", features = ["v1_21"] }
 
 [profile.release]
 codegen-units = 1
