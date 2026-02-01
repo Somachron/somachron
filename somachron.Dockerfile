@@ -1,10 +1,9 @@
 FROM rust:1.93-alpine3.22 AS builder
 
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-
 WORKDIR /app
 COPY . .
+
+RUN apk add --no-cache musl-dev perl-utils make curl make pkgconf openssl-dev openssl-libs-static
 
 RUN cargo install --path somachron
 
