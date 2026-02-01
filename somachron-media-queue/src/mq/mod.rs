@@ -1,15 +1,9 @@
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{mpsc, Arc},
-};
+use std::{path::PathBuf, sync::Arc};
 
 use axum::response::sse;
 use futures_util::TryFutureExt;
 use lib_core::{
-    interconnect::ServiceInterconnect,
-    storage::{self, s3::S3Storage},
-    AppError, AppResult, EmptyResponse, ErrType, X_SPACE_HEADER,
+    interconnect::ServiceInterconnect, storage::s3::S3Storage, AppError, AppResult, ErrType, X_SPACE_HEADER,
 };
 use smq_dto::{
     req::ProcessMediaRequest,
@@ -125,7 +119,7 @@ impl MediaQueue {
         let broadcaster = self.broadcaster.clone();
         let s3 = self.s3.clone();
         let _file_name = file_name.clone();
-        let recv = self.pool.execute(move || {
+        let mut recv = self.pool.execute(move || {
             // send started event
             tokio::runtime::Handle::current().block_on(async move {
                 {
@@ -247,13 +241,19 @@ impl MediaQueue {
         let payload_token = self.interconnect.get_sending_token()?;
         let media_endpoint = self.interconnect.backend_uri("/v1/media/queue/complete");
         tokio::runtime::Handle::current().spawn(async move {
-            let result = recv.recv().unwrap();
+            let result = recv.recv().await;
 
             let (metadata, file_size, image_data) = match result {
-                Ok(data) => data,
-                Err(err) => {
+                Some(Ok(data)) => data,
+                Some(Err(err)) => {
                     let mut b = broadcaster.lock().await;
                     b.broadcast(&file_id, QueueEvent::Err(err)).await;
+                    b.drop_sub(&file_id).await;
+                    return;
+                }
+                None => {
+                    let mut b = broadcaster.lock().await;
+                    b.broadcast(&file_id, QueueEvent::Done).await;
                     b.drop_sub(&file_id).await;
                     return;
                 }
