@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use aws_config::Region;
 use aws_sdk_s3::{
     config::Credentials,

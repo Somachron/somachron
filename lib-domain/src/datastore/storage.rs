@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use lib_core::{
     smq_dto::{
-        res::{FileData, ImageData, MediaData},
+        res::{FileData, ImageData},
         MediaMetadata, MediaType,
     },
     AppError, AppResult, ErrType,
