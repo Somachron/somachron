@@ -27,20 +27,7 @@ pub fn bind_routes(mq: MediaQueue, router: Router<MediaQueue>) -> Router<MediaQu
     let routes = Router::new()
         .route("/queue", post(queue_media))
         .route("/subscribe/{id}", get(subscribe_queue))
-        // .route("/users", post(add_user_to_space))
-        // .route("/users", delete(remove_user_from_space))
-        // .route("/users", put(update_user_space_role))
-        // .route("/users/self", delete(leave_space))
-        // .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
-        // .route("/", post(create_space))
-        // .route("/", get(get_user_spaces))
         .layer(axum::middleware::from_fn_with_state(mq, middleware::authenticate));
-
-    // router.nest("/space", routes)
-    // let r = auth::bind_routes(app.clone(), Router::new());
-    // let r = user::bind_routes(app.clone(), r);
-    // let r = space::bind_routes(app.clone(), r);
-    // let r = cloud::bind_routes(app, r);
 
     router.merge(health).nest("/v1", routes)
 }
@@ -122,7 +109,7 @@ pub async fn queue_media(
 
 #[utoipa::path(
     post,
-    path = "/v1/subscribe/:id",
+    path = "/v1/subscribe/{id}",
     // responses((status=200, body=SpaceResponse)),
     tag = "Space",
     security(("api_key" = []))

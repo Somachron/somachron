@@ -39,7 +39,7 @@ impl QueueEvent {
             QueueEvent::Queued => sse::Event::default().event("queued"),
             QueueEvent::Started => sse::Event::default().event("started"),
             QueueEvent::Done => sse::Event::default().event("done"),
-            QueueEvent::Err(err) => sse::Event::default().event("error").data(err.err_message()),
+            QueueEvent::Err(err) => sse::Event::default().event("error").data(err.err_message().replace("\n", " -- ")),
         }
     }
 }
@@ -236,76 +236,56 @@ impl MediaQueue {
         });
 
         // process job result
-        let broadcaster = self.broadcaster.clone();
         let client = self.backend_client.clone();
         let payload_token = self.interconnect.get_sending_token()?;
         let media_endpoint = self.interconnect.backend_uri("/v1/media/queue/complete");
-        tokio::runtime::Handle::current().spawn(async move {
-            let result = recv.recv().await;
 
-            let (metadata, file_size, image_data) = match result {
-                Some(Ok(data)) => data,
-                Some(Err(err)) => {
-                    let mut b = broadcaster.lock().await;
-                    b.broadcast(&file_id, QueueEvent::Err(err)).await;
-                    b.drop_sub(&file_id).await;
-                    return;
-                }
-                None => {
-                    let mut b = broadcaster.lock().await;
-                    b.broadcast(&file_id, QueueEvent::Done).await;
-                    b.drop_sub(&file_id).await;
-                    return;
-                }
-            };
+        let result = recv.recv().await;
 
-            // call backend to update data
-            let response = client
-                .post(media_endpoint)
-                .bearer_auth(payload_token)
-                .header(X_SPACE_HEADER, space_id.to_string())
-                .json(&MediaData {
-                    file_id,
-                    folder_id,
-                    updated_date,
-                    file_data: FileData {
-                        file_name: image_data.file_name,
-                        metadata,
-                        thumbnail: image_data.thumbnail,
-                        preview: image_data.preview,
-                        size: file_size,
-                        media_type: media_ty,
-                    },
-                })
-                .send()
-                .await;
-
-            // validate response
-            let response = match response {
-                Ok(response) => {
-                    let status = response.status();
-                    if status.is_success() {
-                        Ok(())
-                    } else {
-                        Err(ErrType::ServerError
-                            .msg(format!("Failed to update the processed images: {:?}", status.canonical_reason())))
-                    }
-                }
-                Err(err) => Err(ErrType::ServerError.err(err, "Failed to call backend for media updation")),
-            };
-
-            // emit event
-            {
-                let mut b = broadcaster.lock().await;
-                match response {
-                    Ok(_) => b.broadcast(&file_id, QueueEvent::Done).await,
-                    Err(err) => b.broadcast(&file_id, QueueEvent::Err(err)).await,
-                };
-                b.drop_sub(&file_id).await;
+        let (metadata, file_size, image_data) = match result {
+            Some(Ok(data)) => data,
+            Some(Err(err)) => {
+                return Err(err);
             }
-        });
+            None => {
+                return Err(ErrType::ServerError.msg("Expected some data, returned None"));
+            }
+        };
 
-        Ok(())
+        // call backend to update data
+        let response = client
+            .post(media_endpoint)
+            .bearer_auth(payload_token)
+            .header(X_SPACE_HEADER, space_id.to_string())
+            .json(&MediaData {
+                file_id,
+                folder_id,
+                updated_date,
+                file_data: FileData {
+                    file_name: image_data.file_name,
+                    metadata,
+                    thumbnail: image_data.thumbnail,
+                    preview: image_data.preview,
+                    size: file_size,
+                    media_type: media_ty,
+                },
+            })
+            .send()
+            .await;
+
+        // validate response
+        match response {
+            Ok(response) => {
+                let status = response.status();
+                if status.is_success() {
+                    Ok(())
+                } else {
+                    Err(ErrType::ServerError
+                        .msg(format!("Failed to update the processed images: {:?}", status.canonical_reason())))
+                }
+            }
+            Err(err) => Err(ErrType::ServerError.err(err, "Failed to call backend for media updation")),
+        }
     }
 
     pub async fn subscribe_job(&self, file_id: &Uuid) -> Option<tokio::sync::broadcast::Receiver<QueueEvent>> {
