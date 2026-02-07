@@ -10,6 +10,7 @@ use lib_core::{
     storage::Storage,
     AppResult, ErrType,
 };
+use reqwest::Response;
 use uuid::Uuid;
 
 use crate::{
@@ -136,19 +137,19 @@ impl<D: StorageDs> Service<D> {
         let payload_token = interconnect.get_sending_token()?;
         let mq_url = interconnect.mq_uri("/v1/queue");
 
-        let response = reqwest::Client::new()
-            .post(mq_url)
-            .bearer_auth(payload_token)
-            .json(&ProcessMediaRequest {
-                file_id: file.id,
-                updated_date: MediaDatetime(updated_date),
-                space_id,
-                folder_id: folder.id,
-                s3_file_path: remote_path,
-            })
-            .send()
-            .await
-            .map_err(|err| ErrType::ServerError.err(err, "Failed to request media queue"))?;
+        let response = self
+            .request_mq_retry_until_ok(
+                &mq_url,
+                &payload_token,
+                ProcessMediaRequest {
+                    file_id: file.id,
+                    updated_date: MediaDatetime(updated_date),
+                    space_id,
+                    folder_id: folder.id,
+                    s3_file_path: remote_path,
+                },
+            )
+            .await?;
 
         let status = response.status();
         if status.is_success() {
@@ -156,6 +157,31 @@ impl<D: StorageDs> Service<D> {
         } else {
             Err(ErrType::ServerError
                 .msg(format!("Unable to queue media for processing: {:?}", status.canonical_reason())))
+        }
+    }
+
+    async fn request_mq_retry_until_ok(
+        &self,
+        mq_url: &str,
+        payload_token: &str,
+        body: ProcessMediaRequest,
+    ) -> AppResult<Response> {
+        let max_retries = 3u8;
+        let mut retries = 0u8;
+
+        // in case queue is asleep (serverless)
+        loop {
+            let response = reqwest::Client::new().post(mq_url).bearer_auth(payload_token).json(&body).send().await;
+            match response {
+                Ok(response) => return Ok(response),
+                Err(err) => {
+                    if retries >= max_retries {
+                        return Err(ErrType::ServerError.err(err, "Failed to request media queue"));
+                    }
+                    retries += 1;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(255)).await;
         }
     }
 
