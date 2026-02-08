@@ -90,15 +90,15 @@ impl<'de> Deserialize<'de> for MediaOrientation {
         match s.to_lowercase().trim() {
             // Standard rotation formats
             "none" | "0" | "rotate 0" => Ok(MediaOrientation::None),
-            "rotate 90 cw" | "90 cw" | "90" | "rotate90cw" => Ok(MediaOrientation::R90CW),
-            "rotate 180" | "180" | "rotate180" => Ok(MediaOrientation::R180),
-            "rotate 270 cw" | "rotate 90 ccw" | "270 cw" | "90 ccw" | "270" => Ok(MediaOrientation::R270CW),
+            "r90cw" | "rotate 90 cw" | "90 cw" | "90" | "rotate90cw" => Ok(MediaOrientation::R90CW),
+            "r180" | "rotate 180" | "180" | "rotate180" => Ok(MediaOrientation::R180),
+            "r270cw" | "rotate 270 cw" | "rotate 90 ccw" | "270 cw" | "90 ccw" | "270" => Ok(MediaOrientation::R270CW),
 
             // EXIF orientation formats
             "horizontal (normal)" | "normal" | "1" => Ok(MediaOrientation::None),
-            "mirror horizontal" | "flip horizontal" | "2" => Ok(MediaOrientation::FlipH),
+            "fliph" | "mirror horizontal" | "flip horizontal" | "2" => Ok(MediaOrientation::FlipH),
             "3" => Ok(MediaOrientation::R180),
-            "mirror vertical" | "flip vertical" | "4" => Ok(MediaOrientation::FlipV),
+            "flipv" | "mirror vertical" | "flip vertical" | "4" => Ok(MediaOrientation::FlipV),
             "mirror horizontal and rotate 270 cw" | "transpose" | "5" => Ok(MediaOrientation::Transpose),
             "6" => Ok(MediaOrientation::R90CW),
             "mirror horizontal and rotate 90 cw" | "transverse" | "7" => Ok(MediaOrientation::Transverse),
