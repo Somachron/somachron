@@ -118,7 +118,7 @@ impl<D: StorageDs> Service<D> {
         let remote_path = storage.get_remote_path(&space_id_str, file_path)?;
         let file = self
             .ds
-            .upsert_file(
+            .get_or_create_file(
                 &user_id,
                 &space_id,
                 &folder,

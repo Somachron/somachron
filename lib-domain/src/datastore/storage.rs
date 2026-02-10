@@ -257,7 +257,7 @@ pub struct InnerFolder {
 }
 
 pub trait StorageDs {
-    fn upsert_file(
+    fn get_or_create_file(
         &self,
         user_id: &Uuid,
         space_id: &Uuid,
@@ -316,7 +316,7 @@ pub trait StorageDs {
 }
 
 impl StorageDs for Datastore {
-    async fn upsert_file(
+    async fn get_or_create_file(
         &self,
         user_id: &Uuid,
         space_id: &Uuid,
@@ -325,7 +325,7 @@ impl StorageDs for Datastore {
         file_data: FileData,
     ) -> AppResult<FsNode> {
         let file = match self.get_file_from_fields(space_id, &file_data.file_name, &folder.id).await? {
-            Some(file) => self.update_file(file.id, &folder.id, space_id, updated_date, file_data).await,
+            Some(file) => Ok(file),
             None => {
                 create_file(&self.db, &self.storage_stmts, user_id, space_id, folder, updated_date, file_data).await
             }
