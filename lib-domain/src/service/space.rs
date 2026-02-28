@@ -6,10 +6,19 @@ use crate::{
     extension::UserId,
 };
 
-use super::Service;
+use super::ServiceWrapper;
 
-impl<D: UserSpaceDs + SpaceDs + StorageDs> Service<D> {
-    pub async fn create_user_space(
+pub trait SpaceService: Send + Sync {
+    fn create_user_space(
+        &self,
+        user_id: UserId,
+        storage: &Storage,
+        dto: SpaceCreateRequest,
+    ) -> impl Future<Output = AppResult<_SpaceResponse>> + Send;
+}
+
+impl<D: UserSpaceDs + SpaceDs + StorageDs> SpaceService for ServiceWrapper<'_, D> {
+    async fn create_user_space(
         &self,
         UserId(user_id): UserId,
         storage: &Storage,

@@ -8,6 +8,7 @@ use lib_core::{clerk::webhook::UserUpdateEvent, ApiError, ApiResult, EmptyRespon
 use lib_domain::{
     dto::native_app::{req::NativeAppIdentifierRequest, res::NativeAppIdentifierResponse},
     extension::Claims,
+    service::{auth::AuthService, user::UserService},
 };
 
 use crate::app::AppState;
@@ -30,12 +31,14 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
     responses((status=200, body=EmptyResponse)),
     tag = "Auth"
 )]
+#[axum::debug_handler]
 pub async fn sync(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(claims): Extension<Claims>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .auth_service()
         .exchange_code_routine(claims.0)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Synced")))
@@ -53,7 +56,8 @@ pub async fn webhook(
     Extension(req_id): Extension<ReqId>,
     Json(data): Json<UserUpdateEvent>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .user_service()
         .webhook_update_user(data)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Synced")))
@@ -71,7 +75,8 @@ pub async fn native_app_key(
     Extension(req_id): Extension<ReqId>,
     Json(data): Json<NativeAppIdentifierRequest>,
 ) -> ApiResult<NativeAppIdentifierResponse> {
-    app.service()
+    app.services()
+        .auth_service()
         .validate_native_app(data.identifier)
         .await
         .map(|_| {

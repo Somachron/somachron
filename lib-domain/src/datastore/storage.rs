@@ -256,7 +256,7 @@ pub struct InnerFolder {
     pub path: String,
 }
 
-pub trait StorageDs {
+pub trait StorageDs: Send + Sync {
     fn get_or_create_file(
         &self,
         user_id: &Uuid,
@@ -264,7 +264,7 @@ pub trait StorageDs {
         folder: &FsNode,
         updated_date: DateTime<Utc>,
         file_data: FileData,
-    ) -> impl Future<Output = AppResult<FsNode>>;
+    ) -> impl Future<Output = AppResult<FsNode>> + Send;
 
     fn update_file(
         &self,
@@ -273,46 +273,54 @@ pub trait StorageDs {
         space_id: &Uuid,
         updated_date: DateTime<Utc>,
         file_data: FileData,
-    ) -> impl Future<Output = AppResult<FsNode>>;
+    ) -> impl Future<Output = AppResult<FsNode>> + Send;
 
     fn get_file_from_fields(
         &self,
         space_id: &Uuid,
         file_name: &str,
         folder_id: &Uuid,
-    ) -> impl Future<Output = AppResult<Option<FsNode>>>;
+    ) -> impl Future<Output = AppResult<Option<FsNode>>> + Send;
 
-    fn get_file(&self, space_id: Uuid, file_id: Uuid) -> impl Future<Output = AppResult<Option<FsNode>>>;
-    fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Vec<FileMeta>>>;
-    fn list_files_gallery(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<GalleryFileMeta>>>;
+    fn get_file(&self, space_id: Uuid, file_id: Uuid) -> impl Future<Output = AppResult<Option<FsNode>>> + Send;
+    fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Vec<FileMeta>>> + Send;
+    fn list_files_gallery(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<GalleryFileMeta>>> + Send;
     fn get_thumbnail_preview_stream_paths(
         &self,
         space_id: &Uuid,
         file_id: Uuid,
-    ) -> impl Future<Output = AppResult<Option<StreamPaths>>>;
+    ) -> impl Future<Output = AppResult<Option<StreamPaths>>> + Send;
     fn get_download_stream_path(
         &self,
         space_id: &Uuid,
         file_id: Uuid,
-    ) -> impl Future<Output = AppResult<Option<String>>>;
+    ) -> impl Future<Output = AppResult<Option<String>>> + Send;
 
-    fn create_root_folder(&self, space_id: &Uuid) -> impl Future<Output = AppResult<()>>;
+    fn create_root_folder(&self, space_id: &Uuid) -> impl Future<Output = AppResult<()>> + Send;
     fn create_folder(
         &self,
         space_id: Uuid,
         parent_folder: FsNode,
         folder_name: String,
-    ) -> impl Future<Output = AppResult<()>>;
-    fn get_folder(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Option<FsNode>>>;
-    fn list_folder(&self, space_id: Uuid, parent_folder_id: Uuid) -> impl Future<Output = AppResult<Vec<FsNode>>>;
+    ) -> impl Future<Output = AppResult<()>> + Send;
+    fn get_folder(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Option<FsNode>>> + Send;
+    fn list_folder(
+        &self,
+        space_id: Uuid,
+        parent_folder_id: Uuid,
+    ) -> impl Future<Output = AppResult<Vec<FsNode>>> + Send;
     fn get_inner_folder_paths(
         &self,
         space_id: &Uuid,
         folder_id: &Uuid,
-    ) -> impl Future<Output = AppResult<Vec<InnerFolder>>>;
+    ) -> impl Future<Output = AppResult<Vec<InnerFolder>>> + Send;
 
-    fn delete_folder(&self, space_id: &Uuid, inner_folders: Vec<InnerFolder>) -> impl Future<Output = AppResult<()>>;
-    fn delete_file(&self, file_id: &Uuid, space_id: &Uuid) -> impl Future<Output = AppResult<()>>;
+    fn delete_folder(
+        &self,
+        space_id: &Uuid,
+        inner_folders: Vec<InnerFolder>,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+    fn delete_file(&self, file_id: &Uuid, space_id: &Uuid) -> impl Future<Output = AppResult<()>> + Send;
 }
 
 impl StorageDs for Datastore {

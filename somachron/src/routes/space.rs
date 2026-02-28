@@ -14,6 +14,7 @@ use lib_domain::{
         },
     },
     extension::{SpaceCtx, UserId},
+    service::{space::SpaceService, user_space::UserSpaceService},
 };
 
 use crate::app::AppState;
@@ -48,7 +49,12 @@ pub async fn create_space(
     Extension(user_id): Extension<UserId>,
     Json(dto): Json<SpaceCreateRequest>,
 ) -> ApiResult<_SpaceResponse> {
-    app.service().create_user_space(user_id, app.storage(), dto).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services()
+        .space_service()
+        .create_user_space(user_id, app.storage(), dto)
+        .await
+        .map(Json)
+        .map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -63,7 +69,12 @@ pub async fn get_user_spaces(
     Extension(req_id): Extension<ReqId>,
     Extension(user_id): Extension<UserId>,
 ) -> ApiResult<_UserSpaceResponseVec> {
-    app.service().get_spaces_for_user(user_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services()
+        .user_space_service()
+        .get_spaces_for_user(user_id)
+        .await
+        .map(Json)
+        .map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -78,7 +89,12 @@ pub async fn get_space_users(
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
 ) -> ApiResult<_SpaceUserResponseVec> {
-    app.service().get_users_for_space(space_ctx).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services()
+        .user_space_service()
+        .get_users_for_space(space_ctx)
+        .await
+        .map(Json)
+        .map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -94,7 +110,8 @@ pub async fn add_user_to_space(
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(dto): Json<SpaceMemberRequest>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .user_space_service()
         .add_user_to_space(space_ctx, dto.user_id)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "User added to space")))
@@ -115,7 +132,8 @@ pub async fn update_user_space_role(
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(dto): Json<UpdateSpaceMemberRoleRequest>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .user_space_service()
         .update_user_space_role(user_id, space_ctx, dto.user_id, dto.role)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "User role updated")))
@@ -135,7 +153,8 @@ pub async fn remove_user_from_space(
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(dto): Json<SpaceMemberRequest>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .user_space_service()
         .remove_user_from_space(space_ctx, dto.user_id)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "User removed from space")))
@@ -154,7 +173,8 @@ pub async fn leave_space(
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .user_space_service()
         .leave_space(space_ctx)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "User removed from space")))

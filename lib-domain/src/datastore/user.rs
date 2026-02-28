@@ -31,18 +31,18 @@ impl From<tokio_postgres::Row> for User {
     }
 }
 
-pub trait UserDs {
-    fn get_user_by_clerk_id(&self, clerk_id: &str) -> impl Future<Output = AppResult<Option<User>>>;
-    fn get_user_by_id(&self, id: Uuid) -> impl Future<Output = AppResult<Option<User>>>;
-    fn get_platform_users(&self) -> impl Future<Output = AppResult<Vec<User>>>;
-    fn insert_user(&self, claims: TokenClaims) -> impl Future<Output = AppResult<User>>;
+pub trait UserDs: Send + Sync {
+    fn get_user_by_clerk_id(&self, clerk_id: &str) -> impl Future<Output = AppResult<Option<User>>> + Send;
+    fn get_user_by_id(&self, id: Uuid) -> impl Future<Output = AppResult<Option<User>>> + Send;
+    fn get_platform_users(&self) -> impl Future<Output = AppResult<Vec<User>>> + Send;
+    fn insert_user(&self, claims: TokenClaims) -> impl Future<Output = AppResult<User>> + Send;
     fn update_user(
         &self,
         id: Uuid,
         first_name: &str,
         last_name: &str,
         picture_url: &str,
-    ) -> impl Future<Output = AppResult<User>>;
+    ) -> impl Future<Output = AppResult<User>> + Send;
 }
 
 impl UserDs for Datastore {

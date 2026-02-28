@@ -26,15 +26,15 @@ impl From<tokio_postgres::Row> for Space {
     }
 }
 
-pub trait SpaceDs {
-    fn get_space_by_id(&self, id: &Uuid) -> impl Future<Output = AppResult<Option<Space>>>;
-    fn insert_space(&self, name: &str, description: &str) -> impl Future<Output = AppResult<Space>>;
+pub trait SpaceDs: Send + Sync {
+    fn get_space_by_id(&self, id: &Uuid) -> impl Future<Output = AppResult<Option<Space>>> + Send;
+    fn insert_space(&self, name: &str, description: &str) -> impl Future<Output = AppResult<Space>> + Send;
     fn update_space(
         &self,
         id: Uuid,
         name: &'static str,
         description: &'static str,
-    ) -> impl Future<Output = AppResult<Space>>;
+    ) -> impl Future<Output = AppResult<Space>> + Send;
 }
 
 impl SpaceDs for Datastore {

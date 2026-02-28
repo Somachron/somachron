@@ -34,7 +34,7 @@ pub async fn validate_user_space(
         .map_err(|err| ApiError(ErrType::BadRequest.err(err, "Invalid space id format"), req_id.clone()))?;
 
     let space_member = app
-        .service()
+        .services()
         .ds()
         .get_user_space(&user_id.0, &space_id)
         .await

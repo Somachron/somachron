@@ -34,7 +34,7 @@ pub async fn authenticate(
 
     let claims = app.auth().validate_token_for_claims(token).map_err(|err| ApiError(err, req_id.clone()))?;
     let user = app
-        .service()
+        .services()
         .ds()
         .get_user_by_clerk_id(&claims.sub)
         .await

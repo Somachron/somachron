@@ -2,10 +2,15 @@ use lib_core::{clerk::TokenClaims, AppResult, ErrType, ErrorContext};
 
 use crate::datastore::{native_app::NativeAppDs, user::UserDs};
 
-use super::Service;
+use super::ServiceWrapper;
 
-impl<D: UserDs + NativeAppDs> Service<D> {
-    pub async fn exchange_code_routine(&self, claims: TokenClaims) -> AppResult<()> {
+pub trait AuthService: Send + Sync {
+    fn exchange_code_routine(&self, claims: TokenClaims) -> impl Future<Output = AppResult<()>> + Send;
+    fn validate_native_app(&self, identifier: String) -> impl Future<Output = AppResult<()>> + Send;
+}
+
+impl<D: UserDs + NativeAppDs> AuthService for ServiceWrapper<'_, D> {
+    async fn exchange_code_routine(&self, claims: TokenClaims) -> AppResult<()> {
         match self.ds.get_user_by_clerk_id(&claims.sub).await? {
             Some(user) => {
                 if claims.updated_at > user.updated_at.timestamp() as f64 {
@@ -28,7 +33,7 @@ impl<D: UserDs + NativeAppDs> Service<D> {
         })
     }
 
-    pub async fn validate_native_app(&self, identifier: String) -> AppResult<()> {
+    async fn validate_native_app(&self, identifier: String) -> AppResult<()> {
         self.ds.validate_native_app(identifier).await
     }
 }

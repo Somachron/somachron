@@ -25,10 +25,87 @@ use crate::{
     extension::{SpaceCtx, UserId},
 };
 
-use super::Service;
+use super::ServiceWrapper;
 
-impl<D: StorageDs> Service<D> {
-    pub async fn create_folder(
+pub trait CloudService: Send + Sync {
+    fn create_folder(
+        &self,
+        space_ctx: SpaceCtx,
+        parent_folder_id: Uuid,
+        folder_name: String,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+
+    fn initiate_upload(
+        &self,
+        space_ctx: SpaceCtx,
+        storage: &Storage,
+        folder_id: Uuid,
+        file_name: String,
+    ) -> impl Future<Output = AppResult<InitiateUploadResponse>> + Send;
+
+    fn queue_media_process(
+        &self,
+        user_id: UserId,
+        space_ctx: SpaceCtx,
+        storage: &Storage,
+        interconnect: &ServiceInterconnect,
+        dto: QueueMediaProcessRequest,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+
+    fn complete_media_queue(&self, space_id: Uuid, media_data: MediaData)
+        -> impl Future<Output = AppResult<()>> + Send;
+
+    fn list_files(
+        &self,
+        space_ctx: SpaceCtx,
+        folder_id: Uuid,
+    ) -> impl Future<Output = AppResult<_FileMetaResponseVec>> + Send;
+
+    fn list_files_gallery(&self, space_ctx: SpaceCtx) -> impl Future<Output = AppResult<_FileMetaResponseVec>> + Send;
+
+    fn list_folders(
+        &self,
+        space_ctx: SpaceCtx,
+        folder_id: Uuid,
+    ) -> impl Future<Output = AppResult<_FolderResponseVec>> + Send;
+
+    fn get_folder(
+        &self,
+        space_ctx: SpaceCtx,
+        folder_id: Uuid,
+    ) -> impl Future<Output = AppResult<_FolderResponse>> + Send;
+
+    fn generate_thumbnail_preview_signed_urls(
+        &self,
+        space_ctx: SpaceCtx,
+        storage: &Storage,
+        file_id: Uuid,
+    ) -> impl Future<Output = AppResult<StreamedUrlResponse>> + Send;
+
+    fn generate_download_signed_url(
+        &self,
+        space_ctx: SpaceCtx,
+        storage: &Storage,
+        file_id: Uuid,
+    ) -> impl Future<Output = AppResult<DownloadUrlResponse>> + Send;
+
+    fn delete_folder(
+        &self,
+        space_ctx: SpaceCtx,
+        storage: &Storage,
+        folder_id: Uuid,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+
+    fn delete_file(
+        &self,
+        space_ctx: SpaceCtx,
+        storage: &Storage,
+        file_id: Uuid,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+}
+
+impl<D: StorageDs> CloudService for ServiceWrapper<'_, D> {
+    async fn create_folder(
         &self,
         SpaceCtx {
             role,
@@ -51,7 +128,7 @@ impl<D: StorageDs> Service<D> {
         self.ds.create_folder(space_id, parent_folder, folder_name).await
     }
 
-    pub async fn initiate_upload(
+    async fn initiate_upload(
         &self,
         SpaceCtx {
             role,
@@ -82,7 +159,7 @@ impl<D: StorageDs> Service<D> {
         })
     }
 
-    pub async fn queue_media_process(
+    async fn queue_media_process(
         &self,
         UserId(user_id): UserId,
         SpaceCtx {
@@ -137,19 +214,18 @@ impl<D: StorageDs> Service<D> {
         let payload_token = interconnect.get_sending_token()?;
         let mq_url = interconnect.mq_uri("/v1/queue");
 
-        let response = self
-            .request_mq_retry_until_ok(
-                &mq_url,
-                &payload_token,
-                ProcessMediaRequest {
-                    file_id: file.id,
-                    updated_date: MediaDatetime(updated_date),
-                    space_id,
-                    folder_id: folder.id,
-                    s3_file_path: remote_path,
-                },
-            )
-            .await?;
+        let response = request_mq_retry_until_ok(
+            &mq_url,
+            &payload_token,
+            ProcessMediaRequest {
+                file_id: file.id,
+                updated_date: MediaDatetime(updated_date),
+                space_id,
+                folder_id: folder.id,
+                s3_file_path: remote_path,
+            },
+        )
+        .await?;
 
         let status = response.status();
         if status.is_success() {
@@ -160,32 +236,7 @@ impl<D: StorageDs> Service<D> {
         }
     }
 
-    async fn request_mq_retry_until_ok(
-        &self,
-        mq_url: &str,
-        payload_token: &str,
-        body: ProcessMediaRequest,
-    ) -> AppResult<Response> {
-        let max_retries = 3u8;
-        let mut retries = 0u8;
-
-        // in case queue is asleep (serverless)
-        loop {
-            let response = reqwest::Client::new().post(mq_url).bearer_auth(payload_token).json(&body).send().await;
-            match response {
-                Ok(response) => return Ok(response),
-                Err(err) => {
-                    if retries >= max_retries {
-                        return Err(ErrType::ServerError.err(err, "Failed to request media queue"));
-                    }
-                    retries += 1;
-                }
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(255)).await;
-        }
-    }
-
-    pub async fn complete_media_queue(
+    async fn complete_media_queue(
         &self,
         space_id: Uuid,
         MediaData {
@@ -200,7 +251,7 @@ impl<D: StorageDs> Service<D> {
         Ok(())
     }
 
-    pub async fn list_files(
+    async fn list_files(
         &self,
         SpaceCtx {
             space_id,
@@ -213,7 +264,7 @@ impl<D: StorageDs> Service<D> {
         Ok(_FileMetaResponseVec(files))
     }
 
-    pub async fn list_files_gallery(
+    async fn list_files_gallery(
         &self,
         SpaceCtx {
             space_id,
@@ -225,7 +276,7 @@ impl<D: StorageDs> Service<D> {
         Ok(_FileMetaResponseVec(files))
     }
 
-    pub async fn list_folders(
+    async fn list_folders(
         &self,
         SpaceCtx {
             space_id,
@@ -236,7 +287,7 @@ impl<D: StorageDs> Service<D> {
         self.ds.list_folder(space_id, folder_id).await.map(_FolderResponseVec)
     }
 
-    pub async fn get_folder(
+    async fn get_folder(
         &self,
         SpaceCtx {
             space_id,
@@ -251,7 +302,7 @@ impl<D: StorageDs> Service<D> {
             .map(_FolderResponse)
     }
 
-    pub async fn generate_thumbnail_preview_signed_urls(
+    async fn generate_thumbnail_preview_signed_urls(
         &self,
         SpaceCtx {
             space_id,
@@ -274,7 +325,7 @@ impl<D: StorageDs> Service<D> {
         })
     }
 
-    pub async fn generate_download_signed_url(
+    async fn generate_download_signed_url(
         &self,
         SpaceCtx {
             space_id,
@@ -295,7 +346,7 @@ impl<D: StorageDs> Service<D> {
         })
     }
 
-    pub async fn delete_folder(
+    async fn delete_folder(
         &self,
         SpaceCtx {
             role,
@@ -320,7 +371,7 @@ impl<D: StorageDs> Service<D> {
         self.ds.delete_folder(&space_id, folders).await
     }
 
-    pub async fn delete_file(
+    async fn delete_file(
         &self,
         SpaceCtx {
             role,
@@ -360,5 +411,30 @@ impl<D: StorageDs> Service<D> {
         }
 
         Err(ErrType::NotFound.msg("File not found for deletion"))
+    }
+}
+
+async fn request_mq_retry_until_ok(
+    mq_url: &str,
+    payload_token: &str,
+    body: ProcessMediaRequest,
+) -> AppResult<Response> {
+    let max_retries = 3u8;
+    let mut retries = 0u8;
+    let duration_millis = 255u64;
+
+    // in case queue is asleep (serverless)
+    loop {
+        let response = reqwest::Client::new().post(mq_url).bearer_auth(payload_token).json(&body).send().await;
+        match response {
+            Ok(response) => return Ok(response),
+            Err(err) => {
+                if retries >= max_retries {
+                    return Err(ErrType::ServerError.err(err, "Failed to request media queue"));
+                }
+                retries += 1;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(duration_millis * retries as u64)).await;
     }
 }

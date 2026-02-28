@@ -16,6 +16,7 @@ use lib_domain::{
         },
     },
     extension::{SpaceCtx, UserId},
+    service::cloud::CloudService,
 };
 use uuid::Uuid;
 
@@ -58,7 +59,8 @@ pub async fn delete_folder(
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(folder_id): Path<Uuid>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .cloud_service()
         .delete_folder(space_ctx, app.storage(), folder_id)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Path deleted")))
@@ -77,7 +79,8 @@ pub async fn delete_file(
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(file_id): Path<Uuid>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .cloud_service()
         .delete_file(space_ctx, app.storage(), file_id)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "File deleted")))
@@ -96,7 +99,7 @@ pub async fn list_files(
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(folder_id): Path<Uuid>,
 ) -> ApiResult<_FileMetaResponseVec> {
-    app.service().list_files(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services().cloud_service().list_files(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -110,7 +113,7 @@ pub async fn list_files_gallery(
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
 ) -> ApiResult<_FileMetaResponseVec> {
-    app.service().list_files_gallery(space_ctx).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services().cloud_service().list_files_gallery(space_ctx).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -125,7 +128,12 @@ pub async fn list_folders(
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(folder_id): Path<Uuid>,
 ) -> ApiResult<_FolderResponseVec> {
-    app.service().list_folders(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services()
+        .cloud_service()
+        .list_folders(space_ctx, folder_id)
+        .await
+        .map(Json)
+        .map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -140,7 +148,7 @@ pub async fn get_folder(
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(folder_id): Path<Uuid>,
 ) -> ApiResult<_FolderResponse> {
-    app.service().get_folder(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services().cloud_service().get_folder(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -155,7 +163,8 @@ pub async fn initiate_upload(
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<InitiateUploadRequest>,
 ) -> ApiResult<InitiateUploadResponse> {
-    app.service()
+    app.services()
+        .cloud_service()
         .initiate_upload(space_ctx, app.storage(), body.folder_id, body.file_name)
         .await
         .map(Json)
@@ -174,7 +183,8 @@ pub async fn generate_thumbnail_preview_signed_urls(
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(file_id): Path<Uuid>,
 ) -> ApiResult<StreamedUrlResponse> {
-    app.service()
+    app.services()
+        .cloud_service()
         .generate_thumbnail_preview_signed_urls(space_ctx, app.storage(), file_id)
         .await
         .map(Json)
@@ -193,7 +203,8 @@ pub async fn generate_download_signed_url(
     Extension(space_ctx): Extension<SpaceCtx>,
     Path(file_id): Path<Uuid>,
 ) -> ApiResult<DownloadUrlResponse> {
-    app.service()
+    app.services()
+        .cloud_service()
         .generate_download_signed_url(space_ctx, app.storage(), file_id)
         .await
         .map(Json)
@@ -213,7 +224,8 @@ pub async fn media_queue(
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<QueueMediaProcessRequest>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .cloud_service()
         .queue_media_process(user_id, space_ctx, app.storage(), app.interconnect(), body)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Media queued")))
@@ -241,7 +253,8 @@ pub async fn complete_media_queue(
     let space_id = Uuid::from_str(space_id)
         .map_err(|err| ApiError(ErrType::BadRequest.err(err, "Invalid space id format"), req_id.clone()))?;
 
-    app.service()
+    app.services()
+        .cloud_service()
         .complete_media_queue(space_id, body)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Processing completion")))
@@ -260,7 +273,8 @@ pub async fn create_folder(
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<CreateFolderRequest>,
 ) -> ApiResult<EmptyResponse> {
-    app.service()
+    app.services()
+        .cloud_service()
         .create_folder(space_ctx, body.parent_folder_id, body.folder_name)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))

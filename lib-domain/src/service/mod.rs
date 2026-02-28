@@ -1,12 +1,20 @@
+use crate::service::{
+    auth::AuthService, cloud::CloudService, space::SpaceService, user::UserService, user_space::UserSpaceService,
+};
+
 use super::datastore::Datastore;
 
-mod auth;
-mod cloud;
-mod space;
-mod user;
-mod user_space;
+pub mod auth;
+pub mod cloud;
+pub mod space;
+pub mod user;
+pub mod user_space;
 
-pub type AppService = Service<Datastore>;
+pub type AppServices = Service<Datastore>;
+
+pub struct ServiceWrapper<'d, D> {
+    ds: &'d D,
+}
 
 pub struct Service<D> {
     ds: D,
@@ -21,5 +29,35 @@ impl Service<Datastore> {
 
     pub fn ds(&self) -> &Datastore {
         &self.ds
+    }
+
+    pub fn auth_service(&self) -> impl AuthService + Send + Sync {
+        ServiceWrapper {
+            ds: &self.ds,
+        }
+    }
+
+    pub fn cloud_service(&self) -> impl CloudService + Send + Sync {
+        ServiceWrapper {
+            ds: &self.ds,
+        }
+    }
+
+    pub fn user_service(&self) -> impl UserService + Send + Sync {
+        ServiceWrapper {
+            ds: &self.ds,
+        }
+    }
+
+    pub fn space_service(&self) -> impl SpaceService + Send + Sync {
+        ServiceWrapper {
+            ds: &self.ds,
+        }
+    }
+
+    pub fn user_space_service(&self) -> impl UserSpaceService + Send + Sync {
+        ServiceWrapper {
+            ds: &self.ds,
+        }
     }
 }

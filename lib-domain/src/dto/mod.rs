@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use ser_mapper::impl_dto;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use utoipa::{
     openapi::{schema::SchemaType, KnownFormat, ObjectBuilder, RefOr, Schema, SchemaFormat, Type},
     PartialSchema, ToSchema,

@@ -9,18 +9,24 @@ use crate::{
     extension::UserId,
 };
 
-use super::Service;
+use super::ServiceWrapper;
 
-impl<D: UserDs> Service<D> {
-    pub async fn get_user(&self, UserId(id): UserId) -> AppResult<_UserResponse> {
+pub trait UserService: Send + Sync {
+    fn get_user(&self, id: UserId) -> impl Future<Output = AppResult<_UserResponse>> + Send;
+    fn get_platform_users(&self) -> impl Future<Output = AppResult<_PlatformUserResponseVec>> + Send;
+    fn webhook_update_user(&self, data: UserUpdateEvent) -> impl Future<Output = AppResult<()>> + Send;
+}
+
+impl<D: UserDs> UserService for ServiceWrapper<'_, D> {
+    async fn get_user(&self, UserId(id): UserId) -> AppResult<_UserResponse> {
         self.ds.get_user_by_id(id).await?.map(_UserResponse).ok_or(ErrType::NotFound.msg("User not found"))
     }
 
-    pub async fn get_platform_users(&self) -> AppResult<_PlatformUserResponseVec> {
+    async fn get_platform_users(&self) -> AppResult<_PlatformUserResponseVec> {
         self.ds.get_platform_users().await.map(_PlatformUserResponseVec)
     }
 
-    pub async fn webhook_update_user(&self, data: UserUpdateEvent) -> AppResult<()> {
+    async fn webhook_update_user(&self, data: UserUpdateEvent) -> AppResult<()> {
         let UserUpdate {
             id,
             first_name,

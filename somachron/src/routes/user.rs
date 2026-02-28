@@ -7,6 +7,7 @@ use lib_core::{ApiError, ApiResult, Json, ReqId};
 use lib_domain::{
     dto::user::res::{PlatformUserResponse, UserResponse, _PlatformUserResponseVec, _UserResponse},
     extension::UserId,
+    service::user::UserService,
 };
 
 use crate::app::AppState;
@@ -34,7 +35,7 @@ pub async fn get_user(
     Extension(req_id): Extension<ReqId>,
     Extension(user_id): Extension<UserId>,
 ) -> ApiResult<_UserResponse> {
-    app.service().get_user(user_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services().user_service().get_user(user_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -48,5 +49,5 @@ pub async fn get_platform_users(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
 ) -> ApiResult<_PlatformUserResponseVec> {
-    app.service().get_platform_users().await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services().user_service().get_platform_users().await.map(Json).map_err(|err| ApiError(err, req_id))
 }

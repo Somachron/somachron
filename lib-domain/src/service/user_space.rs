@@ -7,14 +7,39 @@ use crate::{
     extension::{SpaceCtx, UserId},
 };
 
-use super::Service;
+use super::ServiceWrapper;
 
-impl<D: UserSpaceDs> Service<D> {
-    pub async fn get_spaces_for_user(&self, UserId(user_id): UserId) -> AppResult<_UserSpaceResponseVec> {
+pub trait UserSpaceService: Send + Sync {
+    fn get_spaces_for_user(&self, user_id: UserId) -> impl Future<Output = AppResult<_UserSpaceResponseVec>> + Send;
+
+    fn get_users_for_space(&self, space_ctx: SpaceCtx)
+        -> impl Future<Output = AppResult<_SpaceUserResponseVec>> + Send;
+
+    fn add_user_to_space(&self, space_ctx: SpaceCtx, req_user_id: Uuid) -> impl Future<Output = AppResult<()>> + Send;
+
+    fn update_user_space_role(
+        &self,
+        user_id: UserId,
+        space_ctx: SpaceCtx,
+        req_user_id: Uuid,
+        req_role: SpaceRole,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+
+    fn remove_user_from_space(
+        &self,
+        space_ctx: SpaceCtx,
+        req_user_id: Uuid,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+
+    fn leave_space(&self, space_ctx: SpaceCtx) -> impl Future<Output = AppResult<()>> + Send;
+}
+
+impl<D: UserSpaceDs> UserSpaceService for ServiceWrapper<'_, D> {
+    async fn get_spaces_for_user(&self, UserId(user_id): UserId) -> AppResult<_UserSpaceResponseVec> {
         self.ds.get_all_spaces_for_user(user_id).await.map(_UserSpaceResponseVec)
     }
 
-    pub async fn get_users_for_space(
+    async fn get_users_for_space(
         &self,
         SpaceCtx {
             space_id,
@@ -24,7 +49,7 @@ impl<D: UserSpaceDs> Service<D> {
         self.ds.get_all_users_for_space(&space_id).await.map(_SpaceUserResponseVec)
     }
 
-    pub async fn add_user_to_space(
+    async fn add_user_to_space(
         &self,
         SpaceCtx {
             space_id,
@@ -43,7 +68,7 @@ impl<D: UserSpaceDs> Service<D> {
         self.ds.add_user_to_space(&req_user_id, &space_id, SpaceRole::Read).await.map(|_| ())
     }
 
-    pub async fn update_user_space_role(
+    async fn update_user_space_role(
         &self,
         UserId(user_id): UserId,
         SpaceCtx {
@@ -71,7 +96,7 @@ impl<D: UserSpaceDs> Service<D> {
         Ok(())
     }
 
-    pub async fn remove_user_from_space(
+    async fn remove_user_from_space(
         &self,
         SpaceCtx {
             space_id,
@@ -93,7 +118,7 @@ impl<D: UserSpaceDs> Service<D> {
         Ok(())
     }
 
-    pub async fn leave_space(
+    async fn leave_space(
         &self,
         SpaceCtx {
             membership_id,

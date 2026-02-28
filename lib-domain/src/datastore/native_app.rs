@@ -7,8 +7,8 @@ pub struct NativeApp {
     pub id: Uuid,
 }
 
-pub trait NativeAppDs {
-    fn validate_native_app(&self, identifier: String) -> impl Future<Output = AppResult<()>>;
+pub trait NativeAppDs: Send + Sync {
+    fn validate_native_app(&self, identifier: String) -> impl Future<Output = AppResult<()>> + Send;
 }
 
 impl NativeAppDs for Datastore {

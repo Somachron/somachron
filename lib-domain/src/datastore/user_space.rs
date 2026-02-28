@@ -141,18 +141,26 @@ impl From<tokio_postgres::Row> for SpaceMember {
     }
 }
 
-pub trait UserSpaceDs {
+pub trait UserSpaceDs: Send + Sync {
     fn add_user_to_space(
         &self,
         user_id: &Uuid,
         space_id: &Uuid,
         role: SpaceRole,
-    ) -> impl Future<Output = AppResult<SpaceMember>>;
-    fn get_user_space(&self, user_id: &Uuid, space_id: &Uuid) -> impl Future<Output = AppResult<Option<SpaceMember>>>;
-    fn get_all_spaces_for_user(&self, user_id: Uuid) -> impl Future<Output = AppResult<Vec<UserSpace>>>;
-    fn get_all_users_for_space(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<SpaceUser>>>;
-    fn update_space_user_role(&self, space_member_id: Uuid, role: SpaceRole) -> impl Future<Output = AppResult<()>>;
-    fn remove_user_from_space(&self, space_member_id: Uuid) -> impl Future<Output = AppResult<()>>;
+    ) -> impl Future<Output = AppResult<SpaceMember>> + Send;
+    fn get_user_space(
+        &self,
+        user_id: &Uuid,
+        space_id: &Uuid,
+    ) -> impl Future<Output = AppResult<Option<SpaceMember>>> + Send;
+    fn get_all_spaces_for_user(&self, user_id: Uuid) -> impl Future<Output = AppResult<Vec<UserSpace>>> + Send;
+    fn get_all_users_for_space(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<SpaceUser>>> + Send;
+    fn update_space_user_role(
+        &self,
+        space_member_id: Uuid,
+        role: SpaceRole,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+    fn remove_user_from_space(&self, space_member_id: Uuid) -> impl Future<Output = AppResult<()>> + Send;
 }
 
 impl UserSpaceDs for Datastore {
