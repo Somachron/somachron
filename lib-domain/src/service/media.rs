@@ -27,7 +27,7 @@ use crate::{
 
 use super::ServiceWrapper;
 
-pub trait CloudService: Send + Sync {
+pub trait MediaService: Send + Sync {
     fn create_folder(
         &self,
         space_ctx: SpaceCtx,
@@ -104,7 +104,7 @@ pub trait CloudService: Send + Sync {
     ) -> impl Future<Output = AppResult<()>> + Send;
 }
 
-impl<D: StorageDs> CloudService for ServiceWrapper<'_, D> {
+impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
     async fn create_folder(
         &self,
         SpaceCtx {

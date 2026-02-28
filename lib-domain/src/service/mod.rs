@@ -1,11 +1,11 @@
 use crate::service::{
-    auth::AuthService, cloud::CloudService, space::SpaceService, user::UserService, user_space::UserSpaceService,
+    auth::AuthService, media::MediaService, space::SpaceService, user::UserService, user_space::UserSpaceService,
 };
 
 use super::datastore::Datastore;
 
 pub mod auth;
-pub mod cloud;
+pub mod media;
 pub mod space;
 pub mod user;
 pub mod user_space;
@@ -37,7 +37,7 @@ impl Service<Datastore> {
         }
     }
 
-    pub fn cloud_service(&self) -> impl CloudService + Send + Sync {
+    pub fn media_service(&self) -> impl MediaService + Send + Sync {
         ServiceWrapper {
             ds: &self.ds,
         }

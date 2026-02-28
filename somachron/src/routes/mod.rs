@@ -7,8 +7,8 @@ use utoipa::{
 use crate::app::AppState;
 
 mod auth;
-mod cloud;
 mod health;
+mod media;
 mod middleware;
 mod space;
 mod user;
@@ -24,7 +24,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
     let r = auth::bind_routes(app.clone(), Router::new());
     let r = user::bind_routes(app.clone(), r);
     let r = space::bind_routes(app.clone(), r);
-    let r = cloud::bind_routes(app, r);
+    let r = media::bind_routes(app, r);
 
     router.merge(health).nest("/v1", r)
 }
@@ -48,12 +48,12 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         space::create_space,
         space::get_user_spaces,
 
-        cloud::initiate_upload,
-        cloud::generate_thumbnail_preview_signed_urls,
-        cloud::media_queue,
-        cloud::list_files,
-        cloud::create_folder,
-        cloud::delete_folder,
+        media::initiate_upload,
+        media::generate_thumbnail_preview_signed_urls,
+        media::media_queue,
+        media::list_files,
+        media::create_folder,
+        media::delete_folder,
     ),
     components(schemas(
         lib_core::EmptyResponse,
