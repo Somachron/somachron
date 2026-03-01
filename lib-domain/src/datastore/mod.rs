@@ -10,6 +10,7 @@ pub struct Datastore {
     db: tokio_postgres::Client,
     user_stmts: statements::UserStatements,
     space_stmts: statements::SpaceStatements,
+    default_space_stmts: statements::DefaultSpaceStatements,
     user_space_stmts: statements::UsersSpacesStatements,
     storage_stmts: statements::StorageStatements,
     native_app_stmts: statements::NativeAppStatements,
@@ -33,6 +34,7 @@ impl Datastore {
 
         let user_stmts = statements::UserStatements::new(&db).await;
         let space_stmts = statements::SpaceStatements::new(&db).await;
+        let default_space_stmts = statements::DefaultSpaceStatements::new(&db).await;
         let user_space_stmts = statements::UsersSpacesStatements::new(&db).await;
         let storage_stmts = statements::StorageStatements::new(&db).await;
         let native_app_stmts = statements::NativeAppStatements::new(&db).await;
@@ -41,6 +43,7 @@ impl Datastore {
             db,
             user_stmts,
             space_stmts,
+            default_space_stmts,
             user_space_stmts,
             storage_stmts,
             native_app_stmts,
@@ -131,6 +134,36 @@ mod statements {
                         r#"UPDATE spaces SET name = $2, description = $3
                         WHERE id = $1 RETURNING *"#,
                         &[Type::UUID, Type::VARCHAR, Type::VARCHAR],
+                    )
+                    .await
+                    .unwrap(),
+            }
+        }
+    }
+
+    pub struct DefaultSpaceStatements {
+        /// INSERT INTO default_space (space_fk_id, user_fk_id) VALUES ($1, $2) RETURNING *
+        pub set_default_space: tokio_postgres::Statement,
+
+        /// SELECT * FROM spaces
+        /// WHERE id = (SELECT space_fk_id FROM default_space WHERE user_fk_id = $1)
+        pub get_default_space: tokio_postgres::Statement,
+    }
+    impl DefaultSpaceStatements {
+        pub async fn new(db: &tokio_postgres::Client) -> Self {
+            Self {
+                set_default_space: db
+                    .prepare_typed(
+                        r#"INSERT INTO default_space (space_fk_id, user_fk_id) VALUES ($1, $2) RETURNING *"#,
+                        &[Type::UUID, Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                get_default_space: db
+                    .prepare_typed(
+                        r#"SELECT * FROM spaces 
+                        WHERE id = (SELECT space_fk_id FROM default_space WHERE user_fk_id = $1)"#,
+                        &[Type::UUID],
                     )
                     .await
                     .unwrap(),

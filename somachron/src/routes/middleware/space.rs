@@ -9,7 +9,7 @@ use axum::{
 };
 use lib_core::{ApiError, ErrType, ReqId, X_SPACE_HEADER};
 use lib_domain::{
-    datastore::user_space::UserSpaceDs,
+    datastore::{space::SpaceDs, user_space::UserSpaceDs},
     extension::{SpaceCtx, UserId},
 };
 use uuid::Uuid;
@@ -33,18 +33,30 @@ pub async fn validate_user_space(
     let space_id = Uuid::from_str(space_id)
         .map_err(|err| ApiError(ErrType::BadRequest.err(err, "Invalid space id format"), req_id.clone()))?;
 
-    let space_member = app
-        .services()
-        .ds()
-        .get_user_space(&user_id.0, &space_id)
-        .await
-        .map_err(|err| ApiError(err, req_id.clone()))?
-        .ok_or(ApiError(ErrType::Unauthorized.msg("User not member of space"), req_id))?;
+    let default_space = app.services().ds().get_default_space(&user_id.0).await.ok().flatten();
 
-    let space_ctx = SpaceCtx {
-        membership_id: space_member.id,
-        space_id: space_member.space_id,
-        role: space_member.role,
+    let space_ctx = if let Some(space) = default_space
+        && space.id == space_id
+    {
+        SpaceCtx {
+            membership_id: Uuid::nil(),
+            space_id,
+            role: lib_domain::datastore::user_space::SpaceRole::DefaultSpace,
+        }
+    } else {
+        let space_member = app
+            .services()
+            .ds()
+            .get_user_space(&user_id.0, &space_id)
+            .await
+            .map_err(|err| ApiError(err, req_id.clone()))?
+            .ok_or(ApiError(ErrType::Unauthorized.msg("User not member of space"), req_id))?;
+
+        SpaceCtx {
+            membership_id: space_member.id,
+            space_id: space_member.space_id,
+            role: space_member.role,
+        }
     };
 
     req.extensions_mut().insert(space_ctx);

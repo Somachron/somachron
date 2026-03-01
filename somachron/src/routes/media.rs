@@ -263,19 +263,20 @@ pub async fn complete_media_queue(
 
 #[utoipa::path(
     post,
-    path = "/v1/media/d",
+    path = "/v1/media/mkdir",
     responses((status=200, body=EmptyResponse)),
     tag = "Cloud"
 )]
 pub async fn create_folder(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
+    Extension(user_id): Extension<UserId>,
     Extension(space_ctx): Extension<SpaceCtx>,
     Json(body): Json<CreateFolderRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.services()
         .media_service()
-        .create_folder(space_ctx, body.parent_folder_id, body.folder_name)
+        .create_folder(user_id, space_ctx, body.parent_folder_id, body.folder_name)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))
         .map_err(|err| ApiError(err, req_id))

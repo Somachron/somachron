@@ -30,6 +30,7 @@ use super::ServiceWrapper;
 pub trait MediaService: Send + Sync {
     fn create_folder(
         &self,
+        user_id: UserId,
         space_ctx: SpaceCtx,
         parent_folder_id: Uuid,
         folder_name: String,
@@ -107,6 +108,7 @@ pub trait MediaService: Send + Sync {
 impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
     async fn create_folder(
         &self,
+        UserId(user_id): UserId,
         SpaceCtx {
             role,
             space_id,
@@ -125,7 +127,7 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
             .await?
             .ok_or(ErrType::NotFound.msg("Parent folder not found for folder creation"))?;
 
-        self.ds.create_folder(space_id, parent_folder, folder_name).await
+        self.ds.create_folder(&user_id, space_id, parent_folder, folder_name).await
     }
 
     async fn initiate_upload(

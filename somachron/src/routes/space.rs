@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     routing::{delete, get, post, put, Router},
     Extension,
@@ -16,6 +16,7 @@ use lib_domain::{
     extension::{SpaceCtx, UserId},
     service::{space::SpaceService, user_space::UserSpaceService},
 };
+use uuid::Uuid;
 
 use crate::app::AppState;
 
@@ -31,9 +32,13 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::space::validate_user_space))
         .route("/", post(create_space))
         .route("/", get(get_user_spaces))
-        .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate));
+        .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::auth::authenticate));
 
-    router.nest("/space", routes)
+    let special_routes = Router::new()
+        .route("/default/{user_id}", post(get_or_setup_default_space))
+        .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate_interconnect));
+
+    router.nest("/space", routes).nest("/space", special_routes)
 }
 
 #[utoipa::path(
@@ -178,5 +183,25 @@ pub async fn leave_space(
         .leave_space(space_ctx)
         .await
         .map(|_| Json(EmptyResponse::new(StatusCode::OK, "User removed from space")))
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/space/default/{user_id}",
+    responses((status=200, body=SpaceResponse)),
+    tag = "Default Space",
+    security(("api_key" = []))
+)]
+pub async fn get_or_setup_default_space(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Path(user_id): Path<Uuid>,
+) -> ApiResult<_SpaceResponse> {
+    app.services()
+        .space_service()
+        .get_or_setup_default_space(user_id, app.storage())
+        .await
+        .map(Json)
         .map_err(|err| ApiError(err, req_id))
 }

@@ -15,11 +15,14 @@ pub enum SpaceRole {
     Read,
     Upload,
     Modify,
+
+    /// special case
+    DefaultSpace,
 }
 impl SpaceRole {
     pub fn value(&self) -> i16 {
         match self {
-            SpaceRole::Read => 0,
+            SpaceRole::Read | SpaceRole::DefaultSpace => 0,
             SpaceRole::Owner => 1,
             SpaceRole::Modify => 2,
             SpaceRole::Upload => 3,

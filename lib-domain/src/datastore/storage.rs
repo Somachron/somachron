@@ -296,9 +296,10 @@ pub trait StorageDs: Send + Sync {
         file_id: Uuid,
     ) -> impl Future<Output = AppResult<Option<String>>> + Send;
 
-    fn create_root_folder(&self, space_id: &Uuid) -> impl Future<Output = AppResult<()>> + Send;
+    fn create_root_folder(&self, user_id: &Uuid, space_id: &Uuid) -> impl Future<Output = AppResult<()>> + Send;
     fn create_folder(
         &self,
+        user_id: &Uuid,
         space_id: Uuid,
         parent_folder: FsNode,
         folder_name: String,
@@ -481,7 +482,7 @@ impl StorageDs for Datastore {
         }
     }
 
-    async fn create_root_folder(&self, space_id: &Uuid) -> AppResult<()> {
+    async fn create_root_folder(&self, user_id: &Uuid, space_id: &Uuid) -> AppResult<()> {
         let id = Uuid::now_v7();
         let _ = self
             .db
@@ -490,7 +491,7 @@ impl StorageDs for Datastore {
                 &[
                     &id,
                     &Utc::now(),
-                    &Option::<Uuid>::None,
+                    &user_id,
                     &space_id,
                     &NodeType::Folder.value(),
                     &0i64,
@@ -506,7 +507,13 @@ impl StorageDs for Datastore {
         Ok(())
     }
 
-    async fn create_folder(&self, space_id: Uuid, parent_folder: FsNode, folder_name: String) -> AppResult<()> {
+    async fn create_folder(
+        &self,
+        user_id: &Uuid,
+        space_id: Uuid,
+        parent_folder: FsNode,
+        folder_name: String,
+    ) -> AppResult<()> {
         let parent_folder_id = parent_folder.id;
         let mut new_path = if parent_folder.parent_node.is_none() {
             // avoid space root folder name
@@ -524,7 +531,7 @@ impl StorageDs for Datastore {
                 &[
                     &Uuid::now_v7(),
                     &Utc::now(),
-                    &Option::<Uuid>::None,
+                    &user_id,
                     &space_id,
                     &NodeType::Folder.value(),
                     &0i64,
