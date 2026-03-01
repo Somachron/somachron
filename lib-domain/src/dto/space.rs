@@ -1,5 +1,6 @@
 pub mod res {
     use ser_mapper::impl_dto;
+    use serde::Serialize;
     use utoipa::ToSchema;
 
     use crate::{
@@ -38,6 +39,12 @@ pub mod res {
             folder: String = root_folder,
         }
     );
+
+    #[derive(Serialize)]
+    pub struct UserSpacesResopnse {
+        pub default: _SpaceResponse,
+        pub spaces: _UserSpaceResponseVec,
+    }
 
     impl_dto!(
         #[derive(ToSchema)]

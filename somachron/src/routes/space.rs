@@ -9,8 +9,8 @@ use lib_domain::{
     dto::space::{
         req::{SpaceCreateRequest, SpaceMemberRequest, UpdateSpaceMemberRoleRequest},
         res::{
-            SpaceResponse, SpaceUserResponse, UserSpaceResponse, _SpaceResponse, _SpaceUserResponseVec,
-            _UserSpaceResponseVec,
+            SpaceResponse, SpaceUserResponse, UserSpaceResponse, UserSpacesResopnse, _SpaceResponse,
+            _SpaceUserResponseVec,
         },
     },
     extension::{SpaceCtx, UserId},
@@ -35,7 +35,7 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         .layer(axum::middleware::from_fn_with_state(app.clone(), middleware::auth::authenticate));
 
     let special_routes = Router::new()
-        .route("/default/{user_id}", post(get_or_setup_default_space))
+        .route("/default/{user_id}", get(get_or_setup_default_space))
         .layer(axum::middleware::from_fn_with_state(app, middleware::auth::authenticate_interconnect));
 
     router.nest("/space", routes).nest("/space", special_routes)
@@ -73,7 +73,7 @@ pub async fn get_user_spaces(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(user_id): Extension<UserId>,
-) -> ApiResult<_UserSpaceResponseVec> {
+) -> ApiResult<UserSpacesResopnse> {
     app.services()
         .user_space_service()
         .get_spaces_for_user(user_id)

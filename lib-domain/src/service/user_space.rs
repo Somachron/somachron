@@ -2,15 +2,18 @@ use lib_core::{AppResult, ErrType};
 use uuid::Uuid;
 
 use crate::{
-    datastore::user_space::{SpaceRole, UserSpaceDs},
-    dto::space::res::{_SpaceUserResponseVec, _UserSpaceResponseVec},
+    datastore::{
+        space::SpaceDs,
+        user_space::{SpaceRole, UserSpaceDs},
+    },
+    dto::space::res::{UserSpacesResopnse, _SpaceResponse, _SpaceUserResponseVec, _UserSpaceResponseVec},
     extension::{SpaceCtx, UserId},
 };
 
 use super::ServiceWrapper;
 
 pub trait UserSpaceService: Send + Sync {
-    fn get_spaces_for_user(&self, user_id: UserId) -> impl Future<Output = AppResult<_UserSpaceResponseVec>> + Send;
+    fn get_spaces_for_user(&self, user_id: UserId) -> impl Future<Output = AppResult<UserSpacesResopnse>> + Send;
 
     fn get_users_for_space(&self, space_ctx: SpaceCtx)
         -> impl Future<Output = AppResult<_SpaceUserResponseVec>> + Send;
@@ -34,9 +37,16 @@ pub trait UserSpaceService: Send + Sync {
     fn leave_space(&self, space_ctx: SpaceCtx) -> impl Future<Output = AppResult<()>> + Send;
 }
 
-impl<D: UserSpaceDs> UserSpaceService for ServiceWrapper<'_, D> {
-    async fn get_spaces_for_user(&self, UserId(user_id): UserId) -> AppResult<_UserSpaceResponseVec> {
-        self.ds.get_all_spaces_for_user(user_id).await.map(_UserSpaceResponseVec)
+impl<D: UserSpaceDs + SpaceDs> UserSpaceService for ServiceWrapper<'_, D> {
+    async fn get_spaces_for_user(&self, UserId(user_id): UserId) -> AppResult<UserSpacesResopnse> {
+        let default_space =
+            self.ds.get_default_space(&user_id).await?.ok_or(ErrType::BadRequest.msg("No default space for user"))?;
+        let spaces = self.ds.get_all_spaces_for_user(user_id).await?;
+
+        Ok(UserSpacesResopnse {
+            default: _SpaceResponse(default_space),
+            spaces: _UserSpaceResponseVec(spaces),
+        })
     }
 
     async fn get_users_for_space(
