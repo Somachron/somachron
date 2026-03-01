@@ -56,6 +56,7 @@ impl S3Storage {
             .put_object()
             .bucket(&self.bucket_name)
             .key(path)
+            .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Sha256)
             .presigned(config)
             .await
             .map_err(|err| ErrType::s3_put(err, "Failed to generate upload presigned URL"))?;
@@ -98,6 +99,7 @@ impl S3Storage {
             .head_object()
             .bucket(&self.bucket_name)
             .key(path)
+            .checksum_mode(aws_sdk_s3::types::ChecksumMode::Enabled)
             .send()
             .await
             .map_err(|err| ErrType::s3_head(err, "Failed to head object"))
