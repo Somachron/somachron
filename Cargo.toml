@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["lib-core", "lib-domain", "lib-migrations", "somarift", "somarift-media-queue", "smq-dto"]
+members = [
+    "lib-core",
+    "lib-domain",
+    "lib-migrations",
+    "somarift",
+    "somarift-media-queue",
+    "smq-dto",
+]
 default-members = ["somarift"]
 
 [workspace.dependencies]
