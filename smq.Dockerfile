@@ -56,10 +56,10 @@ RUN git clone https://github.com/strukturag/libheif . && \
 WORKDIR /app
 COPY . .
 
-RUN cargo install --path somachron-media-queue
+RUN cargo install --path somarift-media-queue
 
 EXPOSE 8080
 
 ENV MALLOC_MMAP_THRESHOLD_=65536
 
-CMD [ "somachron-media-queue" ]
+CMD [ "somarift-media-queue" ]

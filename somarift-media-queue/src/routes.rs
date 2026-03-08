@@ -143,10 +143,10 @@ pub async fn subscribe_queue(
 #[openapi(
     modifiers(&ApiSecurity),
     info(
-        title = "Somachron Media Queue API Documentation",
-        description = r#"API documentation for Somachron Media Queue"#,
+        title = "Somarift Media Queue API Documentation",
+        description = r#"API documentation for Somarift Media Queue"#,
         contact(name = "API Support", email = "shashank.verma2002@gmail.com"),
-        license(name = "MIT", url = "https://raw.githubusercontent.com/Somachron/somachron/refs/heads/main/LICENSE"),
+        license(name = "MIT", url = "https://raw.githubusercontent.com/Somarift/somarift/refs/heads/main/LICENSE"),
     ),
     paths(
         health::health,

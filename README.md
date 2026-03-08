@@ -1,4 +1,4 @@
-# `Somachron`
+# `Somarift`
 
 This repository contains backend and media-queue code
 

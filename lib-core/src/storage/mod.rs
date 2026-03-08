@@ -4,7 +4,7 @@ use super::{AppResult, ErrType};
 
 pub mod s3;
 
-const ROOT_FOLDER: &str = "somachron-data";
+const ROOT_FOLDER: &str = "somarift-data";
 const SPACES_PATH: &str = "spaces";
 
 /// Manage storage operations

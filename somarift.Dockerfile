@@ -5,13 +5,13 @@ COPY . .
 
 RUN apk add --no-cache musl-dev perl-utils make curl make pkgconf openssl-dev openssl-libs-static
 
-RUN cargo install --path somachron
+RUN cargo install --path somarift
 
 FROM alpine:3.22
 
-COPY --from=builder /usr/local/cargo/bin/somachron /usr/local/bin/somachron
+COPY --from=builder /usr/local/cargo/bin/somarift /usr/local/bin/somarift
 COPY --from=builder /app/lib-migrations/migrations /usr/local/bin/migrations
 
 EXPOSE 8080
 
-CMD [ "somachron" ]
+CMD [ "somarift" ]
