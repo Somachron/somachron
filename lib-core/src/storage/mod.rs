@@ -110,10 +110,11 @@ impl Storage {
         Ok(())
     }
 
-pub fn sha256_hex(bytes: &[u8]) -> AppResult<String> {
-    let digest = openssl::sha::sha256(bytes);
-    let hex = openssl::bn::BigNum::from_slice(&digest)
-        .and_then(|b| b.to_hex_str())
-        .map_err(|err| ErrType::ServerError.err(err, "Failed to get hex for sha256 hash"))?;
-    Ok(hex.to_string())
+    pub fn sha256_hex(bytes: &[u8]) -> AppResult<String> {
+        let digest = openssl::sha::sha256(bytes);
+        let hex = openssl::bn::BigNum::from_slice(&digest)
+            .and_then(|b| b.to_hex_str())
+            .map_err(|err| ErrType::ServerError.err(err, "Failed to get hex for sha256 hash"))?;
+        Ok(hex.to_string())
+    }
 }
