@@ -133,6 +133,8 @@ pub mod req {
 
         #[validate(length(min = 3))]
         pub file_name: String,
+        #[validate(length(equal = 64))]
+        pub hash: String,
         pub file_size: usize,
         pub updated_millis: i64,
     }
