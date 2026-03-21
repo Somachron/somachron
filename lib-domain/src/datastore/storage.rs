@@ -4,7 +4,7 @@ use lib_core::{
         res::{FileData, ImageData},
         MediaMetadata, MediaType,
     },
-    AppError, AppResult, ErrType,
+    storage, AppError, AppResult, ErrType,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -155,6 +155,7 @@ pub struct FsNode {
     pub node_name: String,
     pub path: String,
     pub metadata: NodeMetadata,
+    pub hash: String,
 }
 impl TryFrom<tokio_postgres::Row> for FsNode {
     type Error = tokio_postgres::error::Error;
@@ -172,6 +173,7 @@ impl TryFrom<tokio_postgres::Row> for FsNode {
             node_name: value.try_get(8)?,
             path: value.try_get(9)?,
             metadata: value.try_get(10)?,
+            hash: value.try_get(11)?,
         })
     }
 }
@@ -262,6 +264,7 @@ pub trait StorageDs: Send + Sync {
         user_id: &Uuid,
         space_id: &Uuid,
         folder: &FsNode,
+        file_hash: &str,
         updated_date: DateTime<Utc>,
         file_data: FileData,
     ) -> impl Future<Output = AppResult<FsNode>> + Send;
@@ -275,10 +278,10 @@ pub trait StorageDs: Send + Sync {
         file_data: FileData,
     ) -> impl Future<Output = AppResult<FsNode>> + Send;
 
-    fn get_file_from_fields(
+    fn get_file_from_hash(
         &self,
         space_id: &Uuid,
-        file_name: &str,
+        hash: &str,
         folder_id: &Uuid,
     ) -> impl Future<Output = AppResult<Option<FsNode>>> + Send;
 
@@ -330,13 +333,24 @@ impl StorageDs for Datastore {
         user_id: &Uuid,
         space_id: &Uuid,
         folder: &FsNode,
+        file_hash: &str,
         updated_date: DateTime<Utc>,
         file_data: FileData,
     ) -> AppResult<FsNode> {
-        let file = match self.get_file_from_fields(space_id, &file_data.file_name, &folder.id).await? {
+        let file = match self.get_file_from_hash(space_id, file_hash, &folder.id).await? {
             Some(file) => Ok(file),
             None => {
-                create_file(&self.db, &self.storage_stmts, user_id, space_id, folder, updated_date, file_data).await
+                create_file(
+                    &self.db,
+                    &self.storage_stmts,
+                    user_id,
+                    space_id,
+                    folder,
+                    file_hash,
+                    updated_date,
+                    file_data,
+                )
+                .await
             }
         }?;
 
@@ -382,22 +396,17 @@ impl StorageDs for Datastore {
         FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse updated file"))
     }
 
-    async fn get_file_from_fields(
-        &self,
-        space_id: &Uuid,
-        file_name: &str,
-        folder_id: &Uuid,
-    ) -> AppResult<Option<FsNode>> {
+    async fn get_file_from_hash(&self, space_id: &Uuid, hash: &str, folder_id: &Uuid) -> AppResult<Option<FsNode>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.get_node_by_name, &[&space_id, &folder_id, &file_name])
+            .query(&self.storage_stmts.get_node_by_hash, &[&space_id, &folder_id, &hash, &NodeType::File.value()])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get file by name"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get file by hash"))?;
 
         match rows.into_iter().next() {
             Some(row) => FsNode::try_from(row)
                 .map(Some)
-                .map_err(|err| ErrType::DbError.err(err, "Failed to parse file from name")),
+                .map_err(|err| ErrType::DbError.err(err, "Failed to parse file from hash")),
             None => Ok(None),
         }
     }
@@ -484,6 +493,8 @@ impl StorageDs for Datastore {
 
     async fn create_root_folder(&self, user_id: &Uuid, space_id: &Uuid) -> AppResult<()> {
         let id = Uuid::now_v7();
+        let folder_name = format!("root_{id}");
+        let folder_hash = storage::sha256_hex(id.as_bytes())?;
         let _ = self
             .db
             .query_one(
@@ -496,9 +507,10 @@ impl StorageDs for Datastore {
                     &NodeType::Folder.value(),
                     &0i64,
                     &Option::<Uuid>::None,
-                    &format!("root_{id}"),
+                    &folder_name,
                     &"/",
                     &serde_json::json!({}),
+                    &folder_hash,
                 ],
             )
             .await
@@ -515,6 +527,7 @@ impl StorageDs for Datastore {
         folder_name: String,
     ) -> AppResult<()> {
         let parent_folder_id = parent_folder.id;
+        let folder_id = Uuid::now_v7();
         let mut new_path = if parent_folder.parent_node.is_none() {
             // avoid space root folder name
             String::new()
@@ -524,12 +537,13 @@ impl StorageDs for Datastore {
         new_path.push('/');
         new_path.push_str(&folder_name);
 
+        let folder_hash = storage::sha256_hex(folder_id.as_bytes())?;
         let row = self
             .db
             .query_one(
                 &self.storage_stmts.insert_fs_node,
                 &[
-                    &Uuid::now_v7(),
+                    &folder_id,
                     &Utc::now(),
                     &user_id,
                     &space_id,
@@ -539,6 +553,7 @@ impl StorageDs for Datastore {
                     &folder_name,
                     &new_path,
                     &serde_json::json!({}),
+                    &folder_hash,
                 ],
             )
             .await
@@ -661,6 +676,7 @@ async fn create_file(
     user_id: &Uuid,
     space_id: &Uuid,
     folder: &FsNode,
+    file_hash: &str,
     updated_date: DateTime<Utc>,
     FileData {
         file_name,
@@ -688,6 +704,7 @@ async fn create_file(
                 &file_name,
                 &folder.path,
                 &metadata,
+                &file_hash,
             ],
         )
         .await

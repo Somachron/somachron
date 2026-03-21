@@ -174,6 +174,7 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
         QueueMediaProcessRequest {
             folder_id,
             file_name,
+            hash,
             updated_millis,
             ..
         }: QueueMediaProcessRequest,
@@ -201,6 +202,7 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
                 &user_id,
                 &space_id,
                 &folder,
+                &hash,
                 updated_date,
                 FileData {
                     file_name,

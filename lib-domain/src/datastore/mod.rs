@@ -161,7 +161,7 @@ mod statements {
                     .unwrap(),
                 get_default_space: db
                     .prepare_typed(
-                        r#"SELECT * FROM spaces 
+                        r#"SELECT * FROM spaces
                         WHERE id = (SELECT space_fk_id FROM default_space WHERE user_fk_id = $1)"#,
                         &[Type::UUID],
                     )
@@ -252,8 +252,8 @@ mod statements {
 
     pub struct StorageStatements {
         /// INSERT INTO fs_node
-        /// (id, updated_at, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata)
-        /// VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *
+        /// (id, updated_at, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata, hash)
+        /// VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *
         pub insert_fs_node: tokio_postgres::Statement,
 
         /// INSERT INTO fs_link
@@ -266,8 +266,8 @@ mod statements {
         pub get_fs_node: tokio_postgres::Statement,
 
         /// SELECT * FROM fs_node
-        /// WHERE space_id = $1 AND parent_node = $2 AND node_name = $3
-        pub get_node_by_name: tokio_postgres::Statement,
+        /// WHERE space_id = $1 AND parent_node = $2 AND hash = $3 AND node_type = $4
+        pub get_node_by_hash: tokio_postgres::Statement,
 
         /// SELECT concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path,
         ///     concat(path, '/', metadata->'preview_meta'->>'file_name') as p_path
@@ -324,8 +324,8 @@ mod statements {
                 insert_fs_node: db
                     .prepare_typed(
                         r#"INSERT INTO fs_node
-                        (id, updated_at, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *"#,
+                        (id, updated_at, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata, hash)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *"#,
                         &[
                             Type::UUID,
                             Type::TIMESTAMPTZ,
@@ -337,6 +337,7 @@ mod statements {
                             Type::VARCHAR,
                             Type::VARCHAR,
                             Type::JSONB,
+                            Type::BPCHAR,
                         ],
                     )
                     .await
@@ -355,10 +356,10 @@ mod statements {
                     )
                     .await
                     .unwrap(),
-                get_node_by_name: db
+                get_node_by_hash: db
                     .prepare_typed(
-                        r#"SELECT * FROM fs_node WHERE space_id = $1 AND parent_node = $2 AND node_name = $3"#,
-                        &[Type::UUID, Type::UUID, Type::VARCHAR],
+                        r#"SELECT * FROM fs_node WHERE space_id = $1 AND parent_node = $2 AND hash = $3 AND node_type = $4"#,
+                        &[Type::UUID, Type::UUID, Type::BPCHAR, Type::INT2],
                     )
                     .await
                     .unwrap(),

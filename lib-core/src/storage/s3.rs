@@ -22,20 +22,36 @@ pub struct S3Storage {
 
 impl S3Storage {
     pub fn new() -> Self {
-        let config = S3Config::new();
+        let S3Config {
+            bucket_name,
+            access_key,
+            secret_key,
+            endpoint,
+            region,
+        } = S3Config::new();
 
-        let creds = Credentials::new(config.access_key, config.secret_key, None, None, "static");
+        Self::_init(access_key, secret_key, region, endpoint, bucket_name)
+    }
+
+    pub(super) fn _init(
+        access_key: String,
+        secret_key: String,
+        region: String,
+        endpoint: String,
+        bucket_name: String,
+    ) -> Self {
+        let creds = Credentials::new(access_key, secret_key, None, None, "static");
 
         let client_config = Config::builder()
-            .region(Region::new(config.region))
-            .endpoint_url(config.endpoint)
+            .region(Region::new(region))
+            .endpoint_url(endpoint)
             .credentials_provider(creds)
             .force_path_style(true)
             .build();
 
         Self {
             client: Client::from_conf(client_config),
-            bucket_name: config.bucket_name,
+            bucket_name: bucket_name,
         }
     }
 

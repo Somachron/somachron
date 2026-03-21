@@ -8,7 +8,7 @@ lib-core = { path = "../lib-core" }
 lib-migrations = { path = "../lib-migrations" }
 
 tokio = { workspace = true }
-futures = "*"
+tracing = { workspace = true }
 reqwest = { workspace = true }
 
 serde = { workspace = true }
