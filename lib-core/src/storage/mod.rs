@@ -91,16 +91,18 @@ impl Storage {
         &self,
         space_id: &str,
         remote_file: String,
-        remote_thumbnail: String,
+        remote_thumbnail: Option<String>,
         remote_preview: Option<String>,
     ) -> AppResult<()> {
         let remote_file = self.clean_path(&remote_file)?;
         let remote_file = self.spaces_path.join(space_id).join(remote_file);
         self.s3.delete_key(remote_file.to_str().unwrap()).await?;
 
-        let remote_thumbnail = self.clean_path(&remote_thumbnail)?;
-        let remote_thumbnail = self.spaces_path.join(space_id).join(remote_thumbnail);
-        self.s3.delete_key(remote_thumbnail.to_str().unwrap()).await?;
+        if let Some(remote_thumbnail) = remote_thumbnail {
+            let remote_thumbnail = self.clean_path(&remote_thumbnail)?;
+            let remote_thumbnail = self.spaces_path.join(space_id).join(remote_thumbnail);
+            self.s3.delete_key(remote_thumbnail.to_str().unwrap()).await?;
+        }
 
         if let Some(remote_preview) = remote_preview {
             let remote_preview = self.clean_path(&remote_preview)?;

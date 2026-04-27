@@ -6,7 +6,7 @@ use crate::{
         space::SpaceDs,
         user_space::{SpaceRole, UserSpaceDs},
     },
-    dto::space::res::{UserSpacesResopnse, _SpaceResponse, _SpaceUserResponseVec, _UserSpaceResponseVec},
+    dto::space::res::{_SpaceResponse, _SpaceUserResponseVec, _UserSpaceResponseVec, UserSpacesResopnse},
     extension::{SpaceCtx, UserId},
 };
 

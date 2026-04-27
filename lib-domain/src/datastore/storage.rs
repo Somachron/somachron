@@ -4,12 +4,12 @@ use lib_core::{
         res::{FileData, ImageData},
         MediaMetadata, MediaType,
     },
-    storage, AppError, AppResult, ErrType,
+    AppResult, ErrType,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::datastore::{statements::StorageStatements, Datastore};
+use crate::datastore::Datastore;
 
 #[derive(Serialize, Deserialize)]
 pub struct Metadata {
@@ -66,45 +66,6 @@ impl Metadata {
     }
 }
 
-#[derive(Debug)]
-pub enum NodeType {
-    Folder,
-    File,
-}
-impl NodeType {
-    pub fn value(&self) -> i16 {
-        match self {
-            NodeType::Folder => 0,
-            NodeType::File => 1,
-        }
-    }
-}
-impl TryFrom<i16> for NodeType {
-    type Error = AppError;
-
-    fn try_from(value: i16) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(NodeType::Folder),
-            1 => Ok(NodeType::File),
-            x => Err(ErrType::DbError.msg(format!("Invalid node type: {x}"))),
-        }
-    }
-}
-impl<'a> tokio_postgres::types::FromSql<'a> for NodeType {
-    fn from_sql(
-        ty: &tokio_postgres::types::Type,
-        raw: &'a [u8],
-    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        let node_type = i16::from_sql(ty, raw)?;
-        let node_type = NodeType::try_from(node_type)?;
-        Ok(node_type)
-    }
-
-    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
-        matches!(*ty, tokio_postgres::types::Type::INT2)
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct NodeMetadata {
     pub thumbnail_meta: Option<ImageData>,
@@ -117,7 +78,6 @@ impl<'a> tokio_postgres::types::FromSql<'a> for NodeMetadata {
         _ty: &tokio_postgres::types::Type,
         raw: &'a [u8],
     ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
-        // this will also handle invalid data type or json
         serde_json::from_slice(&raw[1..]).map_err(Into::into)
     }
 
@@ -142,22 +102,22 @@ impl NodeMetadata {
     }
 }
 
-pub struct FsNode {
+pub struct MediaFile {
     pub id: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 
-    pub user_id: Option<Uuid>,
+    pub user_id: Uuid,
     pub space_id: Uuid,
-    pub node_type: NodeType,
-    pub node_size: i64,
-    pub parent_node: Option<Uuid>,
-    pub node_name: String,
-    pub path: String,
-    pub metadata: NodeMetadata,
     pub hash: String,
+    pub file_name: String,
+    pub object_key: String,
+    pub thumbnail_key: Option<String>,
+    pub preview_key: Option<String>,
+    pub node_size: i64,
+    pub metadata: NodeMetadata,
 }
-impl TryFrom<tokio_postgres::Row> for FsNode {
+impl TryFrom<tokio_postgres::Row> for MediaFile {
     type Error = tokio_postgres::error::Error;
 
     fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
@@ -167,13 +127,39 @@ impl TryFrom<tokio_postgres::Row> for FsNode {
             updated_at: value.try_get(2)?,
             user_id: value.try_get(3)?,
             space_id: value.try_get(4)?,
-            node_type: value.try_get(5)?,
-            node_size: value.try_get(6)?,
-            parent_node: value.try_get(7)?,
-            node_name: value.try_get(8)?,
-            path: value.try_get(9)?,
-            metadata: value.try_get(10)?,
-            hash: value.try_get(11)?,
+            hash: value.try_get(5)?,
+            file_name: value.try_get(6)?,
+            object_key: value.try_get(7)?,
+            thumbnail_key: value.try_get(8)?,
+            preview_key: value.try_get(9)?,
+            node_size: value.try_get(10)?,
+            metadata: value.try_get(11)?,
+        })
+    }
+}
+
+pub struct Album {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+
+    pub user_id: Uuid,
+    pub space_id: Uuid,
+    pub name: String,
+    pub legacy_path: String,
+}
+impl TryFrom<tokio_postgres::Row> for Album {
+    type Error = tokio_postgres::error::Error;
+
+    fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.try_get(0)?,
+            created_at: value.try_get(1)?,
+            updated_at: value.try_get(2)?,
+            user_id: value.try_get(3)?,
+            space_id: value.try_get(4)?,
+            name: value.try_get(5)?,
+            legacy_path: value.try_get(6)?,
         })
     }
 }
@@ -191,14 +177,14 @@ impl TryFrom<tokio_postgres::Row> for FileMeta {
     type Error = tokio_postgres::error::Error;
 
     fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
-        let meta: NodeMetadata = value.get(10);
+        let meta: NodeMetadata = value.get(11);
         let (width, height) = meta.thumbnail_meta.map(|m| (m.width, m.height)).unwrap_or((0, 0));
         Ok(Self {
             id: value.try_get(0)?,
             updated_at: value.try_get(2)?,
-            file_name: value.try_get(8)?,
+            file_name: value.try_get(6)?,
             media_type: meta.media_type.unwrap_or(MediaType::Image),
-            user: value.try_get(3)?,
+            user: value.try_get(3).ok(),
             width,
             height,
         })
@@ -214,7 +200,7 @@ impl TryFrom<tokio_postgres::Row> for GalleryFileMeta {
         Ok(Self(FileMeta {
             id: value.try_get(0)?,
             updated_at: value.try_get(1)?,
-            user: value.try_get(2)?,
+            user: value.try_get(2).ok(),
             file_name: value.try_get(3)?,
             media_type: serde_json::from_value(serde_json::Value::String(media_type)).unwrap_or(MediaType::Image),
             width: value.try_get(5)?,
@@ -223,39 +209,32 @@ impl TryFrom<tokio_postgres::Row> for GalleryFileMeta {
     }
 }
 
-pub struct StreamPaths {
-    pub thumbnail_path: String,
-    pub preview_path: String,
+pub struct StreamKeys {
+    pub thumbnail_key: Option<String>,
+    pub preview_key: Option<String>,
 }
-impl TryFrom<tokio_postgres::Row> for StreamPaths {
+impl TryFrom<tokio_postgres::Row> for StreamKeys {
     type Error = tokio_postgres::error::Error;
 
     fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
         Ok(Self {
-            thumbnail_path: value.try_get(0)?,
-            preview_path: value.try_get(1)?,
+            thumbnail_key: value.try_get(0)?,
+            preview_key: value.try_get(1)?,
         })
     }
 }
 
-pub struct StreamPath {
-    pub path: String,
+pub struct StreamKey {
+    pub key: String,
 }
-impl TryFrom<tokio_postgres::Row> for StreamPath {
+impl TryFrom<tokio_postgres::Row> for StreamKey {
     type Error = tokio_postgres::error::Error;
 
     fn try_from(value: tokio_postgres::Row) -> Result<Self, Self::Error> {
         Ok(Self {
-            path: value.try_get(0)?,
+            key: value.try_get(0)?,
         })
     }
-}
-
-#[derive(Debug)]
-pub struct InnerFolder {
-    pub id: Uuid,
-    pub parent: Option<Uuid>,
-    pub path: String,
 }
 
 pub trait StorageDs: Send + Sync {
@@ -263,67 +242,60 @@ pub trait StorageDs: Send + Sync {
         &self,
         user_id: &Uuid,
         space_id: &Uuid,
-        folder: &FsNode,
         file_hash: &str,
+        file_name: String,
+        object_key: String,
         updated_date: DateTime<Utc>,
         file_data: FileData,
-    ) -> impl Future<Output = AppResult<FsNode>> + Send;
+    ) -> impl Future<Output = AppResult<MediaFile>> + Send;
 
     fn update_file(
         &self,
         file_id: Uuid,
-        folder_id: &Uuid,
         space_id: &Uuid,
         updated_date: DateTime<Utc>,
         file_data: FileData,
-    ) -> impl Future<Output = AppResult<FsNode>> + Send;
+        thumbnail_key: Option<String>,
+        preview_key: Option<String>,
+    ) -> impl Future<Output = AppResult<MediaFile>> + Send;
 
-    fn get_file_from_hash(
-        &self,
-        space_id: &Uuid,
-        hash: &str,
-        folder_id: &Uuid,
-    ) -> impl Future<Output = AppResult<Option<FsNode>>> + Send;
-
-    fn get_file(&self, space_id: Uuid, file_id: Uuid) -> impl Future<Output = AppResult<Option<FsNode>>> + Send;
-    fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Vec<FileMeta>>> + Send;
+    fn get_file(&self, space_id: Uuid, file_id: Uuid) -> impl Future<Output = AppResult<Option<MediaFile>>> + Send;
+    fn list_files(&self, space_id: &Uuid, album_id: &Uuid) -> impl Future<Output = AppResult<Vec<FileMeta>>> + Send;
     fn list_files_gallery(&self, space_id: &Uuid) -> impl Future<Output = AppResult<Vec<GalleryFileMeta>>> + Send;
-    fn get_thumbnail_preview_stream_paths(
+    fn get_thumbnail_preview_stream_keys(
         &self,
         space_id: &Uuid,
         file_id: Uuid,
-    ) -> impl Future<Output = AppResult<Option<StreamPaths>>> + Send;
-    fn get_download_stream_path(
+    ) -> impl Future<Output = AppResult<Option<StreamKeys>>> + Send;
+    fn get_download_stream_key(
         &self,
         space_id: &Uuid,
         file_id: Uuid,
     ) -> impl Future<Output = AppResult<Option<String>>> + Send;
 
-    fn create_root_folder(&self, user_id: &Uuid, space_id: &Uuid) -> impl Future<Output = AppResult<()>> + Send;
-    fn create_folder(
+    fn create_album(
         &self,
         user_id: &Uuid,
         space_id: Uuid,
-        parent_folder: FsNode,
-        folder_name: String,
-    ) -> impl Future<Output = AppResult<()>> + Send;
-    fn get_folder(&self, space_id: &Uuid, folder_id: &Uuid) -> impl Future<Output = AppResult<Option<FsNode>>> + Send;
-    fn list_folder(
-        &self,
-        space_id: Uuid,
-        parent_folder_id: Uuid,
-    ) -> impl Future<Output = AppResult<Vec<FsNode>>> + Send;
-    fn get_inner_folder_paths(
-        &self,
-        space_id: &Uuid,
-        folder_id: &Uuid,
-    ) -> impl Future<Output = AppResult<Vec<InnerFolder>>> + Send;
+        album_name: String,
+    ) -> impl Future<Output = AppResult<Album>> + Send;
+    fn get_album(&self, space_id: &Uuid, album_id: &Uuid) -> impl Future<Output = AppResult<Option<Album>>> + Send;
+    fn list_albums(&self, space_id: Uuid) -> impl Future<Output = AppResult<Vec<Album>>> + Send;
 
-    fn delete_folder(
+    fn link_album_files(
         &self,
         space_id: &Uuid,
-        inner_folders: Vec<InnerFolder>,
+        album_id: &Uuid,
+        file_ids: &[Uuid],
     ) -> impl Future<Output = AppResult<()>> + Send;
+    fn unlink_album_files(
+        &self,
+        space_id: &Uuid,
+        album_id: &Uuid,
+        file_ids: &[Uuid],
+    ) -> impl Future<Output = AppResult<()>> + Send;
+
+    fn delete_album(&self, space_id: &Uuid, album_id: &Uuid) -> impl Future<Output = AppResult<()>> + Send;
     fn delete_file(&self, file_id: &Uuid, space_id: &Uuid) -> impl Future<Output = AppResult<()>> + Send;
 }
 
@@ -332,35 +304,44 @@ impl StorageDs for Datastore {
         &self,
         user_id: &Uuid,
         space_id: &Uuid,
-        folder: &FsNode,
         file_hash: &str,
+        file_name: String,
+        object_key: String,
         updated_date: DateTime<Utc>,
         file_data: FileData,
-    ) -> AppResult<FsNode> {
-        let file = match self.get_file_from_hash(space_id, file_hash, &folder.id).await? {
-            Some(file) => Ok(file),
-            None => {
-                create_file(
-                    &self.db,
-                    &self.storage_stmts,
+    ) -> AppResult<MediaFile> {
+        let metadata = NodeMetadata::jsonb(
+            file_data.thumbnail,
+            file_data.preview,
+            Metadata::from(file_data.metadata, updated_date),
+            file_data.media_type,
+        )?;
+
+        let row = self
+            .db
+            .query_one(
+                &self.storage_stmts.upsert_media_file,
+                &[
+                    &Uuid::now_v7(),
+                    &updated_date,
                     user_id,
                     space_id,
-                    folder,
-                    file_hash,
-                    updated_date,
-                    file_data,
-                )
-                .await
-            }
-        }?;
+                    &file_hash,
+                    &file_name,
+                    &object_key,
+                    &file_data.size,
+                    &metadata,
+                ],
+            )
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get or create file by hash"))?;
 
-        Ok(file)
+        MediaFile::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse file by hash"))
     }
 
     async fn update_file(
         &self,
         file_id: Uuid,
-        folder_id: &Uuid,
         space_id: &Uuid,
         updated_date: DateTime<Utc>,
         FileData {
@@ -371,65 +352,43 @@ impl StorageDs for Datastore {
             thumbnail,
             preview,
         }: FileData,
-    ) -> AppResult<FsNode> {
+        thumbnail_key: Option<String>,
+        preview_key: Option<String>,
+    ) -> AppResult<MediaFile> {
         let file_meta = Metadata::from(metadata, updated_date);
         let metadata = NodeMetadata::jsonb(thumbnail, preview, file_meta, media_type)?;
 
         let row = self
             .db
             .query_one(
-                &self.storage_stmts.update_node,
-                &[
-                    &file_id,
-                    &folder_id,
-                    &space_id,
-                    &file_name,
-                    &file_size,
-                    &NodeType::File.value(),
-                    &metadata,
-                    &updated_date,
-                ],
+                &self.storage_stmts.update_media_file,
+                &[&file_id, &space_id, &file_name, &file_size, &metadata, &updated_date, &thumbnail_key, &preview_key],
             )
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to update file"))?;
 
-        FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse updated file"))
+        MediaFile::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse updated file"))
     }
 
-    async fn get_file_from_hash(&self, space_id: &Uuid, hash: &str, folder_id: &Uuid) -> AppResult<Option<FsNode>> {
+    async fn get_file(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<MediaFile>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.get_node_by_hash, &[&space_id, &folder_id, &hash, &NodeType::File.value()])
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get file by hash"))?;
-
-        match rows.into_iter().next() {
-            Some(row) => FsNode::try_from(row)
-                .map(Some)
-                .map_err(|err| ErrType::DbError.err(err, "Failed to parse file from hash")),
-            None => Ok(None),
-        }
-    }
-
-    async fn get_file(&self, space_id: Uuid, file_id: Uuid) -> AppResult<Option<FsNode>> {
-        let rows = self
-            .db
-            .query(&self.storage_stmts.get_fs_node, &[&file_id, &NodeType::File.value(), &space_id])
+            .query(&self.storage_stmts.get_media_file, &[&file_id, &space_id])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get file by id"))?;
 
         match rows.into_iter().next() {
-            Some(row) => {
-                FsNode::try_from(row).map(Some).map_err(|err| ErrType::DbError.err(err, "Failed to parse file by id"))
-            }
+            Some(row) => MediaFile::try_from(row)
+                .map(Some)
+                .map_err(|err| ErrType::DbError.err(err, "Failed to parse file by id")),
             None => Ok(None),
         }
     }
 
-    async fn list_files(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<FileMeta>> {
+    async fn list_files(&self, space_id: &Uuid, album_id: &Uuid) -> AppResult<Vec<FileMeta>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.list_nodes, &[&NodeType::File.value(), &space_id, &folder_id])
+            .query(&self.storage_stmts.list_album_media_files, &[album_id, space_id])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get files"))?;
 
@@ -444,7 +403,7 @@ impl StorageDs for Datastore {
     async fn list_files_gallery(&self, space_id: &Uuid) -> AppResult<Vec<GalleryFileMeta>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.list_gallery_nodes, &[&NodeType::File.value(), &space_id])
+            .query(&self.storage_stmts.list_media_files_gallery, &[space_id])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get files"))?;
 
@@ -457,198 +416,109 @@ impl StorageDs for Datastore {
         })
     }
 
-    async fn get_thumbnail_preview_stream_paths(
-        &self,
-        space_id: &Uuid,
-        file_id: Uuid,
-    ) -> AppResult<Option<StreamPaths>> {
+    async fn get_thumbnail_preview_stream_keys(&self, space_id: &Uuid, file_id: Uuid) -> AppResult<Option<StreamKeys>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.get_thumnail_preview_stream_paths, &[&file_id, &space_id])
+            .query(&self.storage_stmts.get_media_stream_keys, &[&file_id, space_id])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get file thumbnail path"))?;
 
         match rows.into_iter().next() {
-            Some(row) => StreamPaths::try_from(row)
-                .map(|p| Some(p))
+            Some(row) => StreamKeys::try_from(row)
+                .map(Some)
                 .map_err(|err| ErrType::DbError.err(err, "Failed to parse thumbnail path for file")),
             None => Ok(None),
         }
     }
 
-    async fn get_download_stream_path(&self, space_id: &Uuid, file_id: Uuid) -> AppResult<Option<String>> {
+    async fn get_download_stream_key(&self, space_id: &Uuid, file_id: Uuid) -> AppResult<Option<String>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.get_download_stream_path, &[&file_id, &space_id])
+            .query(&self.storage_stmts.get_media_object_key, &[&file_id, space_id])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get file preview path"))?;
 
         match rows.into_iter().next() {
-            Some(row) => StreamPath::try_from(row)
-                .map(|p| Some(p.path))
+            Some(row) => StreamKey::try_from(row)
+                .map(|p| Some(p.key))
                 .map_err(|err| ErrType::DbError.err(err, "Failed to parse preview path for file")),
             None => Ok(None),
         }
     }
 
-    async fn create_root_folder(&self, user_id: &Uuid, space_id: &Uuid) -> AppResult<()> {
-        let id = Uuid::now_v7();
-        let folder_name = format!("root_{id}");
-        let folder_hash = storage::sha256_hex(id.as_bytes())?;
-        let _ = self
-            .db
-            .query_one(
-                &self.storage_stmts.insert_fs_node,
-                &[
-                    &id,
-                    &Utc::now(),
-                    &user_id,
-                    &space_id,
-                    &NodeType::Folder.value(),
-                    &0i64,
-                    &Option::<Uuid>::None,
-                    &folder_name,
-                    &"/",
-                    &serde_json::json!({}),
-                    &folder_hash,
-                ],
-            )
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to create space root folder"))?;
-
-        Ok(())
-    }
-
-    async fn create_folder(
-        &self,
-        user_id: &Uuid,
-        space_id: Uuid,
-        parent_folder: FsNode,
-        folder_name: String,
-    ) -> AppResult<()> {
-        let parent_folder_id = parent_folder.id;
-        let folder_id = Uuid::now_v7();
-        let mut new_path = if parent_folder.parent_node.is_none() {
-            // avoid space root folder name
-            String::new()
-        } else {
-            parent_folder.path
-        };
-        new_path.push('/');
-        new_path.push_str(&folder_name);
-
-        let folder_hash = storage::sha256_hex(folder_id.as_bytes())?;
+    async fn create_album(&self, user_id: &Uuid, space_id: Uuid, album_name: String) -> AppResult<Album> {
         let row = self
             .db
             .query_one(
-                &self.storage_stmts.insert_fs_node,
-                &[
-                    &folder_id,
-                    &Utc::now(),
-                    &user_id,
-                    &space_id,
-                    &NodeType::Folder.value(),
-                    &0i64,
-                    &parent_folder_id,
-                    &folder_name,
-                    &new_path,
-                    &serde_json::json!({}),
-                    &folder_hash,
-                ],
+                &self.storage_stmts.insert_album,
+                &[&Uuid::now_v7(), user_id, &space_id, &album_name, &String::new()],
             )
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to create folder"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to create album"))?;
 
-        let folder =
-            FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse created folder"))?;
-
-        fs_link(&self.db, &self.storage_stmts, &parent_folder.id, folder.id).await?;
-
-        Ok(())
+        Album::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse created album"))
     }
 
-    async fn get_folder(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Option<FsNode>> {
+    async fn get_album(&self, space_id: &Uuid, album_id: &Uuid) -> AppResult<Option<Album>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.get_fs_node, &[&folder_id, &NodeType::Folder.value(), &space_id])
+            .query(&self.storage_stmts.get_album, &[album_id, space_id])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get folder"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get album"))?;
 
         match rows.into_iter().next() {
             Some(row) => {
-                FsNode::try_from(row).map(Some).map_err(|err| ErrType::DbError.err(err, "Failed to parse folder by id"))
+                Album::try_from(row).map(Some).map_err(|err| ErrType::DbError.err(err, "Failed to parse album by id"))
             }
             None => Ok(None),
         }
     }
 
-    async fn list_folder(&self, space_id: Uuid, parent_folder_id: Uuid) -> AppResult<Vec<FsNode>> {
+    async fn list_albums(&self, space_id: Uuid) -> AppResult<Vec<Album>> {
         let rows = self
             .db
-            .query(&self.storage_stmts.list_nodes, &[&NodeType::Folder.value(), &space_id, &parent_folder_id])
+            .query(&self.storage_stmts.list_albums, &[&space_id])
             .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get folders"))?;
-
-        let size = rows.len();
-        let mut folders = rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
-            let f = FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse listed files"))?;
-            acc.push(f);
-            Ok(acc)
-        })?;
-
-        folders.sort_by(|a, b| a.node_name.cmp(&b.node_name));
-
-        Ok(folders)
-    }
-
-    async fn get_inner_folder_paths(&self, space_id: &Uuid, folder_id: &Uuid) -> AppResult<Vec<InnerFolder>> {
-        let rows = self
-            .db
-            .query(&self.storage_stmts.get_inner_folders, &[&folder_id, &space_id, &NodeType::Folder.value()])
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to get inner folders"))?;
+            .map_err(|err| ErrType::DbError.err(err, "Failed to get albums"))?;
 
         let size = rows.len();
         rows.into_iter().try_fold(Vec::with_capacity(size), |mut acc, row| {
-            let fs_node =
-                FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse inner folders"))?;
-            acc.push(InnerFolder {
-                id: fs_node.id,
-                parent: fs_node.parent_node,
-                path: fs_node.path,
-            });
+            let a = Album::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse listed albums"))?;
+            acc.push(a);
             Ok(acc)
         })
     }
 
-    async fn delete_folder(&self, space_id: &Uuid, inner_folders: Vec<InnerFolder>) -> AppResult<()> {
-        // for each inner-most folder
-        for inner in inner_folders.iter().rev() {
-            // get files
-            let files = self.list_files(space_id, &inner.id).await?;
-
-            // drop all links for this folder
-            self.db
-                .query(&self.storage_stmts.drop_parent_fs_link, &[&inner.id])
+    async fn link_album_files(&self, space_id: &Uuid, album_id: &Uuid, file_ids: &[Uuid]) -> AppResult<()> {
+        for file_id in file_ids {
+            let _ = self
+                .db
+                .query(&self.storage_stmts.link_album_media_file, &[album_id, file_id, space_id])
                 .await
-                .map_err(|err| ErrType::DbError.err(err, "Failed remove folder links"))?;
-
-            self.db
-                .query(&self.storage_stmts.drop_child_fs_link, &[&inner.id])
-                .await
-                .map_err(|err| ErrType::DbError.err(err, "Failed remove folder links"))?;
-
-            // delete files
-            for file in files.iter() {
-                self.delete_file(&file.id, space_id).await?;
-            }
-
-            // delete folder
-            self.db
-                .query(&self.storage_stmts.delete_node, &[&inner.id, &space_id])
-                .await
-                .map_err(|err| ErrType::DbError.err(err, "Failed to delete node"))?;
+                .map_err(|err| ErrType::DbError.err(err, "Failed to link file to album"))?;
         }
+
+        Ok(())
+    }
+
+    async fn unlink_album_files(&self, space_id: &Uuid, album_id: &Uuid, file_ids: &[Uuid]) -> AppResult<()> {
+        for file_id in file_ids {
+            let _ = self
+                .db
+                .query(&self.storage_stmts.unlink_album_media_file, &[album_id, file_id, space_id])
+                .await
+                .map_err(|err| ErrType::DbError.err(err, "Failed to unlink file from album"))?;
+        }
+
+        Ok(())
+    }
+
+    async fn delete_album(&self, space_id: &Uuid, album_id: &Uuid) -> AppResult<()> {
+        let _ = self
+            .db
+            .query(&self.storage_stmts.delete_album, &[album_id, space_id])
+            .await
+            .map_err(|err| ErrType::DbError.err(err, "Failed to delete album"))?;
 
         Ok(())
     }
@@ -656,77 +526,10 @@ impl StorageDs for Datastore {
     async fn delete_file(&self, file_id: &Uuid, space_id: &Uuid) -> AppResult<()> {
         let _ = self
             .db
-            .query(&self.storage_stmts.drop_child_fs_link, &[&file_id])
-            .await
-            .map_err(|err| ErrType::DbError.err(err, "Failed to unlink file"))?;
-
-        let _ = self
-            .db
-            .query(&self.storage_stmts.delete_node, &[&file_id, &space_id])
+            .query(&self.storage_stmts.delete_media_file, &[file_id, space_id])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to delete file"))?;
 
         Ok(())
     }
-}
-
-async fn create_file(
-    db: &tokio_postgres::Client,
-    storage_stmts: &StorageStatements,
-    user_id: &Uuid,
-    space_id: &Uuid,
-    folder: &FsNode,
-    file_hash: &str,
-    updated_date: DateTime<Utc>,
-    FileData {
-        file_name,
-        metadata,
-        size: file_size,
-        media_type,
-        thumbnail,
-        preview,
-    }: FileData,
-) -> AppResult<FsNode> {
-    let file_meta = Metadata::from(metadata, updated_date);
-    let metadata = NodeMetadata::jsonb(thumbnail, preview, file_meta, media_type)?;
-
-    let row = db
-        .query_one(
-            &storage_stmts.insert_fs_node,
-            &[
-                &Uuid::now_v7(),
-                &updated_date,
-                &user_id,
-                &space_id,
-                &NodeType::File.value(),
-                &file_size,
-                &folder.id,
-                &file_name,
-                &folder.path,
-                &metadata,
-                &file_hash,
-            ],
-        )
-        .await
-        .map_err(|err| ErrType::DbError.err(err, "Failed to create file"))?;
-
-    let file = FsNode::try_from(row).map_err(|err| ErrType::DbError.err(err, "Failed to parse created file"))?;
-
-    fs_link(db, storage_stmts, &folder.id, file.id).await?;
-
-    Ok(file)
-}
-
-async fn fs_link(
-    db: &tokio_postgres::Client,
-    storage_stmts: &StorageStatements,
-    parent_folder_id: &Uuid,
-    fs_id: Uuid,
-) -> AppResult<()> {
-    let _ = db
-        .query_one(&storage_stmts.link_fs_node, &[&parent_folder_id, &fs_id])
-        .await
-        .map_err(|err| ErrType::DbError.err(err, "Failed to link fs node"))?;
-
-    Ok(())
 }

@@ -184,7 +184,6 @@ pub mod res {
     #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
     pub struct MediaData {
         pub file_id: Uuid,
-        pub folder_id: Uuid,
         pub updated_date: MediaDatetime,
         pub file_data: FileData,
     }
@@ -213,7 +212,6 @@ pub mod req {
         pub file_id: Uuid,
         pub updated_date: MediaDatetime,
         pub space_id: Uuid,
-        pub folder_id: Uuid,
         pub s3_file_path: String,
     }
 }

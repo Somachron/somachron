@@ -9,8 +9,9 @@ pub mod res {
             user_space::{SpaceRole, SpaceUser, UserSpace},
         },
         dto::{
-            Datetime, _IdRef,
-            user::res::{UserResponse, _UserResponseRef},
+            _IdRef,
+            user::res::{_UserResponseRef, UserResponse},
+            Datetime,
         },
     };
 
@@ -36,7 +37,6 @@ pub mod res {
 
             role: SpaceRole = role,
             space: SpaceResponse = space => _SpaceResponseRef,
-            folder: String = root_folder,
         }
     );
 

@@ -175,8 +175,7 @@ mod statements {
         /// SELECT * FROM users_spaces WHERE user_id = $1 AND space_id = $2
         pub get_user_space: tokio_postgres::Statement,
 
-        /// SELECT us.*, spaces.*,
-        /// (SELECT id FROM fs_node fs WHERE fs.space_id = spaces.id AND node_type = $2 AND parent_node IS NULL) AS root_node
+        /// SELECT us.*, spaces.*
         /// FROM spaces
         /// INNER JOIN (SELECT * FROM users_spaces WHERE user_id = $1) us
         /// ON spaces.id = us.space_id
@@ -211,13 +210,11 @@ mod statements {
                     .unwrap(),
                 get_all_spaces_for_user: db
                     .prepare_typed(
-                        r#"SELECT us.*, spaces.*,
-                            (SELECT id FROM fs_node fs
-                                WHERE fs.space_id = spaces.id AND node_type = $2 AND parent_node IS NULL) AS root_node
+                        r#"SELECT us.*, spaces.*
                         FROM spaces
                         INNER JOIN (SELECT * FROM users_spaces WHERE user_id = $1) us
                         ON spaces.id = us.space_id"#,
-                        &[Type::UUID, Type::INT2],
+                        &[Type::UUID],
                     )
                     .await
                     .unwrap(),
@@ -251,196 +248,214 @@ mod statements {
     }
 
     pub struct StorageStatements {
-        /// INSERT INTO fs_node
-        /// (id, updated_at, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata, hash)
-        /// VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *
-        pub insert_fs_node: tokio_postgres::Statement,
-
-        /// INSERT INTO fs_link
-        /// (node_id, child_node_id)
-        /// VALUES ($1, $2) RETURNING *
-        pub link_fs_node: tokio_postgres::Statement,
-
-        /// SELECT * FROM fs_node
-        /// WHERE id = $1 AND node_type = $2 AND space_id = $3
-        pub get_fs_node: tokio_postgres::Statement,
-
-        /// SELECT * FROM fs_node
-        /// WHERE space_id = $1 AND parent_node = $2 AND hash = $3 AND node_type = $4
-        pub get_node_by_hash: tokio_postgres::Statement,
-
-        /// SELECT concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path,
-        ///     concat(path, '/', metadata->'preview_meta'->>'file_name') as p_path
-        /// FROM fs_node WHERE id = $1 AND space_id = $2
-        pub get_thumnail_preview_stream_paths: tokio_postgres::Statement,
-
-        /// SELECT concat(path, '/', node_name) as d_path
-        /// FROM fs_node WHERE id = $1 AND space_id = $2
-        pub get_download_stream_path: tokio_postgres::Statement,
-
-        /// WITH RECURSIVE child_folders AS (
-        ///     SELECT * FROM fs_node WHERE id = $1 AND space_id = $2
-        ///     UNION ALL
-        ///
-        ///     -- Recursive step: find children via fs_link
-        ///     SELECT fn_child.*
-        ///     FROM child_folders cf
-        ///         JOIN fs_link fl ON fl.node_id = cf.id
-        ///         JOIN (SELECT * FROM fs_node WHERE node_type = $3)
-        ///         fn_child ON fn_child.id = fl.child_node_id
-        /// )
-        /// SELECT *
-        /// FROM child_folders
-        pub get_inner_folders: tokio_postgres::Statement,
-
-        /// SELECT * FROM fs_node WHERE node_type = $1 AND space_id = $2 AND parent_node = $3
-        pub list_nodes: tokio_postgres::Statement,
-
-        /// SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type,
-        ///     metadata->'thumbnail_meta'->>'width' as width, metadata->'thumbnail_meta'->>'height' as height
-        /// FROM fs_node
-        /// WHERE node_type = $1 AND space_id = $2
-        /// ORDER BY update_at DESC
-        pub list_gallery_nodes: tokio_postgres::Statement,
-
-        /// UPDATE fs_node
-        /// SET node_name = $4, node_size = $5, node_type = $6, metadata = $7, updated_at = $8
-        /// WHERE id = $1 AND parent_node = $2 AND space_id = $3
+        /// INSERT INTO media_files
+        /// (id, updated_at, user_id, space_id, hash, file_name, object_key, node_size, metadata)
+        /// VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        /// ON CONFLICT (space_id, hash) DO UPDATE SET updated_at = excluded.updated_at
         /// RETURNING *
-        pub update_node: tokio_postgres::Statement,
+        pub upsert_media_file: tokio_postgres::Statement,
 
-        /// DELETE FROM fs_link WHERE node_id = $1
-        pub drop_parent_fs_link: tokio_postgres::Statement,
+        /// SELECT * FROM media_files WHERE id = $1 AND space_id = $2
+        pub get_media_file: tokio_postgres::Statement,
 
-        /// DELETE FROM fs_link WHERE child_node_id = $1
-        pub drop_child_fs_link: tokio_postgres::Statement,
+        /// SELECT * FROM media_files
+        /// INNER JOIN album_media_files ON album_media_files.media_file_id = media_files.id
+        /// WHERE album_media_files.album_id = $1 AND media_files.space_id = $2
+        pub list_album_media_files: tokio_postgres::Statement,
 
-        /// DELETE FROM fs_node WHERE id = $1 AND space_id = $2
-        pub delete_node: tokio_postgres::Statement,
+        /// SELECT id, updated_at, user_id, file_name, metadata->>'media_type' as media_type,
+        ///     metadata->'thumbnail_meta'->>'width' as width, metadata->'thumbnail_meta'->>'height' as height
+        /// FROM media_files
+        /// WHERE space_id = $1
+        /// ORDER BY updated_at DESC
+        pub list_media_files_gallery: tokio_postgres::Statement,
+
+        /// SELECT thumbnail_key, preview_key FROM media_files
+        /// WHERE id = $1 AND space_id = $2
+        pub get_media_stream_keys: tokio_postgres::Statement,
+
+        /// SELECT object_key FROM media_files WHERE id = $1 AND space_id = $2
+        pub get_media_object_key: tokio_postgres::Statement,
+
+        /// UPDATE media_files
+        /// SET file_name = $3, node_size = $4, metadata = $5, updated_at = $6, thumbnail_key = $7, preview_key = $8
+        /// WHERE id = $1 AND space_id = $2
+        /// RETURNING *
+        pub update_media_file: tokio_postgres::Statement,
+
+        /// DELETE FROM media_files WHERE id = $1 AND space_id = $2
+        pub delete_media_file: tokio_postgres::Statement,
+
+        /// INSERT INTO albums (id, user_id, space_id, name, legacy_path)
+        /// VALUES ($1, $2, $3, $4, $5) RETURNING *
+        pub insert_album: tokio_postgres::Statement,
+
+        /// SELECT * FROM albums WHERE id = $1 AND space_id = $2
+        pub get_album: tokio_postgres::Statement,
+
+        /// SELECT * FROM albums WHERE space_id = $1 ORDER BY name ASC, created_at ASC
+        pub list_albums: tokio_postgres::Statement,
+
+        /// DELETE FROM albums WHERE id = $1 AND space_id = $2
+        pub delete_album: tokio_postgres::Statement,
+
+        /// INSERT INTO album_media_files (album_id, media_file_id)
+        /// SELECT a.id, m.id FROM albums a
+        /// INNER JOIN media_files m ON m.id = $2
+        /// WHERE a.id = $1 AND a.space_id = $3 AND m.space_id = $3
+        /// ON CONFLICT DO NOTHING
+        pub link_album_media_file: tokio_postgres::Statement,
+
+        /// DELETE FROM album_media_files amf USING albums a, media_files m
+        /// WHERE amf.album_id = a.id AND amf.media_file_id = m.id
+        /// AND a.id = $1 AND m.id = $2 AND a.space_id = $3 AND m.space_id = $3
+        pub unlink_album_media_file: tokio_postgres::Statement,
     }
     impl StorageStatements {
         pub async fn new(db: &tokio_postgres::Client) -> Self {
             Self {
-                insert_fs_node: db
+                upsert_media_file: db
                     .prepare_typed(
-                        r#"INSERT INTO fs_node
-                        (id, updated_at, user_id, space_id, node_type, node_size, parent_node, node_name, path, metadata, hash)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *"#,
+                        r#"INSERT INTO media_files
+                        (id, updated_at, user_id, space_id, hash, file_name, object_key, node_size, metadata)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        ON CONFLICT (space_id, hash)
+                        DO UPDATE SET updated_at = EXCLUDED.updated_at
+                        RETURNING *"#,
                         &[
                             Type::UUID,
                             Type::TIMESTAMPTZ,
                             Type::UUID,
                             Type::UUID,
-                            Type::INT2,
-                            Type::INT8,
-                            Type::UUID,
-                            Type::VARCHAR,
-                            Type::VARCHAR,
-                            Type::JSONB,
                             Type::BPCHAR,
+                            Type::VARCHAR,
+                            Type::VARCHAR,
+                            Type::INT8,
+                            Type::JSONB,
                         ],
                     )
                     .await
                     .unwrap(),
-                link_fs_node: db
+                get_media_file: db
                     .prepare_typed(
-                        r#"INSERT INTO fs_link (node_id, child_node_id) VALUES ($1, $2) RETURNING *"#,
+                        r#"SELECT * FROM media_files WHERE id = $1 AND space_id = $2"#,
                         &[Type::UUID, Type::UUID],
                     )
                     .await
                     .unwrap(),
-                get_fs_node: db
+                list_album_media_files: db
                     .prepare_typed(
-                        r#"SELECT * FROM fs_node WHERE id = $1 AND node_type = $2 AND space_id = $3"#,
-                        &[Type::UUID, Type::INT2, Type::UUID],
-                    )
-                    .await
-                    .unwrap(),
-                get_node_by_hash: db
-                    .prepare_typed(
-                        r#"SELECT * FROM fs_node WHERE space_id = $1 AND parent_node = $2 AND hash = $3 AND node_type = $4"#,
-                        &[Type::UUID, Type::UUID, Type::BPCHAR, Type::INT2],
-                    )
-                    .await
-                    .unwrap(),
-                get_thumnail_preview_stream_paths: db
-                    .prepare_typed(
-                        r#"SELECT concat(path, '/', metadata->'thumbnail_meta'->>'file_name') as th_path,
-                        concat(path, '/', metadata->'preview_meta'->>'file_name') as p_path
-                        FROM fs_node WHERE id = $1 AND space_id = $2"#,
+                        r#"SELECT media_files.*
+                        FROM media_files
+                        INNER JOIN album_media_files amf ON amf.media_file_id = media_files.id
+                        WHERE amf.album_id = $1 AND media_files.space_id = $2"#,
                         &[Type::UUID, Type::UUID],
                     )
                     .await
                     .unwrap(),
-                get_download_stream_path: db
+                list_media_files_gallery: db
                     .prepare_typed(
-                        r#"SELECT concat(path, '/', node_name) as d_path
-                        FROM fs_node WHERE id = $1 AND space_id = $2"#,
-                        &[Type::UUID, Type::UUID],
-                    )
-                    .await
-                    .unwrap(),
-                get_inner_folders: db
-                    .prepare_typed(
-                        r#"WITH RECURSIVE child_folders AS (
-
-                            SELECT * FROM fs_node WHERE id = $1 AND space_id = $2
-
-                            UNION ALL
-
-                            -- Recursive step: find children via fs_link
-
-                            SELECT fn_child.*
-                            FROM child_folders cf
-                                JOIN fs_link fl ON fl.node_id = cf.id
-                                JOIN (SELECT * FROM fs_node WHERE node_type = $3)
-                                fn_child ON fn_child.id = fl.child_node_id
-                        )
-                        SELECT *
-                        FROM child_folders"#,
-                        &[Type::UUID, Type::UUID, Type::INT2],
-                    )
-                    .await
-                    .unwrap(),
-                list_nodes: db
-                    .prepare_typed(
-                        r#"SELECT * FROM fs_node WHERE node_type = $1 AND space_id = $2 AND parent_node = $3"#,
-                        &[Type::INT2, Type::UUID, Type::UUID],
-                    )
-                    .await
-                    .unwrap(),
-                list_gallery_nodes: db
-                    .prepare_typed(
-                        r#"SELECT id, updated_at, user_id, node_name, metadata->>'media_type' as media_type,
+                        r#"SELECT id, updated_at, user_id, file_name, metadata->>'media_type' as media_type,
                             (metadata->'thumbnail_meta'->>'width')::int4 as width, (metadata->'thumbnail_meta'->>'height')::int4 as height
-                        FROM fs_node
-                        WHERE node_type = $1 AND space_id = $2
+                        FROM media_files
+                        WHERE space_id = $1
                         ORDER BY updated_at DESC"#,
-                        &[Type::INT2, Type::UUID],
+                        &[Type::UUID],
                     )
                     .await
                     .unwrap(),
-                update_node: db
+                get_media_stream_keys: db
                     .prepare_typed(
-                        r#"UPDATE fs_node
-                        SET node_name = $4, node_size = $5, node_type = $6, metadata = $7, updated_at = $8
-                        WHERE id = $1 AND parent_node = $2 AND space_id = $3 RETURNING *"#,
-                        &[Type::UUID, Type::UUID, Type::UUID, Type::VARCHAR, Type::INT8, Type::INT2, Type::JSONB, Type::TIMESTAMPTZ],
-                    )
-                    .await
-                    .unwrap(),
-                drop_parent_fs_link: db
-                    .prepare_typed(r#"DELETE FROM fs_link WHERE node_id = $1"#, &[Type::UUID])
-                    .await
-                    .unwrap(),
-                drop_child_fs_link: db
-                    .prepare_typed(r#"DELETE FROM fs_link WHERE child_node_id = $1"#, &[Type::UUID])
-                    .await
-                    .unwrap(),
-                delete_node: db
-                    .prepare_typed(
-                        r#"DELETE FROM fs_node WHERE id = $1 AND space_id = $2"#,
+                        r#"SELECT thumbnail_key, preview_key
+                        FROM media_files WHERE id = $1 AND space_id = $2"#,
                         &[Type::UUID, Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                get_media_object_key: db
+                    .prepare_typed(
+                        r#"SELECT object_key
+                        FROM media_files WHERE id = $1 AND space_id = $2"#,
+                        &[Type::UUID, Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                update_media_file: db
+                    .prepare_typed(
+                        r#"UPDATE media_files
+                        SET file_name = $3, node_size = $4, metadata = $5, updated_at = $6, thumbnail_key = $7, preview_key = $8
+                        WHERE id = $1 AND space_id = $2
+                        RETURNING *"#,
+                        &[
+                            Type::UUID,
+                            Type::UUID,
+                            Type::VARCHAR,
+                            Type::INT8,
+                            Type::JSONB,
+                            Type::TIMESTAMPTZ,
+                            Type::VARCHAR,
+                            Type::VARCHAR,
+                        ],
+                    )
+                    .await
+                    .unwrap(),
+                delete_media_file: db
+                    .prepare_typed(
+                        r#"DELETE FROM media_files WHERE id = $1 AND space_id = $2"#,
+                        &[Type::UUID, Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                insert_album: db
+                    .prepare_typed(
+                        r#"INSERT INTO albums (id, user_id, space_id, name, legacy_path)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING *"#,
+                        &[Type::UUID, Type::UUID, Type::UUID, Type::VARCHAR, Type::VARCHAR],
+                    )
+                    .await
+                    .unwrap(),
+                get_album: db
+                    .prepare_typed(
+                        r#"SELECT * FROM albums WHERE id = $1 AND space_id = $2"#,
+                        &[Type::UUID, Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                list_albums: db
+                    .prepare_typed(
+                        r#"SELECT * FROM albums WHERE space_id = $1 ORDER BY name ASC, created_at ASC"#,
+                        &[Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                delete_album: db
+                    .prepare_typed(r#"DELETE FROM albums WHERE id = $1 AND space_id = $2"#, &[Type::UUID, Type::UUID])
+                    .await
+                    .unwrap(),
+                link_album_media_file: db
+                    .prepare_typed(
+                        r#"INSERT INTO album_media_files (album_id, media_file_id)
+                        SELECT a.id, m.id
+                        FROM albums a
+                        INNER JOIN media_files m ON m.id = $2
+                        WHERE a.id = $1 AND a.space_id = $3 AND m.space_id = $3
+                        ON CONFLICT DO NOTHING"#,
+                        &[Type::UUID, Type::UUID, Type::UUID],
+                    )
+                    .await
+                    .unwrap(),
+                unlink_album_media_file: db
+                    .prepare_typed(
+                        r#"DELETE FROM album_media_files amf
+                        USING albums a, media_files m
+                        WHERE amf.album_id = a.id
+                          AND amf.media_file_id = m.id
+                          AND a.id = $1
+                          AND m.id = $2
+                          AND a.space_id = $3
+                          AND m.space_id = $3"#,
+                        &[Type::UUID, Type::UUID, Type::UUID],
                     )
                     .await
                     .unwrap(),

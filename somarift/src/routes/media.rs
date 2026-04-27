@@ -9,10 +9,10 @@ use axum::{
 use lib_core::{smq_dto::res::MediaData, ApiError, ApiResult, EmptyResponse, ErrType, Json, ReqId, X_SPACE_HEADER};
 use lib_domain::{
     dto::cloud::{
-        req::{CreateFolderRequest, InitiateUploadRequest, QueueMediaProcessRequest},
+        req::{CreateAlbumRequest, InitiateUploadRequest, QueueMediaProcessRequest, UpdateAlbumFilesRequest},
         res::{
-            DownloadUrlResponse, FileMetaResponse, FolderResponse, InitiateUploadResponse, StreamedUrlResponse,
-            _FileMetaResponseVec, _FolderResponse, _FolderResponseVec,
+            _AlbumResponse, _AlbumResponseVec, _FileMetaResponseVec, AlbumResponse, DownloadUrlResponse,
+            FileMetaResponse, InitiateUploadResponse, StreamedUrlResponse,
         },
     },
     extension::{SpaceCtx, UserId},
@@ -26,13 +26,15 @@ use super::middleware;
 
 pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> {
     let routes = Router::new()
-        .route("/lg", get(list_files_gallery))
-        .route("/ls/{id}", get(list_files))
-        .route("/lf/{id}", get(list_folders))
-        .route("/d/{id}", get(get_folder))
-        .route("/rm/{id}", delete(delete_folder))
-        .route("/rmf/{id}", delete(delete_file))
-        .route("/mkdir", post(create_folder))
+        .route("/files/gallery", get(list_files_gallery))
+        .route("/albums", post(create_album))
+        .route("/albums", get(list_albums))
+        .route("/albums/{id}", get(get_album))
+        .route("/albums/{id}", delete(delete_album))
+        .route("/albums/{id}/files", get(list_files))
+        .route("/albums/{id}/files/link", post(link_album_files))
+        .route("/albums/{id}/files/unlink", post(unlink_album_files))
+        .route("/files/{id}", delete(delete_file))
         .route("/stream/{id}", get(generate_thumbnail_preview_signed_urls))
         .route("/download/{id}", get(generate_download_signed_url))
         .route("/upload", post(initiate_upload))
@@ -49,27 +51,27 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 
 #[utoipa::path(
     delete,
-    path = "/v1/media/p/{dir}",
+    path = "/v1/media/albums/{id}",
     responses((status=200, body=EmptyResponse)),
     tag = "Cloud"
 )]
-pub async fn delete_folder(
+pub async fn delete_album(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_id): Path<Uuid>,
+    Path(album_id): Path<Uuid>,
 ) -> ApiResult<EmptyResponse> {
     app.services()
         .media_service()
-        .delete_folder(space_ctx, app.storage(), folder_id)
+        .delete_album(space_ctx, album_id)
         .await
-        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Path deleted")))
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Album deleted")))
         .map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
     delete,
-    path = "/v1/media/f/{id}",
+    path = "/v1/media/files/{id}",
     responses((status=200, body=EmptyResponse)),
     tag = "Cloud"
 )]
@@ -89,7 +91,7 @@ pub async fn delete_file(
 
 #[utoipa::path(
     get,
-    path = "/v1/media/l/{id}",
+    path = "/v1/media/albums/{id}/files",
     responses((status=200, body=Vec<FileMetaResponse>)),
     tag = "Cloud"
 )]
@@ -97,14 +99,14 @@ pub async fn list_files(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_id): Path<Uuid>,
+    Path(album_id): Path<Uuid>,
 ) -> ApiResult<_FileMetaResponseVec> {
-    app.services().media_service().list_files(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+    app.services().media_service().list_files(space_ctx, album_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
     get,
-    path = "/v1/media/lg",
+    path = "/v1/media/files/gallery",
     responses((status=200, body=Vec<FileMetaResponse>)),
     tag = "Cloud"
 )]
@@ -118,37 +120,31 @@ pub async fn list_files_gallery(
 
 #[utoipa::path(
     get,
-    path = "/v1/media/lf/{id}",
-    responses((status=200, body=Vec<FolderResponse>)),
+    path = "/v1/media/albums",
+    responses((status=200, body=Vec<AlbumResponse>)),
     tag = "Cloud"
 )]
-pub async fn list_folders(
+pub async fn list_albums(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_id): Path<Uuid>,
-) -> ApiResult<_FolderResponseVec> {
-    app.services()
-        .media_service()
-        .list_folders(space_ctx, folder_id)
-        .await
-        .map(Json)
-        .map_err(|err| ApiError(err, req_id))
+) -> ApiResult<_AlbumResponseVec> {
+    app.services().media_service().list_albums(space_ctx).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
     get,
-    path = "/v1/media/d/{id}",
-    responses((status=200, body=Vec<FolderResponse>)),
+    path = "/v1/media/albums/{id}",
+    responses((status=200, body=AlbumResponse)),
     tag = "Cloud"
 )]
-pub async fn get_folder(
+pub async fn get_album(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Path(folder_id): Path<Uuid>,
-) -> ApiResult<_FolderResponse> {
-    app.services().media_service().get_folder(space_ctx, folder_id).await.map(Json).map_err(|err| ApiError(err, req_id))
+    Path(album_id): Path<Uuid>,
+) -> ApiResult<_AlbumResponse> {
+    app.services().media_service().get_album(space_ctx, album_id).await.map(Json).map_err(|err| ApiError(err, req_id))
 }
 
 #[utoipa::path(
@@ -165,7 +161,7 @@ pub async fn initiate_upload(
 ) -> ApiResult<InitiateUploadResponse> {
     app.services()
         .media_service()
-        .initiate_upload(space_ctx, app.storage(), body.folder_id, body.file_name)
+        .initiate_upload(space_ctx, app.storage(), body)
         .await
         .map(Json)
         .map_err(|err| ApiError(err, req_id))
@@ -263,21 +259,63 @@ pub async fn complete_media_queue(
 
 #[utoipa::path(
     post,
-    path = "/v1/media/mkdir",
+    path = "/v1/media/albums",
     responses((status=200, body=EmptyResponse)),
     tag = "Cloud"
 )]
-pub async fn create_folder(
+pub async fn create_album(
     State(app): State<AppState>,
     Extension(req_id): Extension<ReqId>,
     Extension(user_id): Extension<UserId>,
     Extension(space_ctx): Extension<SpaceCtx>,
-    Json(body): Json<CreateFolderRequest>,
+    Json(body): Json<CreateAlbumRequest>,
 ) -> ApiResult<EmptyResponse> {
     app.services()
         .media_service()
-        .create_folder(user_id, space_ctx, body.parent_folder_id, body.folder_name)
+        .create_album(user_id, space_ctx, body.name)
         .await
-        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Folder created")))
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Album created")))
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/media/albums/{id}/files/link",
+    responses((status=200, body=EmptyResponse)),
+    tag = "Cloud"
+)]
+pub async fn link_album_files(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+    Path(album_id): Path<Uuid>,
+    Json(body): Json<UpdateAlbumFilesRequest>,
+) -> ApiResult<EmptyResponse> {
+    app.services()
+        .media_service()
+        .link_album_files(space_ctx, album_id, body.file_ids)
+        .await
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Files linked")))
+        .map_err(|err| ApiError(err, req_id))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/media/albums/{id}/files/unlink",
+    responses((status=200, body=EmptyResponse)),
+    tag = "Cloud"
+)]
+pub async fn unlink_album_files(
+    State(app): State<AppState>,
+    Extension(req_id): Extension<ReqId>,
+    Extension(space_ctx): Extension<SpaceCtx>,
+    Path(album_id): Path<Uuid>,
+    Json(body): Json<UpdateAlbumFilesRequest>,
+) -> ApiResult<EmptyResponse> {
+    app.services()
+        .media_service()
+        .unlink_album_files(space_ctx, album_id, body.file_ids)
+        .await
+        .map(|_| Json(EmptyResponse::new(StatusCode::OK, "Files unlinked")))
         .map_err(|err| ApiError(err, req_id))
 }

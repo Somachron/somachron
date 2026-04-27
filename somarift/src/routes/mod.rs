@@ -52,8 +52,14 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
         media::generate_thumbnail_preview_signed_urls,
         media::media_queue,
         media::list_files,
-        media::create_folder,
-        media::delete_folder,
+        media::list_files_gallery,
+        media::create_album,
+        media::list_albums,
+        media::get_album,
+        media::link_album_files,
+        media::unlink_album_files,
+        media::delete_album,
+        media::delete_file,
     ),
     components(schemas(
         lib_core::EmptyResponse,
@@ -69,8 +75,11 @@ pub fn bind_routes(app: AppState, router: Router<AppState>) -> Router<AppState> 
 
         lib_domain::dto::cloud::req::InitiateUploadRequest,
         lib_domain::dto::cloud::req::QueueMediaProcessRequest,
+        lib_domain::dto::cloud::req::CreateAlbumRequest,
+        lib_domain::dto::cloud::req::UpdateAlbumFilesRequest,
         lib_domain::dto::cloud::res::InitiateUploadResponse,
         lib_domain::dto::cloud::res::FileResponse,
+        lib_domain::dto::cloud::res::AlbumResponse,
         lib_domain::dto::cloud::res::FileMetadataResponse,
     )),
     servers()

@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::datastore::storage::NodeType;
-
 use super::Datastore;
 
 #[derive(Debug, ToSchema, Serialize, Deserialize, Clone, Copy)]
@@ -65,7 +63,6 @@ pub struct UserSpace {
 
     pub role: SpaceRole,
     pub space: super::space::Space,
-    pub root_folder: Option<Uuid>,
 }
 impl From<tokio_postgres::Row> for UserSpace {
     fn from(value: tokio_postgres::Row) -> Self {
@@ -84,7 +81,6 @@ impl From<tokio_postgres::Row> for UserSpace {
                 description: value.get(10),
                 picture_url: value.get(11),
             },
-            root_folder: value.get(12),
         }
     }
 }
@@ -190,7 +186,7 @@ impl UserSpaceDs for Datastore {
     async fn get_all_spaces_for_user(&self, user_id: Uuid) -> AppResult<Vec<UserSpace>> {
         let rows = self
             .db
-            .query(&self.user_space_stmts.get_all_spaces_for_user, &[&user_id, &NodeType::Folder.value()])
+            .query(&self.user_space_stmts.get_all_spaces_for_user, &[&user_id])
             .await
             .map_err(|err| ErrType::DbError.err(err, "Failed to get spaces for user"))?;
 

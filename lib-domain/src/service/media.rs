@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use chrono::DateTime;
 use lib_core::{
     interconnect::ServiceInterconnect,
@@ -16,10 +18,10 @@ use uuid::Uuid;
 use crate::{
     datastore::{storage::StorageDs, user_space::SpaceRole},
     dto::cloud::{
-        req::QueueMediaProcessRequest,
+        req::{InitiateUploadRequest, QueueMediaProcessRequest},
         res::{
-            DownloadUrlResponse, InitiateUploadResponse, StreamedUrlResponse, _FileMetaResponseVec, _FolderResponse,
-            _FolderResponseVec,
+            _AlbumResponse, _AlbumResponseVec, _FileMetaResponseVec, DownloadUrlResponse, InitiateUploadResponse,
+            StreamedUrlResponse,
         },
     },
     extension::{SpaceCtx, UserId},
@@ -28,20 +30,18 @@ use crate::{
 use super::ServiceWrapper;
 
 pub trait MediaService: Send + Sync {
-    fn create_folder(
+    fn create_album(
         &self,
         user_id: UserId,
         space_ctx: SpaceCtx,
-        parent_folder_id: Uuid,
-        folder_name: String,
+        album_name: String,
     ) -> impl Future<Output = AppResult<()>> + Send;
 
     fn initiate_upload(
         &self,
         space_ctx: SpaceCtx,
         storage: &Storage,
-        folder_id: Uuid,
-        file_name: String,
+        dto: InitiateUploadRequest,
     ) -> impl Future<Output = AppResult<InitiateUploadResponse>> + Send;
 
     fn queue_media_process(
@@ -59,22 +59,28 @@ pub trait MediaService: Send + Sync {
     fn list_files(
         &self,
         space_ctx: SpaceCtx,
-        folder_id: Uuid,
+        album_id: Uuid,
     ) -> impl Future<Output = AppResult<_FileMetaResponseVec>> + Send;
 
     fn list_files_gallery(&self, space_ctx: SpaceCtx) -> impl Future<Output = AppResult<_FileMetaResponseVec>> + Send;
 
-    fn list_folders(
-        &self,
-        space_ctx: SpaceCtx,
-        folder_id: Uuid,
-    ) -> impl Future<Output = AppResult<_FolderResponseVec>> + Send;
+    fn list_albums(&self, space_ctx: SpaceCtx) -> impl Future<Output = AppResult<_AlbumResponseVec>> + Send;
 
-    fn get_folder(
+    fn get_album(&self, space_ctx: SpaceCtx, album_id: Uuid) -> impl Future<Output = AppResult<_AlbumResponse>> + Send;
+
+    fn link_album_files(
         &self,
         space_ctx: SpaceCtx,
-        folder_id: Uuid,
-    ) -> impl Future<Output = AppResult<_FolderResponse>> + Send;
+        album_id: Uuid,
+        file_ids: Vec<Uuid>,
+    ) -> impl Future<Output = AppResult<()>> + Send;
+
+    fn unlink_album_files(
+        &self,
+        space_ctx: SpaceCtx,
+        album_id: Uuid,
+        file_ids: Vec<Uuid>,
+    ) -> impl Future<Output = AppResult<()>> + Send;
 
     fn generate_thumbnail_preview_signed_urls(
         &self,
@@ -90,12 +96,7 @@ pub trait MediaService: Send + Sync {
         file_id: Uuid,
     ) -> impl Future<Output = AppResult<DownloadUrlResponse>> + Send;
 
-    fn delete_folder(
-        &self,
-        space_ctx: SpaceCtx,
-        storage: &Storage,
-        folder_id: Uuid,
-    ) -> impl Future<Output = AppResult<()>> + Send;
+    fn delete_album(&self, space_ctx: SpaceCtx, album_id: Uuid) -> impl Future<Output = AppResult<()>> + Send;
 
     fn delete_file(
         &self,
@@ -106,7 +107,7 @@ pub trait MediaService: Send + Sync {
 }
 
 impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
-    async fn create_folder(
+    async fn create_album(
         &self,
         UserId(user_id): UserId,
         SpaceCtx {
@@ -114,20 +115,13 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
             space_id,
             ..
         }: SpaceCtx,
-        parent_folder_id: Uuid,
-        folder_name: String,
+        album_name: String,
     ) -> AppResult<()> {
         if let SpaceRole::Read = role {
-            return Err(ErrType::Unauthorized.msg("Cannot create folder: Unauthorized read role"));
+            return Err(ErrType::Unauthorized.msg("Cannot create album: Unauthorized read role"));
         }
 
-        let parent_folder = self
-            .ds
-            .get_folder(&space_id, &parent_folder_id)
-            .await?
-            .ok_or(ErrType::NotFound.msg("Parent folder not found for folder creation"))?;
-
-        self.ds.create_folder(&user_id, space_id, parent_folder, folder_name).await
+        self.ds.create_album(&user_id, space_id, album_name).await.map(|_| ())
     }
 
     async fn initiate_upload(
@@ -138,23 +132,19 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
             ..
         }: SpaceCtx,
         storage: &Storage,
-        folder_id: Uuid,
-        file_name: String,
+        InitiateUploadRequest {
+            file_name,
+            hash,
+        }: InitiateUploadRequest,
     ) -> AppResult<InitiateUploadResponse> {
         if let SpaceRole::Read = role {
             return Err(ErrType::Unauthorized.msg("Cannot upload: Unauthorized read role"));
         }
 
-        let Some(folder) = self.ds.get_folder(&space_id, &folder_id).await? else {
-            return Err(ErrType::BadRequest.msg("Folder not found"));
-        };
+        let file_name = sanitize_file_name(file_name);
+        let object_key = get_canonical_object_key(&hash, &file_name);
 
-        // TODO: what to do when file with name already exists ?
-        // let file = self.ds.get_file_from_fields(space_id.clone(), file_name.clone(), folder_hash).await?;
-        // let file_name = file.map(|f| format!("copy_{}", f.file_name)).unwrap_or(file_name);
-        let file_path = std::path::PathBuf::from(&folder.path).join(file_name.clone());
-
-        let url = storage.generate_upload_signed_url(&space_id.to_string(), file_path.to_str().unwrap()).await?;
+        let url = storage.generate_upload_signed_url(&space_id.to_string(), &object_key).await?;
         Ok(InitiateUploadResponse {
             url,
             file_name,
@@ -172,7 +162,6 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
         storage: &Storage,
         interconnect: &ServiceInterconnect,
         QueueMediaProcessRequest {
-            folder_id,
             file_name,
             hash,
             updated_millis,
@@ -183,29 +172,27 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
             return Err(ErrType::Unauthorized.msg("Cannot queue media: Unauthorized read role"));
         }
 
-        let Some(folder) = self.ds.get_folder(&space_id, &folder_id).await? else {
-            return Err(ErrType::BadRequest.msg("Folder not found"));
-        };
-
         let Some(updated_date) = DateTime::from_timestamp_millis(updated_millis) else {
             return Err(ErrType::BadRequest.msg("Invalid timestamp"));
         };
 
-        let file_path = std::path::PathBuf::from(&folder.path).join(&file_name);
-        let file_path = file_path.to_str().ok_or(ErrType::ServerError.msg("Failed to get string for file_path"))?;
+        let file_name = sanitize_file_name(file_name);
+        let object_key = get_canonical_object_key(&hash, &file_name);
 
         let space_id_str = space_id.to_string();
-        let remote_path = storage.get_remote_path(&space_id_str, file_path)?;
+        let remote_path = storage.get_remote_path(&space_id_str, &object_key)?;
+
         let file = self
             .ds
             .get_or_create_file(
                 &user_id,
                 &space_id,
-                &folder,
                 &hash,
+                file_name,
+                object_key,
                 updated_date,
                 FileData {
-                    file_name,
+                    file_name: String::new(),
                     thumbnail: ImageData::default(),
                     preview: ImageData::default(),
                     metadata: MediaMetadata::default(),
@@ -225,7 +212,6 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
                 file_id: file.id,
                 updated_date: MediaDatetime(updated_date),
                 space_id,
-                folder_id: folder.id,
                 s3_file_path: remote_path,
             },
         )
@@ -245,12 +231,34 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
         space_id: Uuid,
         MediaData {
             file_id,
-            folder_id,
             updated_date,
-            file_data,
+            mut file_data,
         }: MediaData,
     ) -> AppResult<()> {
-        self.ds.update_file(file_id, &folder_id, &space_id, updated_date.0, file_data).await?;
+        let file = self
+            .ds
+            .get_file(space_id, file_id)
+            .await?
+            .ok_or(ErrType::NotFound.msg("File not found while processing completion"))?;
+
+        // Preserve canonical display name; MQ file_name is derived from object key.
+        file_data.file_name = file.file_name.clone();
+
+        let thumbnail_key = file_data
+            .thumbnail
+            .file_name
+            .is_empty()
+            .then_some(None)
+            .unwrap_or_else(|| Some(join_key_dir(&file.object_key, &file_data.thumbnail.file_name)));
+
+        let preview_key = file_data
+            .preview
+            .file_name
+            .is_empty()
+            .then_some(None)
+            .unwrap_or_else(|| Some(join_key_dir(&file.object_key, &file_data.preview.file_name)));
+
+        self.ds.update_file(file_id, &space_id, updated_date.0, file_data, thumbnail_key, preview_key).await?;
 
         Ok(())
     }
@@ -261,9 +269,11 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
             space_id,
             ..
         }: SpaceCtx,
-        folder_id: Uuid,
+        album_id: Uuid,
     ) -> AppResult<_FileMetaResponseVec> {
-        let mut files = self.ds.list_files(&space_id, &folder_id).await?;
+        let _ = self.ds.get_album(&space_id, &album_id).await?.ok_or(ErrType::NotFound.msg("Album not found"))?;
+
+        let mut files = self.ds.list_files(&space_id, &album_id).await?;
         files.sort_by(|a, b| a.file_name.cmp(&b.file_name));
         Ok(_FileMetaResponseVec(files))
     }
@@ -280,30 +290,67 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
         Ok(_FileMetaResponseVec(files))
     }
 
-    async fn list_folders(
+    async fn list_albums(
         &self,
         SpaceCtx {
             space_id,
             ..
         }: SpaceCtx,
-        folder_id: Uuid,
-    ) -> AppResult<_FolderResponseVec> {
-        self.ds.list_folder(space_id, folder_id).await.map(_FolderResponseVec)
+    ) -> AppResult<_AlbumResponseVec> {
+        self.ds.list_albums(space_id).await.map(_AlbumResponseVec)
     }
 
-    async fn get_folder(
+    async fn get_album(
         &self,
         SpaceCtx {
             space_id,
             ..
         }: SpaceCtx,
-        folder_id: Uuid,
-    ) -> AppResult<_FolderResponse> {
+        album_id: Uuid,
+    ) -> AppResult<_AlbumResponse> {
         self.ds
-            .get_folder(&space_id, &folder_id)
+            .get_album(&space_id, &album_id)
             .await?
-            .ok_or(ErrType::NotFound.msg("Folder not found"))
-            .map(_FolderResponse)
+            .ok_or(ErrType::NotFound.msg("Album not found"))
+            .map(_AlbumResponse)
+    }
+
+    async fn link_album_files(
+        &self,
+        SpaceCtx {
+            role,
+            space_id,
+            ..
+        }: SpaceCtx,
+        album_id: Uuid,
+        file_ids: Vec<Uuid>,
+    ) -> AppResult<()> {
+        if let SpaceRole::Read = role {
+            return Err(ErrType::Unauthorized.msg("Cannot link files: Unauthorized read role"));
+        }
+
+        let _ = self.ds.get_album(&space_id, &album_id).await?.ok_or(ErrType::NotFound.msg("Album not found"))?;
+
+        self.ds.link_album_files(&space_id, &album_id, &file_ids).await
+    }
+
+    async fn unlink_album_files(
+        &self,
+        SpaceCtx {
+            role,
+            space_id,
+            ..
+        }: SpaceCtx,
+        album_id: Uuid,
+        file_ids: Vec<Uuid>,
+    ) -> AppResult<()> {
+        if let SpaceRole::Read = role {
+            return Err(ErrType::Unauthorized.msg("Cannot unlink files: Unauthorized read role"));
+        }
+
+        let _ = self.ds.get_album(&space_id, &album_id).await?.ok_or(ErrType::NotFound.msg("Album not found"))?;
+
+        self.ds.unlink_album_files(&space_id, &album_id, &file_ids).await
     }
 
     async fn generate_thumbnail_preview_signed_urls(
@@ -315,13 +362,17 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
         storage: &Storage,
         file_id: Uuid,
     ) -> AppResult<StreamedUrlResponse> {
-        let Some(stream_paths) = self.ds.get_thumbnail_preview_stream_paths(&space_id, file_id).await? else {
+        let Some(stream_keys) = self.ds.get_thumbnail_preview_stream_keys(&space_id, file_id).await? else {
             return Err(ErrType::NotFound.msg("Requested file not found"));
         };
 
+        let thumbnail_key =
+            stream_keys.thumbnail_key.ok_or(ErrType::NotFound.msg("Thumbnail key not found for file"))?;
+        let preview_key = stream_keys.preview_key.ok_or(ErrType::NotFound.msg("Preview key not found for file"))?;
+
         let space_id_str = space_id.to_string();
-        let thumbnail_stream = storage.generate_stream_signed_url(&space_id_str, &stream_paths.thumbnail_path).await?;
-        let preview_stream = storage.generate_stream_signed_url(&space_id_str, &stream_paths.preview_path).await?;
+        let thumbnail_stream = storage.generate_stream_signed_url(&space_id_str, &thumbnail_key).await?;
+        let preview_stream = storage.generate_stream_signed_url(&space_id_str, &preview_key).await?;
 
         Ok(StreamedUrlResponse {
             thumbnail_url: thumbnail_stream,
@@ -338,27 +389,26 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
         storage: &Storage,
         file_id: Uuid,
     ) -> AppResult<DownloadUrlResponse> {
-        let Some(stream_path) = self.ds.get_download_stream_path(&space_id, file_id).await? else {
+        let Some(stream_key) = self.ds.get_download_stream_key(&space_id, file_id).await? else {
             return Err(ErrType::NotFound.msg("Requested file not found"));
         };
 
         let space_id_str = space_id.to_string();
-        let download_stream = storage.generate_stream_signed_url(&space_id_str, &stream_path).await?;
+        let download_stream = storage.generate_stream_signed_url(&space_id_str, &stream_key).await?;
 
         Ok(DownloadUrlResponse {
             url: download_stream,
         })
     }
 
-    async fn delete_folder(
+    async fn delete_album(
         &self,
         SpaceCtx {
             role,
             space_id,
             ..
         }: SpaceCtx,
-        storage: &Storage,
-        folder_id: Uuid,
+        album_id: Uuid,
     ) -> AppResult<()> {
         match role {
             SpaceRole::Read | SpaceRole::Upload => {
@@ -367,12 +417,13 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
             _ => (),
         };
 
-        let space_id_str = space_id.to_string();
-        let folders = self.ds.get_inner_folder_paths(&space_id, &folder_id).await?;
-        for inner in folders.iter().rev() {
-            storage.delete_folder(&space_id_str, &inner.path).await?;
-        }
-        self.ds.delete_folder(&space_id, folders).await
+        let _ = self
+            .ds
+            .get_album(&space_id, &album_id)
+            .await?
+            .ok_or(ErrType::NotFound.msg("Album not found for deletion"))?;
+
+        self.ds.delete_album(&space_id, &album_id).await
     }
 
     async fn delete_file(
@@ -393,21 +444,7 @@ impl<D: StorageDs> MediaService for ServiceWrapper<'_, D> {
         };
 
         if let Some(file) = self.ds.get_file(space_id, file_id).await? {
-            storage
-                .delete_file(
-                    &space_id.to_string(),
-                    format!("{}/{}", file.path, file.node_name),
-                    format!("{}/{}", file.path, file.metadata.thumbnail_meta.map(|m| m.file_name).unwrap_or_default()),
-                    file.metadata.media_type.and_then(|ty| match ty {
-                        smq_dto::MediaType::Image => Some(format!(
-                            "{}/{}",
-                            file.path,
-                            file.metadata.preview_meta.map(|m| m.file_name).unwrap_or_default()
-                        )),
-                        smq_dto::MediaType::Video => None,
-                    }),
-                )
-                .await?;
+            storage.delete_file(&space_id.to_string(), file.object_key, file.thumbnail_key, file.preview_key).await?;
 
             self.ds.delete_file(&file.id, &space_id).await?;
 
@@ -427,7 +464,6 @@ async fn request_mq_retry_until_ok(
     let mut retries = 0u8;
     let duration_millis = 255u64;
 
-    // in case queue is asleep (serverless)
     loop {
         let response = reqwest::Client::new().post(mq_url).bearer_auth(payload_token).json(&body).send().await;
         match response {
@@ -441,4 +477,28 @@ async fn request_mq_retry_until_ok(
         }
         tokio::time::sleep(std::time::Duration::from_millis(duration_millis * retries as u64)).await;
     }
+}
+
+fn sanitize_file_name(file_name: String) -> String {
+    Path::new(&file_name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|v| v.to_owned())
+        .filter(|v| !v.is_empty())
+        .unwrap_or(file_name)
+}
+
+fn get_canonical_object_key(hash: &str, file_name: &str) -> String {
+    format!("space/{}_{}", hash, file_name)
+}
+
+fn join_key_dir(object_key: &str, file_name: &str) -> String {
+    if let Some(parent) = Path::new(object_key).parent().and_then(|p| p.to_str())
+        && !parent.is_empty()
+        && parent != "."
+    {
+        return format!("{parent}/{file_name}");
+    }
+
+    file_name.to_owned()
 }

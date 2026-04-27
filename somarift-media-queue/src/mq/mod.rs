@@ -86,7 +86,6 @@ impl MediaQueue {
             file_id,
             updated_date,
             space_id,
-            folder_id,
             s3_file_path,
         }: ProcessMediaRequest,
     ) -> AppResult<()> {
@@ -168,7 +167,7 @@ impl MediaQueue {
                                 match bs {
                                     Ok(bs) => bs
                                         .collect()
-                                        .map_err(|err| ErrType::S3Error.err(err, "Failed to read download bte stream"))
+                                        .map_err(|err| ErrType::S3Error.err(err, "Failed to read download byte stream"))
                                         .await
                                         .map(|b| b.to_vec()),
                                     Err(err) => Err(err),
@@ -259,7 +258,6 @@ impl MediaQueue {
             .header(X_SPACE_HEADER, space_id.to_string())
             .json(&MediaData {
                 file_id,
-                folder_id,
                 updated_date,
                 file_data: FileData {
                     file_name: image_data.file_name,

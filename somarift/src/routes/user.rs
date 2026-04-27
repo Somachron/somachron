@@ -5,7 +5,7 @@ use axum::{
 };
 use lib_core::{ApiError, ApiResult, Json, ReqId};
 use lib_domain::{
-    dto::user::res::{PlatformUserResponse, UserResponse, _PlatformUserResponseVec, _UserResponse},
+    dto::user::res::{_PlatformUserResponseVec, _UserResponse, PlatformUserResponse, UserResponse},
     extension::UserId,
     service::user::UserService,
 };

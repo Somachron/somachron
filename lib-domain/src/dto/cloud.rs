@@ -5,8 +5,8 @@ pub mod res {
     use utoipa::ToSchema;
 
     use crate::{
-        datastore::storage::{FileMeta, FsNode, Metadata, NodeMetadata},
-        dto::{Datetime, _IdOptionRef, _IdRef},
+        datastore::storage::{Album, FileMeta, MediaFile, Metadata, NodeMetadata},
+        dto::{_IdOptionRef, _IdRef, Datetime},
     };
 
     #[derive(Serialize, ToSchema)]
@@ -72,15 +72,15 @@ pub mod res {
 
     impl_dto!(
         #[derive(ToSchema)]
-        pub struct FileResponse<FsNode> {
+        pub struct FileResponse<MediaFile> {
             id: String = id => _IdRef,
             created_at: Datetime = created_at,
             updated_at: Datetime = updated_at,
 
-            file_name: String = node_name,
+            file_name: String = file_name,
             file_size: u64 = node_size,
-            path: String = path,
-            user: String = user_id => _IdOptionRef,
+            object_key: String = object_key,
+            user: String = user_id => _IdRef,
             space: String = space_id => _IdRef,
             metadata: FileMetadataResponse = metadata => _FileMetadataResponseRef,
         }
@@ -102,13 +102,13 @@ pub mod res {
 
     impl_dto!(
         #[derive(ToSchema)]
-        pub struct FolderResponse<FsNode> {
+        pub struct AlbumResponse<Album> {
             id: String = id => _IdRef,
             created_at: Datetime = created_at,
             updated_at: Datetime = updated_at,
 
-            name: String = node_name,
-            path: String = path,
+            name: String = name,
+            legacy_path: String = legacy_path,
         }
     );
 }
@@ -121,18 +121,18 @@ pub mod req {
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct InitiateUploadRequest {
-        pub folder_id: Uuid,
-
         #[validate(length(min = 3))]
         pub file_name: String,
+
+        #[validate(length(equal = 64))]
+        pub hash: String,
     }
 
     #[derive(Deserialize, ToSchema, Validate)]
     pub struct QueueMediaProcessRequest {
-        pub folder_id: Uuid,
-
         #[validate(length(min = 3))]
         pub file_name: String,
+
         #[validate(length(equal = 64))]
         pub hash: String,
         pub file_size: usize,
@@ -140,10 +140,14 @@ pub mod req {
     }
 
     #[derive(Deserialize, ToSchema, Validate)]
-    pub struct CreateFolderRequest {
-        pub parent_folder_id: Uuid,
+    pub struct CreateAlbumRequest {
+        #[validate(length(min = 3, max = 255))]
+        pub name: String,
+    }
 
-        #[validate(length(min = 3))]
-        pub folder_name: String,
+    #[derive(Deserialize, ToSchema, Validate)]
+    pub struct UpdateAlbumFilesRequest {
+        #[validate(length(min = 1))]
+        pub file_ids: Vec<Uuid>,
     }
 }

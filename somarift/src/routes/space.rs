@@ -9,8 +9,8 @@ use lib_domain::{
     dto::space::{
         req::{SpaceCreateRequest, SpaceMemberRequest, UpdateSpaceMemberRoleRequest},
         res::{
-            SpaceResponse, SpaceUserResponse, UserSpaceResponse, UserSpacesResopnse, _SpaceResponse,
-            _SpaceUserResponseVec,
+            _SpaceResponse, _SpaceUserResponseVec, SpaceResponse, SpaceUserResponse, UserSpaceResponse,
+            UserSpacesResopnse,
         },
     },
     extension::{SpaceCtx, UserId},

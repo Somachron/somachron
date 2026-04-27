@@ -4,7 +4,7 @@ pub mod res {
 
     use crate::{
         datastore::user::User,
-        dto::{Datetime, _IdRef},
+        dto::{_IdRef, Datetime},
     };
 
     impl_dto!(

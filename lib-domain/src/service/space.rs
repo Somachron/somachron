@@ -39,7 +39,6 @@ impl<D: UserDs + UserSpaceDs + SpaceDs + StorageDs> SpaceService for ServiceWrap
             .await
             .context("s:create_user_space")?;
 
-        self.ds.create_root_folder(&user_id, &space.id).await.context("s:create_user_space")?;
         storage.create_space_folder(&member.space_id.to_string()).await.context("s:create_user_space")?;
 
         Ok(_SpaceResponse(space))
@@ -58,7 +57,6 @@ impl<D: UserDs + UserSpaceDs + SpaceDs + StorageDs> SpaceService for ServiceWrap
 
         let space = self.ds.set_default_space(&user_id).await?;
 
-        self.ds.create_root_folder(&user_id, &space.id).await.context("setting up default space")?;
         storage.create_space_folder(&space.id.to_string()).await.context("setting up default space")?;
 
         Ok(_SpaceResponse(space))
